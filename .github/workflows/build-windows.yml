@@ -1,0 +1,62 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'android/app/src/main/assets/index.html'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Copy app to electron
+        shell: bash
+        run: cp android/app/src/main/assets/index.html electron/app/index.html
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          npm install
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-m2-windows
+          path: |
+            electron/dist/*.exe
+            electron/dist/*.zip
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: win-v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 Windows v1.0.${{ github.run_number }}
+          body: |
+            SKRiMPAD M2 for Windows
+
+            - **Installer** (.exe) — installs to Program Files with shortcuts
+            - **Portable** (.exe) — runs from anywhere, no install needed
+
+            **Requirements:** Windows 10+ (64-bit)
+          files: |
+            electron/dist/*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

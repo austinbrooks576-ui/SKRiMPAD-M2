@@ -1,0 +1,2 @@
+-keep class com.firstriff.studio.** { *; }
+-keepclassmembers class * extends android.webkit.WebViewClient { *; }

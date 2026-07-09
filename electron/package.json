@@ -1,0 +1,44 @@
+{
+  "name": "skrimpad-m2",
+  "version": "1.0.0",
+  "description": "SKRiMPAD — music production studio for Windows",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austinbrooks576-ui/SKRiMPAD-M2.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64 --publish never"
+  },
+  "build": {
+    "appId": "com.firstriff.studio",
+    "productName": "SKRiMPAD M2",
+    "publish": [],
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "app/index.html",
+        "to": "index.html"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
