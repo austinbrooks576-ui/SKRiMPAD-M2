@@ -22,7 +22,9 @@ jobs:
 
       - name: Copy app to electron
         shell: bash
-        run: cp android/app/src/main/assets/index.html electron/app/index.html
+        run: |
+          mkdir -p electron/app
+          cp android/app/src/main/assets/index.html electron/app/index.html
 
       - name: Install dependencies
         run: |
