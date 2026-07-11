@@ -1008,11 +1008,16 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
   <!-- AI Brain -->
   <div class="ai-section">
     <div class="ai-title">AI BRAIN — OPTIONAL EXTERNAL MODEL <span id="ai-brain-status">ONBOARD</span></div>
-    <div class="lay-hint">The onboard composer is 100% free, offline and built in — nothing to set up. If you want a large language model writing your patterns instead, plug in any OpenAI-style endpoint here (GLM flash at open.bigmodel.cn has a genuinely free tier). Your key never leaves this device.</div>
+    <div class="lay-hint">The onboard composer is 100% free, offline and built in — nothing to set up. Want a real AI writing your patterns? Pick a brain: CLAUDE (Anthropic) for the smartest results, OPENAI-STYLE for GLM / OpenAI / any compatible API, or point it at OLLAMA running on your own computer for totally free + local. Your key never leaves this device.</div>
     <div class="ai-cfg-grid">
-      <input id="ai-api-url" placeholder="API URL (blank = GLM: open.bigmodel.cn/api/paas/v4/chat/completions)">
+      <select id="ai-api-provider" style="background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:var(--r2);padding:7px;font-size:11px;outline:none">
+        <option value="anthropic">CLAUDE (ANTHROPIC)</option>
+        <option value="openai">OPENAI-STYLE (GLM / OPENAI / LM STUDIO)</option>
+        <option value="ollama">OLLAMA (LOCAL + FREE)</option>
+      </select>
+      <input id="ai-api-url" placeholder="API URL (blank = provider default)">
       <input id="ai-api-key" type="password" placeholder="API KEY — paste yours here">
-      <input id="ai-api-model" placeholder="MODEL (blank = glm-4-flash)">
+      <input id="ai-api-model" placeholder="MODEL (blank = provider default)">
       <button class="ai-btn" id="ai-cfg-save">SAVE + TEST CONNECTION</button>
     </div>
   </div>
@@ -3774,21 +3779,73 @@ function aiGenerateMelodyLocal() {
 }
 
 // ---- OPTIONAL AI BRAIN (any OpenAI-style endpoint; GLM flash tier is free) ----
-const AI_DEFAULT_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const AI_DEFAULT_MODEL = 'glm-4-flash';
+const AI_PROVIDERS = {
+  anthropic: {
+    url: 'https://api.anthropic.com/v1/messages',
+    model: 'claude-opus-4-8',
+    keyHint: 'API KEY — sk-ant-… from console.anthropic.com (claude-haiku-4-5 = budget model)',
+    needsKey: true
+  },
+  openai: {
+    url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+    model: 'glm-4-flash',
+    keyHint: 'API KEY — GLM (free tier at open.bigmodel.cn), OpenAI, or any compatible service',
+    needsKey: true
+  },
+  ollama: {
+    url: 'http://localhost:11434/v1/chat/completions',
+    model: 'llama3.2',
+    keyHint: 'API KEY — leave blank (Ollama is local, no key). Set OLLAMA_ORIGINS=* to allow this app.',
+    needsKey: false
+  }
+};
 const AI_SYS_PROMPT = 'You are the music brain inside SKRiMPAD M2, a 20-track drum machine with a 5-lane melody sequencer. You are an expert in every form of electronic music. Reply with ONLY a JSON object, no prose, no markdown fences. Schema: {"bpm":int,"tracks":{"<trackIndex>":[16 ints 0 or 1]},"melody":[{"step":0-15,"midi":36-96,"sustain":bool,"lane":0-4}]} — include only what was asked for. Drum track legend: 0=KICK 1=SNARE 2=CLOSED HAT 3=OPEN HAT 4=CLAP 5=HI TOM 6=LO TOM 7=RIDE 8=CRASH 9=RIM 10=COWBELL 11=SHAKER 12=BASS HIT 13=CLAVE 14=FX1 15=FX2 16=808 SUB 17=SNAP 18=PEDAL HAT 19=ZAP.';
 let AICFG = {};
 try { AICFG = JSON.parse(localStorage.getItem('skrimpad_ai_cfg') || '{}'); } catch (e) {}
-function aiOnline() { return !!AICFG.key; }
+function aiProvider() { return AI_PROVIDERS[AICFG.provider] ? AICFG.provider : 'openai'; }
+function aiOnline() { return AICFG.enabled === true && (!!AICFG.key || !AI_PROVIDERS[aiProvider()].needsKey); }
 function aiBrainStatus() {
   const el = document.getElementById('ai-brain-status');
   if (el) { el.textContent = aiOnline() ? 'CONNECTED' : 'ONBOARD'; el.classList.toggle('live', aiOnline()); }
 }
 async function aiLLM(userMsg, maxTokens) {
-  const res = await fetch(AICFG.url || AI_DEFAULT_URL, {
+  const prov = aiProvider();
+  const def = AI_PROVIDERS[prov];
+  const url = AICFG.url || def.url;
+  const model = AICFG.model || def.model;
+  let res;
+  if (prov === 'anthropic') {
+    // Anthropic Messages API — different headers, body and response shape.
+    // The dangerous-direct-browser-access header is Anthropic's CORS opt-in
+    // for calling the API straight from a browser/WebView with the user's own key.
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': AICFG.key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens || 1200,
+        system: AI_SYS_PROMPT,
+        messages: [{ role: 'user', content: userMsg }]
+      })
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const j = await res.json();
+    const block = (j.content || []).find(b => b.type === 'text');
+    if (!block) throw new Error('no text in reply');
+    return block.text;
+  }
+  // OpenAI-style chat completions (GLM, OpenAI, LM Studio, Ollama, …)
+  const headers = { 'Content-Type': 'application/json' };
+  if (AICFG.key) headers['Authorization'] = 'Bearer ' + AICFG.key;
+  res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AICFG.key },
-    body: JSON.stringify({ model: AICFG.model || AI_DEFAULT_MODEL, temperature: 0.9, max_tokens: maxTokens || 900,
+    headers,
+    body: JSON.stringify({ model, temperature: 0.9, max_tokens: maxTokens || 900,
       messages: [{ role: 'system', content: AI_SYS_PROMPT }, { role: 'user', content: userMsg }] })
   });
   if (!res.ok) throw new Error('API ' + res.status);
@@ -3977,28 +4034,44 @@ document.getElementById('clear-all').addEventListener('click', () => {
 });
 
 // ---- AI BRAIN config + search bindings ----
+function aiProviderHints() {
+  const def = AI_PROVIDERS[document.getElementById('ai-api-provider').value] || AI_PROVIDERS.openai;
+  document.getElementById('ai-api-url').placeholder = 'API URL (blank = ' + def.url + ')';
+  document.getElementById('ai-api-model').placeholder = 'MODEL (blank = ' + def.model + ')';
+  document.getElementById('ai-api-key').placeholder = def.keyHint;
+}
+document.getElementById('ai-api-provider').addEventListener('change', aiProviderHints);
 document.getElementById('ai-cfg-save').addEventListener('click', async () => {
+  const prov = document.getElementById('ai-api-provider').value;
+  const key = document.getElementById('ai-api-key').value.trim();
   AICFG = {
+    provider: prov,
     url: document.getElementById('ai-api-url').value.trim(),
-    key: document.getElementById('ai-api-key').value.trim(),
-    model: document.getElementById('ai-api-model').value.trim()
+    key,
+    model: document.getElementById('ai-api-model').value.trim(),
+    enabled: !!key || !AI_PROVIDERS[prov].needsKey
   };
   localStorage.setItem('skrimpad_ai_cfg', JSON.stringify(AICFG));
   aiBrainStatus();
-  if (!AICFG.key) { toast('External brain off — onboard composer active (free, offline)'); return; }
+  if (!aiOnline()) { toast('External brain off — onboard composer active (free, offline)'); return; }
   toast('Testing connection…');
   try {
     await aiLLM('Return exactly: {"ok":true}', 30);
-    aiLog('AI brain connected — generation now uses the live model', 'good');
+    aiLog('AI brain connected (' + prov.toUpperCase() + ') — generation now uses the live model', 'good');
     toast('✅ AI brain connected');
   } catch (err) {
+    AICFG.enabled = false;
+    localStorage.setItem('skrimpad_ai_cfg', JSON.stringify(AICFG));
+    aiBrainStatus();
     aiLog('Connection failed: ' + err.message + ' — check key, URL and network. Onboard composer still active.', 'tip');
     toast('❌ ' + err.message);
   }
 });
+if (AICFG.provider && AI_PROVIDERS[AICFG.provider]) document.getElementById('ai-api-provider').value = AICFG.provider;
 if (AICFG.url) document.getElementById('ai-api-url').value = AICFG.url;
 if (AICFG.key) document.getElementById('ai-api-key').value = AICFG.key;
 if (AICFG.model) document.getElementById('ai-api-model').value = AICFG.model;
+aiProviderHints();
 aiBrainStatus();
 document.getElementById('ai-search-go').addEventListener('click', () => aiSearch(document.getElementById('ai-search').value));
 document.getElementById('ai-search').addEventListener('keydown', e => { if (e.key === 'Enter') aiSearch(e.target.value); });
