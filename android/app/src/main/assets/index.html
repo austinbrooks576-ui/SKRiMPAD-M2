@@ -461,6 +461,34 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 #keys-transport{display:flex;gap:5px;margin-bottom:6px;}
 #keys-transport .tbtn{padding:6px 8px;font-size:11px;}
 
+/* MASTER SCOPE (wave visualizer) */
+#scope-canvas{width:100%;height:64px;display:block;background:#04120b;border:1px solid rgba(0,230,118,.25);border-radius:var(--r2);margin-bottom:8px;}
+
+/* SAMPLE EDITOR */
+#edit-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:4200;align-items:center;justify-content:center;}
+#edit-modal.open{display:flex;}
+#edit-card{width:min(640px,95vw);background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r3);padding:14px;}
+#edit-canvas{width:100%;height:140px;display:block;background:#0a0e14;border:1px solid var(--bdr);border-radius:var(--r2);cursor:crosshair;touch-action:none;}
+#edit-btns{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;}
+#edit-btns .hbtn{font-size:10px;}
+#edit-info{font-size:9px;color:var(--mute);font-weight:700;margin-top:6px;}
+
+/* AI DESKTOP MODAL */
+#ai-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:4100;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 0;}
+#ai-modal.open{display:flex;}
+#ai-modal-card{width:min(600px,94vw);background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r3);padding:14px;}
+#ai-modal-card .panel{position:static;display:block;overflow:visible;padding:0;}
+
+/* LIB corner buttons */
+.lib-x{position:absolute;top:2px;right:3px;font-size:9px;color:var(--mute);cursor:pointer;padding:1px 3px;}
+.lib-x:hover{color:var(--red);}
+.lib-cut{position:absolute;top:2px;left:3px;font-size:9px;color:var(--mute);cursor:pointer;padding:1px 3px;}
+.lib-cut:hover{color:var(--teal);}
+.lib-sound{overflow:visible;}
+
+/* PANIC */
+#panic-btn,#bnr-panic{color:var(--red);border-color:var(--red);}
+
 /* ---- DESKTOP (Windows app / large browser windows) ---- */
 @media (min-width:900px) and (min-height:600px){
   body{background:#050608;}
@@ -478,6 +506,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 <div id="header">
   <div id="logo">SKRiM<span>PAD M2</span></div>
   <button class="hbtn" id="file-btn" title="File — save, open, export">📁</button>
+  <button class="hbtn" id="panic-btn" title="PANIC — instantly kill ALL sound: loops, notes, echoes, everything">🛑</button>
   <div id="bpm-wrap">
     <label>BPM</label>
     <input id="bpm" type="number" min="40" max="300" value="120">
@@ -497,6 +526,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
   <div class="tab" data-tab="fx">FX</div>
   <div class="tab" data-tab="loop">LOOP</div>
   <div class="tab" data-tab="faders">FADERS</div>
+  <div class="tab" data-tab="lib">LIB</div>
   <div class="tab" data-tab="ai">AI</div>
 </div>
 
@@ -527,7 +557,8 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="ws-arrow" id="wave-next">▶</button>
       <span class="ws-hint">DRAG TO SCULPT</span>
     </div>
-    <div class="lay-hint">This IS your sound, drawn as a wave. Smooth curves = soft and warm. Sharp jagged edges = harsh and buzzy. Drag to redraw it.</div>
+    <div class="lay-hint">This IS your sound, drawn as a wave. Smooth curves = soft and warm. Sharp jagged edges = harsh and buzzy. Drag to redraw it. The green scope below shows what is actually coming out of the speakers right now.</div>
+    <canvas id="scope-canvas" width="640" height="64"></canvas>
     <canvas id="wave-editor" width="640" height="110"></canvas>
     <div class="row" style="margin-top:6px;align-items:center">
       <button class="hbtn" id="wave-reset">RESET</button>
@@ -710,6 +741,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="tbtn" id="keys-playpause" title="Play the key lanes alone — drums stay quiet">▶ KEYS</button>
       <button class="tbtn" id="keys-clear" title="Clear this lane's steps">✕ LANE</button>
       <button class="tbtn" id="keys-import" title="Import a WAV/MP3/OGG to play on this lane's keys">📥 SOUND</button>
+      <button class="tbtn" id="keys-thin" title="CLEANUP — removes scattered off-beat notes from this lane, keeps the downbeats">🧹 THIN</button>
     </div>
     <div id="key-seq"></div>
   </div>
@@ -951,6 +983,8 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
     <div class="lm-btns" style="margin-top:10px">
       <button class="tbtn" id="import-master-btn" title="Import backing MP3" style="color:var(--purple);border-color:var(--purple)">📥</button>
       <button class="tbtn" id="export-btn" title="Export audio" style="color:var(--blue);border-color:var(--blue)">📤</button>
+      <button class="tbtn" id="retro-btn" title="RETRO-RECORD — saves the LAST 60 SECONDS of everything you just played, even if you forgot to hit record" style="color:var(--yellow);border-color:var(--yellow)">🕐 60s</button>
+      <button class="tbtn" id="remix-btn" title="REMIX A SONG — splits an audio file into bass / vocals / drums stems and loads them onto pads" style="color:var(--pink);border-color:var(--pink)">🎚 REMIX</button>
     </div>
   </div>
 </div>
@@ -1035,9 +1069,21 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 <!-- FADERS / MIXER -->
 <div class="panel" id="faders-panel">
   <div class="sec-label">MIXER — GRAB A FADER AND PULL IT UP OR DOWN</div>
+  <div style="display:flex;gap:6px;margin-bottom:4px">
+    <button class="hbtn" id="automix-btn" title="Auto-balance every channel by its role — kick and bass forward, cymbals back">🎚 AUTO MIX</button>
+    <span class="lay-hint" style="margin:0">one tap sets sensible levels for every channel</span>
+  </div>
   <div class="lay-hint">Each strip is one drum pad's loudness. All start at 50%. Right-click a strip to type an exact number.</div>
   <div id="mixer"></div>
   <div id="fader-grid-mobile" style="display:none"></div>
+</div>
+
+<!-- LIBRARY (dedicated, persistent) -->
+<div class="panel" id="lib-panel">
+  <div class="sec-label">SOUND LIBRARY — YOUR SOUNDS ARE SAVED ON THIS DEVICE</div>
+  <div class="lay-hint">CLICK = preview · RIGHT-CLICK/HOLD = assign to selected pad · CTRL+CLICK = assign to keys · ✂ = open in sample editor · ✕ = delete forever</div>
+  <div id="lib-tabs-p" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
+  <div id="lib-grid-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
 </div>
 
 </div><!-- /panels -->
@@ -1049,6 +1095,8 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
     <button id="customize-btn" title="Customize">🖌</button>
     <div id="marquee"><div id="marquee-inner"></div></div>
     <button class="bnr-btn" id="bnr-file" title="File — save, open, export">📁</button>
+    <button class="bnr-btn" id="bnr-panic" title="PANIC — kill all sound">🛑</button>
+    <button class="bnr-btn" id="bnr-ai" title="AI — full interface: search, styles, brain settings">🤖</button>
     <button class="bnr-btn" id="bnr-lib" title="Sound library">📚</button>
     <button class="bnr-btn" id="bnr-analyze" title="Analyze sound">🔍</button>
     <select id="bnr-style" title="Style"></select>
@@ -1081,7 +1129,12 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
     <div class="help-row"><b>KEYS SHORTCUTS</b> SPACE = play/pause · SHIFT+SPACE = keys only · ← → = BPM (SHIFT = ±5) · ↑ ↓ = volume · 1–0 = pads 1–10 · SHIFT+1–0 = pads 11–20.</div>
     <div class="help-row"><b>PIANO KEYS</b> A S D F G H J K = white keys · W E T Y U = black keys · Z X = octave down/up · C = sustain toggle.</div>
     <div class="help-row"><b>TOUCH</b> On phone/tablet: HOLD a pad, lane, fader or the keyboard to open its edit menu (same as right-click).</div>
-    <div class="help-row"><b>AI SEARCH</b> Type what you want in the AI tab ("jungle beat at 174", "make a laser") — connect GLM in AI BRAIN for real generated music.</div>
+    <div class="help-row"><b>AI SEARCH</b> Type what you want in the AI tab ("jungle beat at 174", "make a laser") — or tap 🤖 in the banner for the full AI interface on desktop.</div>
+    <div class="help-row"><b>🛑 PANIC</b> Kills every sound instantly — loops, held notes, echo tails, backing tracks. Also on the ESC key.</div>
+    <div class="help-row"><b>✂ EDITOR</b> Splice and snip any sample: ✂ on library sounds, or right-click a pad → EDIT SAMPLE. Drag to select, SNIP keeps it, CUT removes it.</div>
+    <div class="help-row"><b>🕐 60s</b> Retro-record: the app always remembers the last 60 seconds of output. Played something brilliant without recording? Tap 🕐 60s in LOOP to rescue it.</div>
+    <div class="help-row"><b>🎚 REMIX</b> Splits any song file into bass / vocals / drums stems (approximate EQ + mid-side split) and puts them on pads 13/15/16.</div>
+    <div class="help-row"><b>LIB TAB</b> Your imported, generated and spliced sounds are saved on this device and come back after restart.</div>
   </div>
 </div>
 
@@ -1137,11 +1190,51 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="hbtn" id="skin-import">📥 IMPORT (JSON)</button>
       <button class="hbtn" id="skin-export">📤 EXPORT</button>
     </div>
+    <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">BACKGROUND</div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <button class="hbtn" id="bg-import">🖼 IMPORT IMAGE / GIF</button>
+      <button class="hbtn" id="bg-clear">CLEAR BG</button>
+      <span style="font-size:9px;color:var(--mute)">Any image file — even animated GIFs — becomes the studio backdrop.</span>
+    </div>
     <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">MOVE TILES</div>
     <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
       <button class="hbtn" id="drag-toggle">DRAG: OFF</button>
       <span style="font-size:9px;color:var(--mute)">When on, grab any tile by its title and drop it on another to swap positions.</span>
     </div>
+  </div>
+</div>
+
+<!-- SAMPLE EDITOR MODAL -->
+<div id="edit-modal">
+  <div id="edit-card">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <b style="font-size:13px;letter-spacing:.06em">✂ SAMPLE EDITOR</b>
+      <b id="edit-name" style="margin-left:10px;font-size:10px;color:var(--teal)"></b>
+      <div style="flex:1"></div>
+      <button class="hbtn" id="edit-close">✕</button>
+    </div>
+    <div class="lay-hint">Drag across the wave to select a slice. SNIP keeps only the selection. CUT removes it and splices the ends together. FADE smooths the edges so there are no clicks.</div>
+    <canvas id="edit-canvas" width="620" height="140"></canvas>
+    <div id="edit-info">no selection</div>
+    <div id="edit-btns">
+      <button class="hbtn" id="edit-play">▶ PLAY SEL</button>
+      <button class="hbtn" id="edit-snip">✂ SNIP (KEEP)</button>
+      <button class="hbtn" id="edit-cut">✂ CUT (REMOVE)</button>
+      <button class="hbtn" id="edit-fade">〰 FADE EDGES</button>
+      <button class="hbtn" id="edit-undo">↩ UNDO</button>
+      <button class="hbtn" id="edit-save">💾 SAVE AS NEW</button>
+      <button class="hbtn" id="edit-topad">→ PAD</button>
+      <button class="hbtn" id="edit-tokeys">→ KEYS</button>
+      <button class="hbtn" id="edit-wav">📤 WAV</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI DESKTOP MODAL -->
+<div id="ai-modal">
+  <div id="ai-modal-card">
+    <div style="display:flex;align-items:center;margin-bottom:8px"><b style="font-size:13px;letter-spacing:.06em">🤖 AI</b><div style="flex:1"></div><button class="hbtn" id="ai-modal-close">✕</button></div>
+    <div id="ai-modal-body"></div>
   </div>
 </div>
 
@@ -1183,7 +1276,78 @@ function initAudio() {
 
   initFX();
   startVis();
+  startRetro();
   audioReady = true;
+  libLoadPersisted();
+}
+
+// ---- RETRO-RECORD — a rolling 60-second capture of the master bus.
+// If you play something brilliant without recording, 🕐 60s rescues it.
+const RETRO_SECS = 60;
+let retro = null;
+function startRetro() {
+  try {
+    const size = 4096;
+    const proc = ctx.createScriptProcessor(size, 2, 2);
+    const len = ctx.sampleRate * RETRO_SECS;
+    retro = { L: new Float32Array(len), R: new Float32Array(len), pos: 0, filled: false, len, proc };
+    proc.onaudioprocess = e => {
+      const l = e.inputBuffer.getChannelData(0);
+      const r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
+      let pos = retro.pos;
+      for (let i = 0; i < l.length; i++) {
+        retro.L[pos] = l[i]; retro.R[pos] = r[i];
+        pos++;
+        if (pos >= retro.len) { pos = 0; retro.filled = true; }
+      }
+      retro.pos = pos;
+    };
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    masterGain.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  } catch (e) { retro = null; }
+}
+function retroSave() {
+  if (!audioReady || !retro) { toast('Play something first'); return; }
+  const total = retro.filled ? retro.len : retro.pos;
+  if (total < ctx.sampleRate * 0.5) { toast('Nothing captured yet — play something'); return; }
+  const buf = ctx.createBuffer(2, total, ctx.sampleRate);
+  const L = buf.getChannelData(0), R = buf.getChannelData(1);
+  const start = retro.filled ? retro.pos : 0;
+  for (let i = 0; i < total; i++) {
+    const src = (start + i) % retro.len;
+    L[i] = retro.L[src]; R[i] = retro.R[src];
+  }
+  const entry = libAddBuffer('LAST ' + Math.round(total / ctx.sampleRate) + 'S', 'retro capture', buf, false);
+  downloadWav(buf, 'skrimpad-last60');
+  libCategory = 'MY SOUNDS'; buildSoundLib();
+  toast('🕐 Rescued the last ' + Math.round(total / ctx.sampleRate) + 's — saved to MY SOUNDS + Downloads');
+  return entry;
+}
+
+// ---- WAV encoder (16-bit PCM) ----
+function bufferToWav(buf) {
+  const nCh = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
+  const bytes = 44 + n * nCh * 2;
+  const ab = new ArrayBuffer(bytes), v = new DataView(ab);
+  const ws = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, bytes - 8, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, nCh, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * nCh * 2, true); v.setUint16(32, nCh * 2, true); v.setUint16(34, 16, true);
+  ws(36, 'data'); v.setUint32(40, n * nCh * 2, true);
+  let o = 44;
+  const chans = []; for (let c = 0; c < nCh; c++) chans.push(buf.getChannelData(c));
+  for (let i = 0; i < n; i++) for (let c = 0; c < nCh; c++) {
+    const x = Math.max(-1, Math.min(1, chans[c][i]));
+    v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7FFF, true); o += 2;
+  }
+  return new Blob([ab], { type: 'audio/wav' });
+}
+function downloadWav(buf, name) {
+  const url = URL.createObjectURL(bufferToWav(buf));
+  const a = document.createElement('a');
+  a.href = url; a.download = name + '.wav';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
 function getOutput() { return fxChain.input || masterComp; }
@@ -2284,7 +2448,29 @@ function updateLoopUI(idx) {
 // =============================================
 // VISUALIZER
 // =============================================
+function startScope() {
+  const canvas = document.getElementById('scope-canvas');
+  if (!canvas) return;
+  const c = canvas.getContext('2d');
+  const buf = new Uint8Array(analyser.fftSize);
+  function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    canvas.width = canvas.offsetWidth || 640;
+    c.fillStyle = '#04120b'; c.fillRect(0, 0, canvas.width, canvas.height);
+    c.strokeStyle = '#00E676'; c.lineWidth = 1.5; c.beginPath();
+    const step = buf.length / canvas.width;
+    for (let x = 0; x < canvas.width; x++) {
+      const y = (buf[Math.floor(x * step)] / 255) * canvas.height;
+      x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+    }
+    c.stroke();
+  }
+  draw();
+}
+
 function startVis() {
+  startScope();
   const canvas = document.getElementById('vis-canvas');
   const c = canvas.getContext('2d');
   const buf = new Uint8Array(analyser.frequencyBinCount);
@@ -2468,6 +2654,7 @@ function openPadMenu(i, x, y) {
         importAudioSample(buf => { def.sampleBuf2 = buf; toast(def.name + ': layer loaded'); }, def.name + ' layer');
       } }
   ];
+  if (def.sampleBuf) items.push({ label: '✂ EDIT SAMPLE (SPLICE/SNIP)', act: () => openSampleEditor(def.sampleBuf, def.name) });
   if (def.sampleBuf) items.push({ label: 'REMOVE SAMPLE', act: () => { def.sampleBuf = null; toast(def.name + ' back to synth'); } });
   if (def.sampleBuf2) items.push({ label: 'REMOVE LAYER', act: () => { def.sampleBuf2 = null; toast(def.name + ': layer removed'); } });
   items.push({ divider: true });
@@ -2826,7 +3013,7 @@ function masterStop() {
 document.getElementById('loop-all-play').addEventListener('click', masterPlay);
 document.getElementById('loop-all-stop').addEventListener('click', masterStop);
 document.getElementById('loop-all-clear').addEventListener('click', () => {
-  masterStop();
+  if (typeof panicStopAll === 'function') panicStopAll(true); else masterStop();
   looper.tracks.forEach((_, i) => { looper.tracks[i].events = []; looper.tracks[i].duration = 0; updateLoopUI(i); });
   looper.master.audioBuf = null;
 });
@@ -3309,44 +3496,71 @@ const SOUND_LIB = {
 let libCategory = 'KICKS';
 let lastTouchedPad = 0;
 
+const LIB_TARGETS = [['lib-tabs', 'lib-grid'], ['lib-tabs-p', 'lib-grid-p']];
 function buildSoundLib() {
-  const tabDiv = document.getElementById('lib-tabs');
-  const gridDiv = document.getElementById('lib-grid');
-  if (!tabDiv || !gridDiv) return;
-  tabDiv.innerHTML = ''; gridDiv.innerHTML = '';
-  Object.keys(SOUND_LIB).forEach(cat => {
-    const btn = document.createElement('button');
-    btn.className = 'lib-tab' + (cat === libCategory ? ' on' : '');
-    btn.textContent = cat;
-    btn.addEventListener('click', () => { libCategory = cat; buildSoundLibGrid(); document.querySelectorAll('.lib-tab').forEach(b => b.classList.toggle('on', b.textContent === cat)); });
-    tabDiv.appendChild(btn);
+  LIB_TARGETS.forEach(([tabId]) => {
+    const tabDiv = document.getElementById(tabId);
+    if (!tabDiv) return;
+    tabDiv.innerHTML = '';
+    Object.keys(SOUND_LIB).forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'lib-tab' + (cat === libCategory ? ' on' : '');
+      btn.textContent = cat;
+      btn.addEventListener('click', () => {
+        libCategory = cat;
+        buildSoundLibGrid();
+        document.querySelectorAll('.lib-tab').forEach(b => b.classList.toggle('on', b.textContent === cat));
+      });
+      tabDiv.appendChild(btn);
+    });
   });
   buildSoundLibGrid();
 }
 
 function buildSoundLibGrid() {
   if (!audioReady) initAudio();
-  const gridDiv = document.getElementById('lib-grid');
-  if (!gridDiv) return;
-  gridDiv.innerHTML = '';
-  (SOUND_LIB[libCategory] || []).forEach(s => {
-    const btn = document.createElement('div');
-    btn.className = 'lib-sound';
-    btn.innerHTML = `<div>${s.name}</div><div class="lib-sub">${s.sub}</div>`;
-    btn.addEventListener('click', e => {
-      initAudio();
-      if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
-      s.fn(ctx.currentTime + 0.01);
+  LIB_TARGETS.forEach(([, gridId]) => {
+    const gridDiv = document.getElementById(gridId);
+    if (!gridDiv) return;
+    gridDiv.innerHTML = '';
+    (SOUND_LIB[libCategory] || []).forEach(s => {
+      const btn = document.createElement('div');
+      btn.className = 'lib-sound';
+      btn.innerHTML = `<div>${s.name}</div><div class="lib-sub">${s.sub}</div>`;
+      btn.addEventListener('click', e => {
+        initAudio();
+        if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
+        s.fn(ctx.currentTime + 0.01);
+      });
+      const assignPad = () => {
+        const def = drumDefs[lastTouchedPad];
+        if (s.buf) { def.sampleBuf = s.buf; }
+        else { def.sampleBuf = null; def.fn = s.fn; }
+        toast(`Assigned ${s.name} → ${def.name}`);
+      };
+      btn.addEventListener('contextmenu', e => { e.preventDefault(); assignPad(); });
+      addLongPress(btn, assignPad);
+      if (s.buf) {
+        const cut = document.createElement('span');
+        cut.className = 'lib-cut'; cut.textContent = '✂'; cut.title = 'Open in sample editor';
+        cut.addEventListener('click', e => { e.stopPropagation(); openSampleEditor(s.buf, s.name); });
+        btn.appendChild(cut);
+        if (libCategory === 'MY SOUNDS') {
+          const x = document.createElement('span');
+          x.className = 'lib-x'; x.textContent = '✕'; x.title = 'Delete forever';
+          x.addEventListener('click', e => {
+            e.stopPropagation();
+            if (!confirm('Delete "' + s.name + '" from your library?')) return;
+            SOUND_LIB['MY SOUNDS'] = SOUND_LIB['MY SOUNDS'].filter(x2 => x2 !== s);
+            if (s.idbId != null) idbDelete(s.idbId);
+            buildSoundLibGrid();
+            toast(s.name + ' deleted');
+          });
+          btn.appendChild(x);
+        }
+      }
+      gridDiv.appendChild(btn);
     });
-    const assignPad = () => {
-      const def = drumDefs[lastTouchedPad];
-      if (s.buf) { def.sampleBuf = s.buf; }
-      else { def.sampleBuf = null; def.fn = s.fn; }
-      toast(`Assigned ${s.name} → ${def.name}`);
-    };
-    btn.addEventListener('contextmenu', e => { e.preventDefault(); assignPad(); });
-    addLongPress(btn, assignPad);
-    gridDiv.appendChild(btn);
   });
 }
 
@@ -3533,12 +3747,62 @@ function makeEditable(el, getVal, setVal, label) {
 
 // ---- MY SOUNDS — every import and generated sound lands here ----
 SOUND_LIB['MY SOUNDS'] = [];
+function libAddBuffer(name, sub, buf, persist) {
+  const entry = { name: name.slice(0, 18).toUpperCase(), sub, buf, fn: t => playSampleBuf(buf, t, 1, 0.9) };
+  SOUND_LIB['MY SOUNDS'].unshift(entry);
+  if (persist && buf.duration <= 70) idbSave(entry).catch(() => {});
+  return entry;
+}
 function libRegisterImport(name, buf) {
-  SOUND_LIB['MY SOUNDS'].unshift({
-    name: name.replace(/\.[^.]+$/, '').slice(0, 16).toUpperCase(),
-    sub: 'imported', buf,
-    fn: t => playSampleBuf(buf, t, 1, 0.9)
+  libAddBuffer(name.replace(/\.[^.]+$/, ''), 'imported', buf, true);
+}
+
+// ---- PERSISTENT LIBRARY (IndexedDB) — sounds survive app restarts ----
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('skrimpad-m2', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('sounds', { keyPath: 'id', autoIncrement: true });
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
   });
+}
+async function idbSave(entry) {
+  const db = await idbOpen();
+  const buf = entry.buf;
+  const ch = [];
+  for (let c = 0; c < buf.numberOfChannels; c++) ch.push(buf.getChannelData(c).slice().buffer);
+  await new Promise((res, rej) => {
+    const tx = db.transaction('sounds', 'readwrite');
+    const rq = tx.objectStore('sounds').add({ name: entry.name, sub: entry.sub, sr: buf.sampleRate, len: buf.length, ch });
+    rq.onsuccess = () => { entry.idbId = rq.result; res(); };
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbDelete(id) {
+  try {
+    const db = await idbOpen();
+    db.transaction('sounds', 'readwrite').objectStore('sounds').delete(id);
+  } catch (e) {}
+}
+async function libLoadPersisted() {
+  try {
+    const db = await idbOpen();
+    const rows = await new Promise((res, rej) => {
+      const rq = db.transaction('sounds', 'readonly').objectStore('sounds').getAll();
+      rq.onsuccess = () => res(rq.result || []);
+      rq.onerror = () => rej(rq.error);
+    });
+    rows.reverse().forEach(r => {
+      const buf = ctx.createBuffer(r.ch.length, r.len, r.sr);
+      r.ch.forEach((ab, c) => buf.getChannelData(c).set(new Float32Array(ab)));
+      const entry = { name: r.name, sub: r.sub, buf, fn: t => playSampleBuf(buf, t, 1, 0.9), idbId: r.id };
+      SOUND_LIB['MY SOUNDS'].push(entry);
+    });
+    if (rows.length) {
+      toast('📚 ' + rows.length + ' saved sound' + (rows.length > 1 ? 's' : '') + ' loaded from your library');
+      buildSoundLib();
+    }
+  } catch (e) {}
 }
 function libAssignToKeys(s) {
   if (!s.buf) { toast('Only imported/generated sounds can ride the keys — use 🎲 or 📥'); return; }
@@ -3623,7 +3887,7 @@ async function genSound(family) {
   const buf = await oc.startRendering();
   genCount++;
   const name = family + ' GEN ' + genCount;
-  SOUND_LIB['MY SOUNDS'].unshift({ name, sub: 'generated', buf, fn: tt => playSampleBuf(buf, tt, 1, 0.9) });
+  libAddBuffer(name, 'generated', buf, true);
   playSampleBuf(buf, ctx.currentTime + 0.01, 1, 0.9);
   libCategory = 'MY SOUNDS';
   buildSoundLib();
@@ -4025,7 +4289,7 @@ document.getElementById('keys-clear').addEventListener('click', () => {
   toast('Lane ' + (curLane + 1) + ' cleared');
 });
 document.getElementById('clear-all').addEventListener('click', () => {
-  seqStop(); keysStop();
+  panicStopAll(true);
   for (let t = 0; t < SEQ_TRACKS; t++) for (let st = 0; st < SEQ_STEPS; st++) setSeqStep(t, st, false);
   keyLanes.forEach(l => l.steps.fill(null));
   for (let st = 0; st < SEQ_STEPS; st++) renderKeySeqStep(st);
@@ -4202,6 +4466,305 @@ document.getElementById('file-settings').addEventListener('click', () => {
   document.getElementById('customize-modal').classList.add('open');
 });
 
+// ---- PANIC — kill every sound source dead: loops, notes, echoes, backing tracks ----
+function panicStopAll(silent) {
+  try { seqStop(); } catch (e) {}
+  try { keysStop(); } catch (e) {}
+  try { masterStop(); } catch (e) {}
+  looper.tracks.forEach((_, i) => { try { loopStop(i); } catch (e) {} });
+  try { allNotesOff(); } catch (e) {}
+  keySeqTimers.forEach(clearTimeout); keySeqTimers = [];
+  if (audioReady) {
+    const t = ctx.currentTime;
+    // choke self-sustaining FX tails (echo/phaser feedback can ring forever)
+    [['delayFB', fxState.delay.feedback], ['phaserFB', fxState.phaser.feedback]].forEach(([node, restore]) => {
+      const g = fxChain[node];
+      if (g) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0, t); g.gain.setValueAtTime(fxState[node === 'delayFB' ? 'delay' : 'phaser'].enabled ? restore : (node === 'delayFB' ? 0.4 : 0.5), t + 1.2); }
+    });
+    // hard duck the master so anything orphaned is silenced immediately
+    const mv = parseFloat(document.getElementById('master-vol').value);
+    masterGain.gain.cancelScheduledValues(t);
+    masterGain.gain.value = 0;
+    masterGain.gain.setValueAtTime(0, t);
+    masterGain.gain.linearRampToValueAtTime(mv, t + 0.35);
+  }
+  if (!silent) toast('🛑 ALL SOUND KILLED');
+}
+document.getElementById('panic-btn').addEventListener('click', () => panicStopAll());
+document.getElementById('bnr-panic').addEventListener('click', () => panicStopAll());
+
+// ---- SAMPLE EDITOR — splice, snip and pull your waves ----
+const ED = { buf: null, name: '', a: 0, b: 1, undo: null, playSrc: null };
+function openSampleEditor(buf, name) {
+  ED.buf = buf; ED.name = name; ED.a = 0; ED.b = 1; ED.undo = null;
+  document.getElementById('edit-name').textContent = name + ' · ' + buf.duration.toFixed(2) + 's';
+  document.getElementById('edit-modal').classList.add('open');
+  drawEditWave();
+}
+function drawEditWave() {
+  const cv = document.getElementById('edit-canvas');
+  const c = cv.getContext('2d');
+  cv.width = cv.offsetWidth || 620;
+  c.fillStyle = '#0a0e14'; c.fillRect(0, 0, cv.width, cv.height);
+  if (!ED.buf) return;
+  const d = ED.buf.getChannelData(0);
+  const mid = cv.height / 2, step = Math.max(1, Math.floor(d.length / cv.width));
+  c.strokeStyle = '#00BCD4'; c.beginPath();
+  for (let x = 0; x < cv.width; x++) {
+    let min = 1, max = -1;
+    const s0 = Math.floor(x / cv.width * d.length);
+    for (let i = 0; i < step; i++) { const v = d[s0 + i] || 0; if (v < min) min = v; if (v > max) max = v; }
+    c.moveTo(x, mid + min * mid * 0.95);
+    c.lineTo(x, mid + max * mid * 0.95);
+  }
+  c.stroke();
+  // selection overlay
+  const xa = ED.a * cv.width, xb = ED.b * cv.width;
+  c.fillStyle = 'rgba(0,230,118,.18)'; c.fillRect(xa, 0, xb - xa, cv.height);
+  c.strokeStyle = '#00E676'; c.strokeRect(xa, 0, xb - xa, cv.height);
+  const secs = ED.buf.duration;
+  document.getElementById('edit-info').textContent =
+    'selection: ' + (ED.a * secs).toFixed(2) + 's → ' + (ED.b * secs).toFixed(2) + 's  (' + ((ED.b - ED.a) * secs).toFixed(2) + 's of ' + secs.toFixed(2) + 's)';
+}
+function edSlice(buf, a, b) { // keep [a,b] as fractions
+  const s0 = Math.floor(a * buf.length), s1 = Math.max(s0 + 16, Math.floor(b * buf.length));
+  const out = ctx.createBuffer(buf.numberOfChannels, s1 - s0, buf.sampleRate);
+  for (let c = 0; c < buf.numberOfChannels; c++) out.getChannelData(c).set(buf.getChannelData(c).subarray(s0, s1));
+  return out;
+}
+function edSplice(buf, a, b) { // remove [a,b], join the ends
+  const s0 = Math.floor(a * buf.length), s1 = Math.floor(b * buf.length);
+  const n = buf.length - (s1 - s0);
+  if (n < 16) return buf;
+  const out = ctx.createBuffer(buf.numberOfChannels, n, buf.sampleRate);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const src = buf.getChannelData(c), dst = out.getChannelData(c);
+    dst.set(src.subarray(0, s0), 0);
+    dst.set(src.subarray(s1), s0);
+  }
+  return out;
+}
+function edFade(buf, ms) {
+  const out = edSlice(buf, 0, 1);
+  const n = Math.min(Math.floor(buf.sampleRate * ms / 1000), Math.floor(out.length / 3));
+  for (let c = 0; c < out.numberOfChannels; c++) {
+    const d = out.getChannelData(c);
+    for (let i = 0; i < n; i++) { const g = i / n; d[i] *= g; d[d.length - 1 - i] *= g; }
+  }
+  return out;
+}
+function edSet(newBuf) {
+  ED.undo = ED.buf;
+  ED.buf = newBuf; ED.a = 0; ED.b = 1;
+  document.getElementById('edit-name').textContent = ED.name + ' · ' + newBuf.duration.toFixed(2) + 's';
+  drawEditWave();
+}
+(() => {
+  const cv = document.getElementById('edit-canvas');
+  let drag = false, start = 0;
+  cv.addEventListener('pointerdown', e => {
+    drag = true; cv.setPointerCapture(e.pointerId);
+    const r = cv.getBoundingClientRect();
+    start = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    ED.a = start; ED.b = start; drawEditWave();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const r = cv.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    ED.a = Math.min(start, x); ED.b = Math.max(start, x); drawEditWave();
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => drag = false));
+})();
+document.getElementById('edit-play').addEventListener('click', () => {
+  if (!ED.buf) return;
+  initAudio();
+  if (ED.playSrc) { try { ED.playSrc.stop(); } catch (e) {} }
+  const src = ctx.createBufferSource();
+  src.buffer = ED.buf; src.connect(getOutput());
+  const off = ED.a * ED.buf.duration, dur = Math.max(0.02, (ED.b - ED.a) * ED.buf.duration);
+  src.start(0, off, dur);
+  ED.playSrc = src;
+});
+document.getElementById('edit-snip').addEventListener('click', () => {
+  if (!ED.buf || ED.b - ED.a < 0.002) { toast('Drag a selection first'); return; }
+  edSet(edSlice(ED.buf, ED.a, ED.b)); toast('Snipped — kept the selection');
+});
+document.getElementById('edit-cut').addEventListener('click', () => {
+  if (!ED.buf || ED.b - ED.a < 0.002) { toast('Drag a selection first'); return; }
+  edSet(edSplice(ED.buf, ED.a, ED.b)); toast('Cut — removed the selection and spliced the ends');
+});
+document.getElementById('edit-fade').addEventListener('click', () => { if (ED.buf) { edSet(edFade(ED.buf, 12)); toast('Faded the edges — no more clicks'); } });
+document.getElementById('edit-undo').addEventListener('click', () => {
+  if (!ED.undo) { toast('Nothing to undo'); return; }
+  const u = ED.undo; ED.undo = null; ED.buf = u; ED.a = 0; ED.b = 1; drawEditWave();
+});
+document.getElementById('edit-save').addEventListener('click', () => {
+  if (!ED.buf) return;
+  libAddBuffer(ED.name.slice(0, 12) + ' EDIT', 'spliced', ED.buf, true);
+  libCategory = 'MY SOUNDS'; buildSoundLib();
+  toast('💾 saved to MY SOUNDS');
+});
+document.getElementById('edit-topad').addEventListener('click', () => {
+  if (!ED.buf) return;
+  drumDefs[lastTouchedPad].sampleBuf = ED.buf;
+  toast('→ ' + drumDefs[lastTouchedPad].name);
+});
+document.getElementById('edit-tokeys').addEventListener('click', () => {
+  if (!ED.buf) return;
+  keyLanes[curLane].sampleBuf = ED.buf; keyLanes[curLane].sampleRoot = 60; keyLanes[curLane].voice = 'sample';
+  const lv = document.getElementById('lane-voice'); if (lv) lv.value = 'sample';
+  toast('→ keys lane ' + (curLane + 1));
+});
+document.getElementById('edit-wav').addEventListener('click', () => { if (ED.buf) downloadWav(ED.buf, 'skrimpad-slice'); });
+document.getElementById('edit-close').addEventListener('click', () => {
+  if (ED.playSrc) { try { ED.playSrc.stop(); } catch (e) {} }
+  document.getElementById('edit-modal').classList.remove('open');
+});
+document.getElementById('edit-modal').addEventListener('click', e => { if (e.target.id === 'edit-modal') document.getElementById('edit-close').click(); });
+
+// ---- REMIX A SONG — approximate stem split (EQ + mid/side, fully offline) ----
+async function remixSong() {
+  if (!audioReady) initAudio();
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'audio/*';
+  inp.onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    toast('🎚 Splitting stems… this takes a few seconds');
+    try {
+      let buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      const maxLen = ctx.sampleRate * 150;
+      if (buf.length > maxLen) {
+        const t = ctx.createBuffer(buf.numberOfChannels, maxLen, buf.sampleRate);
+        for (let c = 0; c < buf.numberOfChannels; c++) t.getChannelData(c).set(buf.getChannelData(c).subarray(0, maxLen));
+        buf = t;
+      }
+      const render = async wire => {
+        const oc = new OfflineAudioContext(2, buf.length, buf.sampleRate);
+        const src = oc.createBufferSource(); src.buffer = buf;
+        wire(oc, src);
+        src.start(0);
+        return oc.startRendering();
+      };
+      // BASS — everything below 120 Hz
+      const bass = await render((oc, src) => {
+        const f = oc.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 120; f.Q.value = 0.7;
+        src.connect(f); f.connect(oc.destination);
+      });
+      // VOCALS — the centre (mid) channel, band-passed to the voice range
+      const vocals = await render((oc, src) => {
+        const split = oc.createChannelSplitter(2), mid = oc.createGain();
+        const gl = oc.createGain(); gl.gain.value = 0.5;
+        const gr = oc.createGain(); gr.gain.value = 0.5;
+        src.connect(split);
+        split.connect(gl, 0); split.connect(gr, 1);
+        gl.connect(mid); gr.connect(mid);
+        const hp = oc.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 220;
+        const lp = oc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5000;
+        mid.connect(hp); hp.connect(lp); lp.connect(oc.destination);
+      });
+      // DRUMS + INSTRUMENTS — the sides (stereo width) plus the top end
+      const drums = await render((oc, src) => {
+        const split = oc.createChannelSplitter(2), side = oc.createGain();
+        const gl = oc.createGain(); gl.gain.value = 0.7;
+        const gr = oc.createGain(); gr.gain.value = -0.7;
+        src.connect(split);
+        split.connect(gl, 0); split.connect(gr, 1);
+        gl.connect(side); gr.connect(side);
+        const hp = oc.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+        side.connect(hp); hp.connect(oc.destination);
+      });
+      const base = file.name.replace(/\.[^.]+$/, '').slice(0, 9).toUpperCase();
+      libAddBuffer(base + ' BASS', 'stem', bass, false);
+      libAddBuffer(base + ' VOX', 'stem', vocals, false);
+      libAddBuffer(base + ' DRUMS', 'stem', drums, false);
+      drumDefs[12].sampleBuf = bass;   // BASS HIT pad
+      drumDefs[14].sampleBuf = drums;  // FX 1 pad
+      drumDefs[15].sampleBuf = vocals; // FX 2 pad
+      keyLanes[KEY_LANES - 1].sampleBuf = vocals;
+      keyLanes[KEY_LANES - 1].sampleRoot = 60;
+      keyLanes[KEY_LANES - 1].voice = 'sample';
+      libCategory = 'MY SOUNDS'; buildSoundLib();
+      toast('🎚 Stems ready! BASS→pad 13 · DRUMS→pad 15 · VOCALS→pad 16 + keys L5. Snip them in the ✂ editor!');
+      aiLog('Remix: split "' + file.name.slice(0, 20) + '" into 3 stems (EQ + mid/side split — approximate, not studio isolation)', 'good');
+    } catch (err) { toast('Remix failed: ' + err.message); }
+  };
+  inp.click();
+}
+document.getElementById('remix-btn').addEventListener('click', remixSong);
+document.getElementById('retro-btn').addEventListener('click', retroSave);
+
+// ---- AUTO MIX — one tap balances every channel by its musical role ----
+const AUTOMIX_VOLS = [0.85, 0.8, 0.45, 0.4, 0.7, 0.55, 0.55, 0.35, 0.35, 0.5, 0.45, 0.4, 0.8, 0.5, 0.5, 0.5, 0.85, 0.55, 0.4, 0.45];
+document.getElementById('automix-btn').addEventListener('click', () => {
+  drumDefs.forEach((d, i) => {
+    d.vol = Math.max(0, Math.min(1, (AUTOMIX_VOLS[i] != null ? AUTOMIX_VOLS[i] : 0.5) + (Math.random() * 0.06 - 0.03)));
+  });
+  buildMixer(); buildFaders();
+  toast('🎚 Auto-mixed — kick & bass forward, cymbals tucked back');
+});
+
+// ---- THIN — cleanup script: remove scattered notes, keep the downbeats ----
+document.getElementById('keys-thin').addEventListener('click', () => {
+  let removed = 0;
+  for (let i = 0; i < SEQ_STEPS; i++) {
+    if (keySeq[i] != null && i % 4 !== 0 && Math.random() < 0.45) { keySeq[i] = null; removed++; }
+  }
+  for (let i = 0; i < SEQ_STEPS; i++) renderKeySeqStep(i);
+  toast('🧹 Thinned lane ' + (curLane + 1) + ' — removed ' + removed + ' stray note' + (removed === 1 ? '' : 's'));
+});
+
+// ---- CUSTOM BACKGROUND — any image file, GIFs included ----
+function applyBg(dataUrl) {
+  if (dataUrl) {
+    document.body.style.background = 'linear-gradient(rgba(6,7,10,.78), rgba(6,7,10,.82)), url(' + dataUrl + ') center / cover fixed';
+  } else {
+    document.body.style.background = '';
+  }
+}
+document.getElementById('bg-import').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      applyBg(rd.result);
+      try { localStorage.setItem('skrimpad_bg', rd.result); toast('🖼 Background set — it will be here next time too'); }
+      catch (err) { toast('🖼 Background set (too big to save — applies this session only)'); }
+    };
+    rd.readAsDataURL(file);
+  };
+  inp.click();
+});
+document.getElementById('bg-clear').addEventListener('click', () => {
+  applyBg(null);
+  localStorage.removeItem('skrimpad_bg');
+  toast('Background cleared');
+});
+try { const savedBg = localStorage.getItem('skrimpad_bg'); if (savedBg) applyBg(savedBg); } catch (e) {}
+
+// ---- AI ON THE DESKTOP — full AI interface in a modal, opened from the banner ----
+const aiPanelHome = document.getElementById('ai-panel').parentElement;
+document.getElementById('bnr-ai').addEventListener('click', () => {
+  const panel = document.getElementById('ai-panel');
+  document.getElementById('ai-modal-body').appendChild(panel);
+  panel.style.display = 'block';
+  document.getElementById('ai-modal').classList.add('open');
+});
+function closeAiModal() {
+  const panel = document.getElementById('ai-panel');
+  panel.style.display = '';
+  aiPanelHome.appendChild(panel);
+  document.getElementById('ai-modal').classList.remove('open');
+}
+document.getElementById('ai-modal-close').addEventListener('click', closeAiModal);
+// dedicated LIB tab builds its grid on open
+document.querySelector('.tab[data-tab="lib"]').addEventListener('click', () => buildSoundLib());
+document.getElementById('ai-modal').addEventListener('click', e => { if (e.target.id === 'ai-modal') closeAiModal(); });
+
 // ---- KEYBOARD MACROS — arrows, numbers, piano keys ----
 const PIANO_KEYMAP = { a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12 };
 const heldKeys = new Set();
@@ -4211,6 +4774,7 @@ document.addEventListener('keydown', e => {
   if (e.repeat) return;
   const bpmEl = document.getElementById('bpm');
   if (e.code === 'Space') { e.preventDefault(); if (e.shiftKey) keysPlayPause(); else seqPlayPause(); return; }
+  if (e.key === 'Escape') { panicStopAll(); return; }
   if (e.key === 'ArrowRight') { bpmEl.value = Math.min(300, parseInt(bpmEl.value) + (e.shiftKey ? 5 : 1)); bpmEl.dispatchEvent(new Event('input')); return; }
   if (e.key === 'ArrowLeft') { bpmEl.value = Math.max(40, parseInt(bpmEl.value) - (e.shiftKey ? 5 : 1)); bpmEl.dispatchEvent(new Event('input')); return; }
   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
