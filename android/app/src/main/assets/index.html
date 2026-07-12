@@ -457,6 +457,8 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 .lane-btn{padding:5px 9px;border-radius:var(--r2);border:1.5px solid var(--bdr);background:var(--surf2);color:var(--mute);font-size:10px;font-weight:800;cursor:pointer;transition:all .12s;}
 .lane-btn.on{color:#000;}
 .lane-btn.muted{opacity:.35;text-decoration:line-through;}
+.lane-lock{padding:4px 6px;border-radius:var(--r2);border:1.5px solid var(--bdr);background:var(--surf2);color:var(--mute);font-size:12px;cursor:pointer;transition:all .12s;flex-shrink:0;}
+.lane-lock.locked{color:var(--orange);border-color:var(--orange);background:rgba(255,165,0,.1);}
 #lane-voice{background:var(--surf3);border:1px solid var(--bdr);color:var(--txt);border-radius:var(--r2);padding:4px;font-size:9px;font-weight:700;outline:none;}
 #keys-transport{display:flex;gap:5px;margin-bottom:6px;}
 #keys-transport .tbtn{padding:6px 8px;font-size:11px;}
@@ -709,22 +711,20 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 
 <!-- KEYS -->
 <div class="panel" id="keys-panel">
-  <div class="mode-bar">
-    <button class="mode-btn on" data-mode="electronic">ELEC</button>
-    <button class="mode-btn" data-mode="piano">PIANO</button>
-    <button class="mode-btn" data-mode="bass">BASS</button>
-    <button class="mode-btn" data-mode="pad">PAD</button>
-    <button class="mode-btn" data-mode="laser">LASER</button>
-    <button class="mode-btn" data-mode="robot">ROBOT</button>
-  </div>
+  <div class="mode-bar"></div>
   <div id="key-seq-wrap">
     <div class="sec-label" style="margin:0 0 5px">KEY SEQ — PLAY A KEY, THEN CLICK STEPS TO PLACE IT</div>
     <div id="lane-row">
       <button class="lane-btn on" data-lane="0">L1</button>
+      <button class="lane-lock" data-lane="0" title="Lock this lane (won't change with style)">🔓</button>
       <button class="lane-btn" data-lane="1">L2</button>
+      <button class="lane-lock" data-lane="1">🔓</button>
       <button class="lane-btn" data-lane="2">L3</button>
+      <button class="lane-lock" data-lane="2">🔓</button>
       <button class="lane-btn" data-lane="3">L4</button>
+      <button class="lane-lock" data-lane="3">🔓</button>
       <button class="lane-btn" data-lane="4">L5</button>
+      <button class="lane-lock" data-lane="4">🔓</button>
       <select id="lane-voice" title="Sound bank for this lane">
         <option value="main">MAIN SYNTH</option>
         <option value="pluck">PLUCK</option>
@@ -741,7 +741,9 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="tbtn" id="keys-playpause" title="Play the key lanes alone — drums stay quiet">▶ KEYS</button>
       <button class="tbtn" id="keys-clear" title="Clear this lane's steps">✕ LANE</button>
       <button class="tbtn" id="keys-import" title="Import a WAV/MP3/OGG to play on this lane's keys">📥 SOUND</button>
+      <button class="tbtn" id="keys-sample-editor" title="Edit imported sample: splice, snip, fade">✂ EDIT</button>
       <button class="tbtn" id="keys-thin" title="CLEANUP — removes scattered off-beat notes from this lane, keeps the downbeats">🧹 THIN</button>
+      <button class="tbtn" id="keys-filters" title="Manage keyboard mode filters">⚙ FILTERS</button>
     </div>
     <div id="key-seq"></div>
   </div>
@@ -1204,6 +1206,17 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
   </div>
 </div>
 
+<!-- KEY FILTERS MANAGER MODAL -->
+<div id="key-filters-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:4000;align-items:center;justify-content:center;">
+  <div style="width:min(340px,92vw);background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r3);padding:14px;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;margin-bottom:12px"><b style="font-size:12px">⚙ KEY FILTERS</b><div style="flex:1"></div><button class="hbtn" id="key-filters-close">✕</button></div>
+    <div style="font-size:9px;color:var(--mute);margin-bottom:10px">Manage keyboard mode buttons. Drag to reorder, click 🗑 to remove.</div>
+    <div id="key-filters-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+    <input id="new-filter-input" type="text" placeholder="New filter name" style="width:100%;padding:6px;border:1px solid var(--bdr);border-radius:var(--r2);background:var(--surf2);color:var(--txt);font-size:10px;margin-bottom:8px;">
+    <button id="add-filter-btn" style="width:100%;padding:8px;border:1px solid var(--green);background:rgba(0,230,118,.1);color:var(--green);border-radius:var(--r2);font-weight:700;cursor:pointer;font-size:10px;">+ ADD FILTER</button>
+  </div>
+</div>
+
 <!-- SAMPLE EDITOR MODAL -->
 <div id="edit-modal">
   <div id="edit-card">
@@ -1277,6 +1290,7 @@ function initAudio() {
   initFX();
   startVis();
   startRetro();
+  renderModeButtons();
   audioReady = true;
   libLoadPersisted();
 }
@@ -1916,11 +1930,12 @@ function seqGetBeatSec() { return 60 / parseInt(document.getElementById('bpm').v
 // Each slot is null or { midi, sustain } (sustain holds until the next placed note)
 const KEY_LANES = 5;
 const LANE_COLORS = ['var(--teal)','var(--orange)','var(--purple)','var(--green)','var(--pink)'];
-const keyLanes = Array(KEY_LANES).fill(null).map(() => ({ steps: new Array(SEQ_STEPS).fill(null), voice: 'main', sampleBuf: null, sampleRoot: 60, mute: false }));
+const keyLanes = Array(KEY_LANES).fill(null).map(() => ({ steps: new Array(SEQ_STEPS).fill(null), voice: 'main', sampleBuf: null, sampleRoot: 60, mute: false, locked: false }));
 let curLane = 0;
 let keySeq = keyLanes[0].steps; // the ACTIVE lane's steps — all UI editing goes here
 let keySeqTimers = [];
 let lastPlayedMidi = null;
+let keyFilters = ['electronic', 'piano', 'bass', 'pad', 'laser', 'robot'];
 
 function laneGateSteps(steps, s) {
   // sustained note holds until the next placed step (wrapping), min 1 step
@@ -2982,6 +2997,60 @@ function applyKeyMode(mode) {
   document.getElementById('o2-oct').value = mode === 'bass' ? -1 : 0;
   if (mode === 'bass') { synth.o2Oct = -1; }
 }
+
+// Render mode buttons from keyFilters
+function renderModeButtons() {
+  const modeBar = document.querySelector('.mode-bar');
+  if (!modeBar) return;
+  modeBar.innerHTML = '';
+  keyFilters.forEach(f => {
+    const btn = document.createElement('button');
+    btn.className = 'mode-btn' + (synth.keyMode === f ? ' on' : '');
+    btn.dataset.mode = f;
+    btn.textContent = f.toUpperCase();
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      synth.keyMode = f;
+      applyKeyMode(synth.keyMode);
+    });
+    modeBar.appendChild(btn);
+  });
+}
+
+function openKeyFiltersModal() {
+  const modal = document.getElementById('key-filters-modal');
+  const list = document.getElementById('key-filters-list');
+  list.innerHTML = '';
+  keyFilters.forEach((f, i) => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px;background:var(--surf2);border-radius:var(--r2);';
+    div.innerHTML = `<span style="flex:1;font-size:10px;font-weight:700">${f.toUpperCase()}</span><button class="hbtn" style="font-size:10px;padding:3px 6px" title="Remove filter">🗑</button>`;
+    div.querySelector('.hbtn').addEventListener('click', () => {
+      keyFilters.splice(i, 1);
+      renderModeButtons();
+      openKeyFiltersModal();
+      toast('Filter removed: ' + f);
+    });
+    list.appendChild(div);
+  });
+  document.getElementById('add-filter-btn').onclick = () => {
+    const input = document.getElementById('new-filter-input');
+    const name = input.value.trim().toLowerCase();
+    if (!name) { toast('Enter a filter name'); return; }
+    if (keyFilters.includes(name)) { toast('Filter already exists'); return; }
+    keyFilters.push(name);
+    renderModeButtons();
+    input.value = '';
+    openKeyFiltersModal();
+    toast('Filter added: ' + name);
+  };
+  modal.style.display = 'flex';
+}
+
+document.getElementById('key-filters-close').addEventListener('click', () => {
+  document.getElementById('key-filters-modal').style.display = 'none';
+});
 
 // Octave
 document.getElementById('oct-up').addEventListener('click', () => { keyOctave = Math.min(7, keyOctave + 1); document.getElementById('oct-display').textContent = keyOctave; buildKeyboard(); });
@@ -4360,6 +4429,16 @@ document.querySelectorAll('.lane-btn').forEach(b => {
   b.addEventListener('contextmenu', e => { e.preventDefault(); muteFn(); });
   addLongPress(b, muteFn);
 });
+document.querySelectorAll('.lane-lock').forEach(btn => {
+  const updateLock = () => {
+    const li = parseInt(btn.dataset.lane);
+    keyLanes[li].locked = !keyLanes[li].locked;
+    btn.textContent = keyLanes[li].locked ? '🔒' : '🔓';
+    btn.classList.toggle('locked', keyLanes[li].locked);
+    toast('Lane ' + (li + 1) + (keyLanes[li].locked ? ' locked' : ' unlocked'));
+  };
+  btn.addEventListener('click', updateLock);
+});
 document.getElementById('lane-voice').addEventListener('change', e => {
   keyLanes[curLane].voice = e.target.value;
   if (e.target.value === 'sample' && !keyLanes[curLane].sampleBuf) toast('Tap 📥 SOUND to load a sample for this lane');
@@ -4373,6 +4452,11 @@ document.getElementById('keys-import').addEventListener('click', () => {
     document.getElementById('lane-voice').value = 'sample';
   }, 'Lane ' + (curLane + 1) + ' sound');
 });
+document.getElementById('keys-sample-editor').addEventListener('click', () => {
+  if (!keyLanes[curLane].sampleBuf) { toast('Import a sound first (📥 SOUND)'); return; }
+  openSampleEditor(keyLanes[curLane].sampleBuf, 'Lane ' + (curLane + 1) + ' sample');
+});
+document.getElementById('keys-filters').addEventListener('click', openKeyFiltersModal);
 document.getElementById('keys-playpause').addEventListener('click', keysPlayPause);
 document.getElementById('keys-clear').addEventListener('click', () => {
   keySeq.fill(null);
