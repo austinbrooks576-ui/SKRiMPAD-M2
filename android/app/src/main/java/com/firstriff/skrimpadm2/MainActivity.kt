@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
         webView = WebView(this)
         setContentView(webView)
 
-        fileHandler = FileHandler(this)
+        fileHandler = FileHandler(this, webView)
         configureWebView()
         requestAudioPermission()
     }

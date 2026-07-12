@@ -9,11 +9,12 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import android.webkit.WebView
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 
-class FileHandler(private val activity: AppCompatActivity) {
+class FileHandler(private val activity: AppCompatActivity, private val webView: WebView) {
     private var filePickerCallback: String? = null
     private var fileSaveCallback: String? = null
 
@@ -27,13 +28,13 @@ class FileHandler(private val activity: AppCompatActivity) {
                 val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 filePickerCallback?.let {
                     val js = "window.$it('$base64')"
-                    activity.webView?.evaluateJavascript(js) { }
+                    webView.evaluateJavascript(js) { }
                 }
             } catch (e: Exception) {
                 Toast.makeText(activity, "Failed to read file", Toast.LENGTH_SHORT).show()
                 filePickerCallback?.let {
                     val js = "window.$it(null)"
-                    activity.webView?.evaluateJavascript(js) { }
+                    webView.evaluateJavascript(js) { }
                 }
             }
         }
@@ -51,13 +52,13 @@ class FileHandler(private val activity: AppCompatActivity) {
                 Toast.makeText(activity, "File saved", Toast.LENGTH_SHORT).show()
                 fileSaveCallback?.let {
                     val js = "window.$it(true)"
-                    activity.webView?.evaluateJavascript(js) { }
+                    webView.evaluateJavascript(js) { }
                 }
             } catch (e: Exception) {
                 Toast.makeText(activity, "Failed to save file", Toast.LENGTH_SHORT).show()
                 fileSaveCallback?.let {
                     val js = "window.$it(false)"
-                    activity.webView?.evaluateJavascript(js) { }
+                    webView.evaluateJavascript(js) { }
                 }
             }
         }
@@ -83,7 +84,7 @@ class FileHandler(private val activity: AppCompatActivity) {
             Toast.makeText(activity, "Failed to save file", Toast.LENGTH_SHORT).show()
             callback?.let {
                 val js = "window.$it(false)"
-                activity.webView?.evaluateJavascript(js) { }
+                webView.evaluateJavascript(js) { }
             }
         }
     }
