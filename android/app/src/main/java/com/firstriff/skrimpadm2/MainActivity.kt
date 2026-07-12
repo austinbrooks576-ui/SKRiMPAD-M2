@@ -14,8 +14,9 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var webView: WebView
+    lateinit var webView: WebView
     private val AUDIO_PERMISSION_REQUEST = 1001
+    private lateinit var fileHandler: FileHandler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         webView = WebView(this)
         setContentView(webView)
 
+        fileHandler = FileHandler(this)
         configureWebView()
         requestAudioPermission()
     }
@@ -80,6 +82,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        webView.addJavascriptInterface(fileHandler, "AndroidFileHandler")
         webView.loadUrl("file:///android_asset/index.html")
     }
 

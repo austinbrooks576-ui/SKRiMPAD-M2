@@ -2623,19 +2623,38 @@ function refreshDrumName(i) {
 // Import an MP3/audio file, decode to an AudioBuffer, hand to callback
 function importAudioSample(onLoaded, label) {
   if (!audioReady) initAudio();
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'audio/*';
-  inp.onchange = async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
-      libRegisterImport(file.name, buf);
-      onLoaded(buf, file.name);
-      toast((label || 'Sample') + ': ' + file.name.slice(0, 22));
-    } catch (err) { toast('Import failed — unsupported audio'); }
-  };
-  inp.click();
+
+  // Use Android native file picker if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__audioImportCallback = async (base64Data) => {
+      if (!base64Data) { toast('Import cancelled'); return; }
+      try {
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        const buf = await ctx.decodeAudioData(await bytes.buffer);
+        libRegisterImport('imported-' + Date.now() + '.audio', buf);
+        onLoaded(buf, 'Imported audio');
+        toast((label || 'Sample') + ': imported');
+      } catch (err) { toast('Import failed — unsupported audio'); }
+    };
+    AndroidFileHandler.pickFile('audio/*', '__audioImportCallback');
+  } else {
+    // Fallback to standard file input
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'audio/*';
+    inp.onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+        libRegisterImport(file.name, buf);
+        onLoaded(buf, file.name);
+        toast((label || 'Sample') + ': ' + file.name.slice(0, 22));
+      } catch (err) { toast('Import failed — unsupported audio'); }
+    };
+    inp.click();
+  }
 }
 
 // PAD right-click menu — rename, import sample, program row
@@ -3028,26 +3047,51 @@ document.getElementById('loop-quant').addEventListener('input', e => { document.
 // =============================================
 function importAudioToTrack(idx) {
   if (!audioReady) initAudio();
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'audio/*';
-  inp.onchange = async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const arrayBuf = await file.arrayBuffer();
-      const audioBuf = await ctx.decodeAudioData(arrayBuf);
-      const tr = looper.tracks[idx];
-      loopStop(idx);
-      tr.audioBuf = audioBuf;
-      tr.events = [];
-      tr.duration = audioBuf.duration * 1000;
-      updateLoopUI(idx);
-      toast('Imported: ' + file.name.slice(0, 24));
-    } catch(err) {
-      toast('Import failed — unsupported format');
-    }
-  };
-  inp.click();
+
+  // Use Android native file picker if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__looperImportCallback = async (base64Data) => {
+      if (!base64Data) { toast('Import cancelled'); return; }
+      try {
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+        const tr = looper.tracks[idx];
+        loopStop(idx);
+        tr.audioBuf = audioBuf;
+        tr.events = [];
+        tr.duration = audioBuf.duration * 1000;
+        updateLoopUI(idx);
+        toast('Imported backing track');
+      } catch(err) {
+        toast('Import failed — unsupported format');
+      }
+    };
+    AndroidFileHandler.pickFile('audio/*', '__looperImportCallback');
+  } else {
+    // Fallback to standard file input
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'audio/*';
+    inp.onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const arrayBuf = await file.arrayBuffer();
+        const audioBuf = await ctx.decodeAudioData(arrayBuf);
+        const tr = looper.tracks[idx];
+        loopStop(idx);
+        tr.audioBuf = audioBuf;
+        tr.events = [];
+        tr.duration = audioBuf.duration * 1000;
+        updateLoopUI(idx);
+        toast('Imported: ' + file.name.slice(0, 24));
+      } catch(err) {
+        toast('Import failed — unsupported format');
+      }
+    };
+    inp.click();
+  }
 }
 
 let exportRec = null, exportDest = null;
@@ -3065,16 +3109,33 @@ function toggleExport() {
     exportRec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
     exportRec.onstop = () => {
       const blob = new Blob(chunks, { type: exportRec.mimeType || 'audio/webm' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'skrimpad-' + Date.now() + '.webm';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      try { masterGain.disconnect(exportDest); } catch(e2){}
-      exportDest = null; exportRec = null;
-      btn.textContent = '📤';
-      btn.style.background = ''; btn.style.color = 'var(--blue)';
-      toast('Saved — check Downloads folder');
+
+      const onExportComplete = () => {
+        try { masterGain.disconnect(exportDest); } catch(e2){}
+        exportDest = null; exportRec = null;
+        btn.textContent = '📤';
+        btn.style.background = ''; btn.style.color = 'var(--blue)';
+        toast('Saved — check Downloads folder');
+      };
+
+      // Use Android native save if available
+      if (typeof AndroidFileHandler !== 'undefined') {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1];
+          AndroidFileHandler.openDownloadManager(base64, 'skrimpad-' + Date.now() + '.webm');
+          onExportComplete();
+        };
+        reader.readAsDataURL(blob);
+      } else {
+        // Fallback to standard download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'skrimpad-' + Date.now() + '.webm';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        onExportComplete();
+      }
     };
     exportRec.start();
     btn.textContent = '■';
@@ -3656,25 +3717,55 @@ document.querySelectorAll('[data-skin]').forEach(btn => {
   btn.addEventListener('click', () => { applySkin(SKINS[btn.dataset.skin]); toast('Skin: ' + btn.dataset.skin); });
 });
 document.getElementById('skin-import').addEventListener('click', () => {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.json,application/json';
-  inp.onchange = async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try { applySkin(JSON.parse(await file.text())); toast('Skin loaded: ' + file.name.slice(0, 20)); }
-    catch (err) { toast('Bad skin file — expected JSON of CSS variables'); }
-  };
-  inp.click();
+  // Use Android native file picker if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__skinImportCallback = async (base64Data) => {
+      if (!base64Data) { toast('Import cancelled'); return; }
+      try {
+        const binaryString = atob(base64Data);
+        const jsonStr = new TextDecoder().decode(new Uint8Array(binaryString.split('').map(c => c.charCodeAt(0))));
+        applySkin(JSON.parse(jsonStr));
+        toast('Skin loaded');
+      } catch (err) { toast('Bad skin file — expected JSON of CSS variables'); }
+    };
+    AndroidFileHandler.pickFile('.json,application/json', '__skinImportCallback');
+  } else {
+    // Fallback to standard file input
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try { applySkin(JSON.parse(await file.text())); toast('Skin loaded: ' + file.name.slice(0, 20)); }
+      catch (err) { toast('Bad skin file — expected JSON of CSS variables'); }
+    };
+    inp.click();
+  }
 });
+
 document.getElementById('skin-export').addEventListener('click', () => {
   const cs = getComputedStyle(document.documentElement);
   const out = {};
   SKIN_VARS.forEach(v => out[v] = cs.getPropertyValue(v).trim());
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'skrimpad-skin.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  const fileName = 'skrimpad-skin.json';
+
+  // Use Android native save if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      AndroidFileHandler.openDownloadManager(base64, fileName);
+      toast('Skin exported to Downloads');
+    };
+    reader.readAsDataURL(blob);
+  } else {
+    // Fallback to standard download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
 });
 
 // TILE DRAG — swap studio tiles by dragging their titles (toggled in Customize)
@@ -4444,22 +4535,53 @@ document.getElementById('file-saveas').addEventListener('click', () => {
 });
 document.getElementById('file-export').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(projectState(), null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'skrimpad-' + curProject.toLowerCase().replace(/\s+/g, '-') + '.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  const fileName = 'skrimpad-' + curProject.toLowerCase().replace(/\s+/g, '-') + '.json';
+
+  // Use Android native save if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      AndroidFileHandler.openDownloadManager(base64, fileName);
+      toast('Project exported to Downloads');
+    };
+    reader.readAsDataURL(blob);
+  } else {
+    // Fallback to standard download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
 });
+
 document.getElementById('file-import').addEventListener('click', () => {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = '.json,application/json';
-  inp.onchange = async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try { loadProject(JSON.parse(await file.text())); document.getElementById('file-modal').style.display = 'none'; }
-    catch (err) { toast('Bad project file'); }
-  };
-  inp.click();
+  // Use Android native file picker if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__projectImportCallback = async (base64Data) => {
+      if (!base64Data) { toast('Import cancelled'); return; }
+      try {
+        const binaryString = atob(base64Data);
+        const jsonStr = new TextDecoder().decode(new Uint8Array(binaryString.split('').map(c => c.charCodeAt(0))));
+        loadProject(JSON.parse(jsonStr));
+        document.getElementById('file-modal').style.display = 'none';
+        toast('Project imported');
+      } catch (err) { toast('Bad project file'); }
+    };
+    AndroidFileHandler.pickFile('.json,application/json', '__projectImportCallback');
+  } else {
+    // Fallback to standard file input
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try { loadProject(JSON.parse(await file.text())); document.getElementById('file-modal').style.display = 'none'; }
+      catch (err) { toast('Bad project file'); }
+    };
+    inp.click();
+  }
 });
 document.getElementById('file-settings').addEventListener('click', () => {
   document.getElementById('file-modal').style.display = 'none';
@@ -4724,20 +4846,35 @@ function applyBg(dataUrl) {
   }
 }
 document.getElementById('bg-import').addEventListener('click', () => {
-  const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*';
-  inp.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const rd = new FileReader();
-    rd.onload = () => {
-      applyBg(rd.result);
-      try { localStorage.setItem('skrimpad_bg', rd.result); toast('🖼 Background set — it will be here next time too'); }
-      catch (err) { toast('🖼 Background set (too big to save — applies this session only)'); }
+  // Use Android native file picker if available
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__bgImportCallback = (base64Data) => {
+      if (!base64Data) { toast('Import cancelled'); return; }
+      try {
+        const dataUrl = 'data:image/*;base64,' + base64Data;
+        applyBg(dataUrl);
+        try { localStorage.setItem('skrimpad_bg', dataUrl); toast('🖼 Background set — it will be here next time too'); }
+        catch (err) { toast('🖼 Background set (too big to save — applies this session only)'); }
+      } catch (err) { toast('Failed to import image'); }
     };
-    rd.readAsDataURL(file);
-  };
-  inp.click();
+    AndroidFileHandler.pickFile('image/*', '__bgImportCallback');
+  } else {
+    // Fallback to standard file input
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        applyBg(rd.result);
+        try { localStorage.setItem('skrimpad_bg', rd.result); toast('🖼 Background set — it will be here next time too'); }
+        catch (err) { toast('🖼 Background set (too big to save — applies this session only)'); }
+      };
+      rd.readAsDataURL(file);
+    };
+    inp.click();
+  }
 });
 document.getElementById('bg-clear').addEventListener('click', () => {
   applyBg(null);
