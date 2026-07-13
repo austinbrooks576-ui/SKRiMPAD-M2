@@ -148,6 +148,578 @@
             previousMousePosition.y = currentY;
         }
 
+// =====================================================================
+// SPECIAL EDITION — Samurai Champloo JSON-driven HUD skin
+// Reuses the entire audio engine; re-parents live panels into glass
+// modules laid out by layout.json. Toggle back to classic anytime.
+// =====================================================================
+// ---- Themed SVG icon set (no emojis) — stroked, inherits currentColor ----
+const SE_ICONS = {
+  play: '<path d="M6 4l13 8-13 8z"/>',
+  pause: '<path d="M7 4v16M17 4v16"/>',
+  panic: '<circle cx="12" cy="12" r="8"/><path d="M9 9l6 6M15 9l-6 6"/>',
+  ai: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+  lib: '<path d="M4 5h4v14H4zM10 5h4v14h-4zM16 6l4 1-3 13-4-1z"/>',
+  exit: '<path d="M6 6l12 12M18 6L6 18"/>',
+  drums: '<ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v6c0 1.7 3.6 3 8 3s8-1.3 8-3V8M3 20l4-6M21 20l-4-6"/>',
+  keys: '<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M7 6v8M11 6v8M15 6v8"/>',
+  mixer: '<path d="M6 3v18M12 3v18M18 3v18M3 8h6M9 14h6M15 6h6"/>',
+  synth: '<path d="M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/>',
+  fx: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
+  seq: '<rect x="3" y="6" width="4" height="12"/><rect x="10" y="9" width="4" height="9"/><rect x="17" y="4" width="4" height="14"/>',
+  orbit: '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="5" transform="rotate(-20 12 12)"/><circle cx="20" cy="8" r="1.6"/>'
+};
+function svgIcon(name, cls) { return '<svg viewBox="0 0 24 24"' + (cls ? ' class="' + cls + '"' : '') + '>' + (SE_ICONS[name] || '') + '</svg>'; }
+
+// ---- THEME REGISTRY — every theme is data: palette + glyphs + module titles ----
+// c1/c2/c3 bg gradient · line (borders) · glow (bright text/hud) · accent · ink (dark) · paper (light) · font · particles renderer key
+const SE_THEMES = {
+  champloo: {
+    name: 'Samurai Champloo', sub: '侍 SPECIAL EDITION', glyph: '音 之 型', particles: 'petals',
+    c1: '#2a0a0a', c2: '#6b1414', c3: '#8a1f1f', line: '#d9a441', glow: '#f2cd6b', accent: '#c0392b',
+    ink: '#120404', paper: '#e8dcc0', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '太鼓 DRUMS', seq: '拍 SEQUENCERS', keys: '琴 KEYS', mixer: '混 MIXER', synth: '波 SYNTH', fx: '効 FX', lib: '蔵 LIBRARY' }
+  },
+  spacedust: {
+    name: 'Space Dust', sub: '✦ NEBULA DECK', glyph: '⟡ ✦ ⟡', particles: 'stars',
+    c1: '#10163a', c2: '#070518', c3: '#02010a', line: '#6f7dff', glow: '#8be9ff', accent: '#e650c8',
+    ink: '#03020c', paper: '#dfe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '◈ DRUMS', seq: '◈ SEQUENCERS', keys: '◈ KEYS', mixer: '◈ MIXER', synth: '◈ SYNTH', fx: '◈ FX', lib: '◈ LIBRARY' }
+  },
+  cyberpunk: {
+    name: 'Cyberpunk', sub: '// NIGHT CITY OS', glyph: '01 // 10', particles: 'rain',
+    c1: '#05060a', c2: '#0a0d18', c3: '#05070f', line: '#00f0ff', glow: '#fcee0a', accent: '#ff003c',
+    ink: '#04060a', paper: '#c8f8ff', font: "'Courier New',monospace",
+    titles: { pads: '▚ DRUMS', seq: '▚ SEQ_GRID', keys: '▚ KEYS', mixer: '▚ MIXER', synth: '▚ SYNTH', fx: '▚ FX', lib: '▚ LIBRARY' }
+  },
+  warhammer: {
+    name: 'Adeptus Mechanicus', sub: '☩ OMNISSIAH', glyph: '☩ ✠ ☩', particles: 'embers',
+    c1: '#161009', c2: '#0c0906', c3: '#1a0a06', line: '#b08d57', glow: '#e0b878', accent: '#8c1410',
+    ink: '#0a0705', paper: '#e6d3ad', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '⚙ DRUMS', seq: '⚙ RITES', keys: '⚙ KEYS', mixer: '⚙ MIXER', synth: '⚙ SYNTH', fx: '⚙ FX', lib: '⚙ ARCHIVE' }
+  },
+  mushroom: {
+    name: 'Mushroom RGB', sub: '✿ SPORE SYNTH', glyph: '✦ ✿ ✦', particles: 'spores', rgb: true,
+    c1: '#0a0618', c2: '#120a24', c3: '#06040f', line: '#ff3cb4', glow: '#5aff8c', accent: '#5a8cff',
+    ink: '#05040f', paper: '#ffe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '✿ DRUMS', seq: '✿ SEQUENCERS', keys: '✿ KEYS', mixer: '✿ MIXER', synth: '✿ SYNTH', fx: '✿ FX', lib: '✿ LIBRARY' }
+  },
+  arcade: {
+    name: '80s Wizard Arcade', sub: '★ INSERT COIN', glyph: '★ ▲ ★', particles: 'galaga',
+    c1: '#000004', c2: '#000008', c3: '#000004', line: '#ff2828', glow: '#ffe23c', accent: '#3ca0ff',
+    ink: '#000006', paper: '#ffffff', font: "'Courier New',monospace",
+    titles: { pads: '▶ DRUMS', seq: '▶ SEQUENCE', keys: '▶ KEYS', mixer: '▶ MIXER', synth: '▶ SYNTH', fx: '▶ FX', lib: '▶ LIBRARY' }
+  }
+};
+// Module layout (grid positions) is shared across themes; titles come from the theme.
+const SE_MODULES = [
+  { id: 'pads', icon: 'drums', grid_position: { x: 1, y: 2, w: 4, h: 3 } },
+  { id: 'seq', icon: 'seq', grid_position: { x: 1, y: 5, w: 4, h: 2 } },
+  { id: 'synth', icon: 'synth', grid_position: { x: 1, y: 7, w: 4, h: 2 } },
+  { id: 'keys', icon: 'keys', grid_position: { x: 9, y: 2, w: 4, h: 3 } },
+  { id: 'mixer', icon: 'mixer', grid_position: { x: 9, y: 5, w: 4, h: 2 } },
+  { id: 'lib', icon: 'lib', grid_position: { x: 9, y: 7, w: 4, h: 2 } },
+  { id: 'fx', icon: 'fx', grid_position: { x: 5, y: 7, w: 4, h: 2 } }
+];
+let seThemeId = 'champloo';
+let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
+let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
+// Which live DOM panel powers each module id (re-parented, then returned home on exit)
+const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
+
+function seToast(msg) {
+  const t = document.getElementById('se-toast'); if (!t) return;
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200);
+}
+// hex → "r,g,b"
+function hexRGB(h) {
+  const m = h.replace('#', ''); const n = parseInt(m.length === 3 ? m.split('').map(c => c + c).join('') : m, 16);
+  return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
+}
+function seApplyTheme(th) {
+  const r = document.getElementById('se-root').style;
+  r.setProperty('--se-c1', th.c1); r.setProperty('--se-c2', th.c2); r.setProperty('--se-c3', th.c3);
+  r.setProperty('--se-line', th.line); r.setProperty('--se-glow', th.glow); r.setProperty('--se-accent', th.accent);
+  r.setProperty('--se-ink', th.ink); r.setProperty('--se-paper', th.paper); r.setProperty('--se-font', th.font);
+  r.setProperty('--se-ink-rgb', hexRGB(th.ink)); r.setProperty('--se-line-rgb', hexRGB(th.line)); r.setProperty('--se-glow-rgb', hexRGB(th.glow));
+  document.getElementById('se-root').setAttribute('data-theme', seThemeId);
+  const ti = document.getElementById('se-subtitle'); if (ti) ti.textContent = th.sub;
+  const gl = document.getElementById('se-hud-glyph'); if (gl) gl.textContent = th.glyph;
+  // the classic synth (scope + wave shaper) recolors to match the theme
+  document.body.style.setProperty('--wave-accent', th.glow);
+}
+function seColsRows() {
+  // 12-col grid mapped onto the viewport, leaving the center clear for the HUD
+  const W = innerWidth, H = innerHeight;
+  return { cw: W / 12, ch: (H - 52) / 8, top: 48 };
+}
+function seBuildModules() {
+  const host = document.getElementById('se-modules');
+  host.innerHTML = ''; seParked = [];
+  const { cw, ch, top } = seColsRows();
+  seLayout.modules.forEach(m => {
+    const src = document.getElementById(SE_SOURCE[m.id]);
+    if (!src) return;
+    const win = document.createElement('div');
+    win.className = 'se-mod ' + (m.style_class || 'glass');
+    win.dataset.mid = m.id;
+    const gp = m.grid_position;
+    // desktop: absolute glass window; mobile CSS overrides to a simple stack
+    win.style.left = ((gp.x - 1) * cw) + 'px';
+    win.style.top = (top + (gp.y - 1) * ch) + 'px';
+    win.style.width = (gp.w * cw - 10) + 'px';
+    win.style.height = (gp.h * ch - 10) + 'px';
+    const head = document.createElement('div'); head.className = 'se-mod-head';
+    const title = (seLayout.theme.titles && seLayout.theme.titles[m.id]) || m.id.toUpperCase();
+    head.innerHTML = `<span class="mt">${svgIcon(m.icon || 'fx')}${title}</span>`;
+    const min = document.createElement('button'); min.className = 'mmin'; min.textContent = '—';
+    head.appendChild(min);
+    const body = document.createElement('div'); body.className = 'se-mod-body';
+    // park the real panel's home so we can restore it on exit
+    seParked.push({ node: src, parent: src.parentNode, next: src.nextSibling, cssText: src.style.cssText });
+    // panels are position:absolute;inset:0;display:none by default — force them
+    // to flow visibly inside the glass module body
+    src.style.position = 'static';
+    src.style.inset = 'auto';
+    src.style.display = 'block';
+    src.classList.add('se-parked');
+    body.appendChild(src);
+    win.appendChild(head); win.appendChild(body);
+    host.appendChild(win);
+    // minimize → dock chip
+    min.addEventListener('click', e => {
+      e.stopPropagation();
+      win.classList.add('min');
+      const dock = document.getElementById('se-dock');
+      const chip = document.createElement('button'); chip.className = 'se-chip'; chip.textContent = m.title;
+      chip.addEventListener('click', () => { win.classList.remove('min'); chip.remove(); });
+      dock.appendChild(chip);
+    });
+    // drag by header
+    let drag = null;
+    head.addEventListener('pointerdown', e => {
+      if (e.target === min) return;
+      drag = { dx: e.clientX - win.offsetLeft, dy: e.clientY - win.offsetTop };
+      try { head.setPointerCapture(e.pointerId); } catch (err) {}
+      win.style.zIndex = 200;
+    });
+    head.addEventListener('pointermove', e => { if (drag) { win.style.left = Math.max(0, e.clientX - drag.dx) + 'px'; win.style.top = Math.max(44, e.clientY - drag.dy) + 'px'; } });
+    ['pointerup', 'pointercancel'].forEach(ev => head.addEventListener(ev, () => drag = null));
+  });
+}
+function seRestoreModules() {
+  // put every re-parented panel back exactly where it came from
+  seParked.forEach(p => {
+    p.node.classList.remove('se-parked');
+    p.node.style.cssText = p.cssText; // restore original inline styles verbatim
+    if (p.next && p.next.parentNode === p.parent) p.parent.insertBefore(p.node, p.next);
+    else p.parent.appendChild(p.node);
+  });
+  seParked = [];
+}
+// ---- Circular orbital HUD bound to the AnalyserNode ----
+function seDrawHUD() {
+  const cv = document.getElementById('se-hud'); if (!cv) return;
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+  let sweep = 0, freq = null;
+  if (audioReady && analyser) freq = new Uint8Array(analyser.frequencyBinCount);
+  const loop = () => {
+    if (!seOn) return;
+    seHudRAF = requestAnimationFrame(loop);
+    // live theme colours (change instantly when the theme is switched)
+    const th = seLayout.theme, lineC = hexRGB(th.line), glowC = hexRGB(th.glow), accC = hexRGB(th.accent), inkC = hexRGB(th.ink);
+    g.clearRect(0, 0, W, H);
+    let level = 0;
+    if (freq) { analyser.getByteFrequencyData(freq); for (let i = 0; i < freq.length; i++) level += freq[i]; level /= freq.length * 255; }
+    // outer static rings
+    for (let r = 0; r < 3; r++) {
+      const rad = 150 + r * 26;
+      g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2);
+      g.strokeStyle = 'rgba(' + lineC + ',' + (0.5 - r * 0.12) + ')'; g.lineWidth = r === 0 ? 2 : 1; g.stroke();
+    }
+    // tick marks
+    g.strokeStyle = 'rgba(' + glowC + ',.55)';
+    for (let a = 0; a < 60; a++) {
+      const ang = (a / 60) * Math.PI * 2, big = a % 5 === 0;
+      const r1 = 150, r2 = 150 - (big ? 12 : 6);
+      g.beginPath(); g.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); g.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2); g.lineWidth = big ? 2 : 1; g.stroke();
+    }
+    // radial spectrum bars (react to audio) — colour lerps line→glow with level
+    if (freq) {
+      const n = 72, step = Math.floor(freq.length / n);
+      for (let i = 0; i < n; i++) {
+        const v = freq[i * step] / 255, ang = (i / n) * Math.PI * 2 - Math.PI / 2;
+        const r1 = 60, r2 = 60 + v * 78;
+        g.beginPath(); g.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); g.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
+        g.strokeStyle = 'rgba(' + (v > 0.5 ? glowC : accC) + ',' + (0.4 + v * 0.6) + ')'; g.lineWidth = 3; g.stroke();
+      }
+    }
+    // rotating dial ring driven by transport / level
+    const t = performance.now() / 1000;
+    const spin = t * (0.4 + level * 3);
+    g.save(); g.translate(cx, cy); g.rotate(spin);
+    g.beginPath(); g.arc(0, 0, 118, 0, Math.PI * 1.5); g.strokeStyle = th.glow; g.lineWidth = 3; g.stroke();
+    g.beginPath(); g.arc(0, 0, 100, Math.PI, Math.PI * 2.1); g.strokeStyle = th.accent; g.lineWidth = 2; g.stroke();
+    g.restore();
+    // sweep needle (radar) — speed follows BPM if playing
+    {
+      const bpm = parseInt((document.getElementById('bpm') || {}).value) || 90;
+      sweep += (seqPlaying ? bpm / 900 : 0.012);
+      const ang = sweep % (Math.PI * 2);
+      const grd = g.createLinearGradient(cx, cy, cx + Math.cos(ang) * 150, cy + Math.sin(ang) * 150);
+      grd.addColorStop(0, 'rgba(' + glowC + ',.9)'); grd.addColorStop(1, 'rgba(' + glowC + ',0)');
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(ang) * 150, cy + Math.sin(ang) * 150);
+      g.strokeStyle = grd; g.lineWidth = 3; g.stroke();
+      g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 150, ang - 0.5, ang); g.closePath();
+      g.fillStyle = 'rgba(' + glowC + ',.06)'; g.fill();
+    }
+    // center hub
+    g.beginPath(); g.arc(cx, cy, 52, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(' + inkC + ',.55)'; g.fill(); g.strokeStyle = th.glow; g.lineWidth = 2; g.stroke();
+    const bpmEl = document.getElementById('se-bpm-val'); if (bpmEl) bpmEl.textContent = (document.getElementById('bpm') || {}).value || '90';
+  };
+  loop();
+}
+// ---- Flanking arced level meters ----
+function seDrawArcs() {
+  ['se-arc-l', 'se-arc-r'].forEach((id, side) => {
+    const cv = document.getElementById(id); if (!cv) return;
+    const dpr = 1; cv.width = 130; cv.height = Math.min(innerHeight * 0.6, 470);
+    const g = cv.getContext('2d');
+    let freq = (audioReady && analyser) ? new Uint8Array(analyser.frequencyBinCount) : null;
+    const loop = () => {
+      if (!seOn) return; requestAnimationFrame(loop);
+      const W = cv.width, H = cv.height; g.clearRect(0, 0, W, H);
+      let level = 0;
+      if (freq) { analyser.getByteFrequencyData(freq); const half = side ? [freq.length / 2, freq.length] : [0, freq.length / 2]; for (let i = half[0]; i < half[1]; i++) level += freq[i]; level /= (freq.length / 2) * 255; }
+      const cx = side ? -10 : W + 10, cy = H / 2, rad = H * 0.46;
+      const a0 = side ? -Math.PI / 3 : Math.PI + Math.PI / 3, a1 = side ? Math.PI / 3 : Math.PI - Math.PI / 3;
+      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.max(a0, a1)); g.strokeStyle = 'rgba(' + hexRGB(seLayout.theme.line) + ',.28)'; g.lineWidth = 8; g.stroke();
+      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.min(a0, a1) + (Math.abs(a1 - a0)) * level); g.strokeStyle = 'rgba(' + hexRGB(seLayout.theme.glow) + ',.9)'; g.lineWidth = 8; g.stroke();
+    };
+    loop();
+  });
+}
+// ---- Parallax: shift background layers with pointer / device tilt ----
+let seParallaxBound = false;
+function seParallax(e) {
+  if (!seOn) return;
+  const mx = (e.clientX / innerWidth - 0.5), my = (e.clientY / innerHeight - 0.5);
+  document.querySelectorAll('#se-root [data-depth]').forEach(el => {
+    const d = parseFloat(el.dataset.depth) || 0;
+    el.style.transform = (el.classList.contains('se-motif') ? 'translateX(-50%) ' : '') + `translate(${-mx * d}px, ${-my * d}px)`;
+  });
+}
+
+// ---- Animated particle field — a different look per theme ----
+let seParticles = [];
+function seInitParticles() {
+  const cv = document.getElementById('se-particles'); if (!cv) return;
+  cv.width = innerWidth; cv.height = innerHeight;
+  const kind = seLayout.theme.particles, N = kind === 'stars' || kind === 'galaga' ? 140 : 70;
+  seParticles = [];
+  for (let i = 0; i < N; i++) seParticles.push({
+    x: Math.random() * cv.width, y: Math.random() * cv.height,
+    z: Math.random(), r: Math.random() * 2 + 0.5,
+    vx: (Math.random() - 0.5) * 0.3, vy: Math.random() * 0.6 + 0.1,
+    hue: Math.random() * 360, ph: Math.random() * Math.PI * 2
+  });
+}
+function seParticleFrame() {
+  if (!seOn) return;
+  seParticleRAF = requestAnimationFrame(seParticleFrame);
+  const cv = document.getElementById('se-particles'); if (!cv) return;
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height, th = seLayout.theme, kind = th.particles;
+  g.clearRect(0, 0, W, H);
+  const t = performance.now() / 1000;
+  for (const p of seParticles) {
+    if (kind === 'stars' || kind === 'galaga') {           // starfield drifting downward
+      p.y += (kind === 'galaga' ? 1.6 : 0.4) * (0.3 + p.z);
+      if (p.y > H) { p.y = 0; p.x = Math.random() * W; }
+      const tw = 0.5 + 0.5 * Math.sin(t * 3 + p.ph);
+      g.fillStyle = kind === 'galaga'
+        ? ['#fff', '#ff2828', '#3ca0ff', '#ffe23c'][(p.ph * 4 | 0) % 4]
+        : 'rgba(' + hexRGB(th.glow) + ',' + tw + ')';
+      g.fillRect(p.x, p.y, p.r * (p.z + 0.5), p.r * (p.z + 0.5));
+    } else if (kind === 'rain') {                          // cyberpunk code-rain streaks
+      p.y += 3 + p.z * 4; if (p.y > H) { p.y = -20; p.x = Math.random() * W; }
+      g.strokeStyle = 'rgba(' + hexRGB(p.z > 0.5 ? th.line : th.glow) + ',' + (0.15 + p.z * 0.5) + ')';
+      g.lineWidth = 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x, p.y + 14); g.stroke();
+    } else if (kind === 'embers') {                        // warhammer rising embers
+      p.y -= 0.4 + p.z; p.x += Math.sin(t + p.ph) * 0.3;
+      if (p.y < 0) { p.y = H; p.x = Math.random() * W; }
+      g.fillStyle = 'rgba(' + hexRGB(th.accent) + ',' + (0.2 + p.z * 0.5) + ')';
+      g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+    } else if (kind === 'spores') {                        // mushroom RGB drifting spores
+      p.x += p.vx; p.y += Math.sin(t + p.ph) * 0.4 - 0.2;
+      if (p.y < 0) p.y = H; if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+      g.fillStyle = 'hsla(' + ((p.hue + t * 60) % 360) + ',90%,65%,0.7)';
+      g.beginPath(); g.arc(p.x, p.y, p.r + 1, 0, Math.PI * 2); g.fill();
+    } else {                                                // petals (samurai) drifting down
+      p.y += 0.5 + p.z; p.x += Math.sin(t + p.ph) * 0.6;
+      if (p.y > H) { p.y = -10; p.x = Math.random() * W; }
+      g.fillStyle = 'rgba(' + hexRGB(th.accent) + ',' + (0.25 + p.z * 0.4) + ')';
+      g.beginPath(); g.ellipse(p.x, p.y, p.r + 1.5, p.r * 0.6, p.ph + t, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // the New Year's dragon rides the samurai sky
+  if (seThemeId === 'champloo') seDrawDragon(g, W, H);
+  // mushroom theme: cycle the RGB accent lines live
+  if (th.rgb) {
+    const hue = (t * 60) % 360;
+    const root = document.getElementById('se-root').style;
+    root.setProperty('--se-line', 'hsl(' + hue + ',90%,62%)');
+    root.setProperty('--se-glow', 'hsl(' + ((hue + 120) % 360) + ',90%,68%)');
+    root.setProperty('--se-line-rgb', '255,90,180'); root.setProperty('--se-glow-rgb', '120,255,150');
+  }
+}
+
+// ---- Enter / exit / switch themes ----
+function seRenderBarIcons() {
+  document.getElementById('se-play').innerHTML = svgIcon(seqPlaying ? 'pause' : 'play');
+  document.getElementById('se-panic').innerHTML = svgIcon('panic');
+  document.getElementById('se-ai').innerHTML = svgIcon('ai');
+  document.getElementById('se-lib').innerHTML = svgIcon('lib');
+  document.getElementById('se-revolve').innerHTML = svgIcon('orbit');
+  document.getElementById('se-exit').innerHTML = svgIcon('exit');
+}
+function buildThemeBar() {
+  const bar = document.getElementById('se-themebar'); if (!bar) return;
+  bar.innerHTML = '';
+  Object.entries(SE_THEMES).forEach(([id, th]) => {
+    const b = document.createElement('button');
+    b.className = 'se-theme-btn' + (id === seThemeId ? ' on' : '');
+    b.textContent = th.name;
+    b.addEventListener('click', () => switchTheme(id));
+    bar.appendChild(b);
+  });
+  const cls = document.createElement('button');
+  cls.className = 'se-theme-btn'; cls.textContent = '✕ CLASSIC';
+  cls.addEventListener('click', exitSE);
+  bar.appendChild(cls);
+}
+function switchTheme(id) {
+  if (!SE_THEMES[id]) return;
+  seThemeId = id; seLayout = { theme: SE_THEMES[id], modules: SE_MODULES };
+  seApplyTheme(seLayout.theme);
+  document.querySelectorAll('#se-themebar .se-theme-btn').forEach(b => b.classList.toggle('on', b.textContent === SE_THEMES[id].name));
+  // rebuild module titles/icons for the new theme, keep positions
+  document.querySelectorAll('.se-mod').forEach(win => {
+    const m = SE_MODULES.find(x => x.id === win.dataset.mid); if (!m) return;
+    const title = seLayout.theme.titles[m.id] || m.id.toUpperCase();
+    const mt = win.querySelector('.se-mod-head .mt'); if (mt) mt.innerHTML = svgIcon(m.icon) + title;
+  });
+  seInitParticles();
+  const t = document.getElementById('se-title'); if (t) { const s = document.getElementById('se-subtitle'); }
+  seToast(SE_THEMES[id].name + ' — theme engaged');
+}
+function enterSE(themeId) {
+  if (!audioReady) initAudio();
+  if (themeId) seThemeId = themeId;
+  seLayout = { theme: SE_THEMES[seThemeId], modules: SE_MODULES };
+  seWasStudio = document.body.classList.contains('studio');
+  if (seWasStudio) exitStudio();
+  seOn = true;
+  document.body.classList.add('se-active');
+  seApplyTheme(seLayout.theme);
+  seRenderBarIcons();
+  buildThemeBar();
+  document.getElementById('se-dock').innerHTML = '';
+  seBuildModules();
+  seDrawHUD();
+  seDrawArcs();
+  seInitParticles();
+  seParticleFrame();
+  if (!seParallaxBound) { window.addEventListener('pointermove', seParallax); seParallaxBound = true; }
+  seToast(seLayout.theme.name + ' — pick a theme below · drag the glass panels · ✕ = classic');
+}
+function exitSE() {
+  seOn = false; seRevolve = false;
+  if (seHudRAF) cancelAnimationFrame(seHudRAF);
+  if (seParticleRAF) cancelAnimationFrame(seParticleRAF);
+  seRestoreModules();
+  document.body.classList.remove('se-active');
+  document.body.style.removeProperty('--wave-accent');
+  applyLayout();
+  toast('Back to classic studio');
+}
+function toggleSE() { if (seOn) exitSE(); else enterSE(); }
+// wire entry + in-skin controls
+document.getElementById('bnr-se').addEventListener('click', toggleSE);
+document.getElementById('se-exit').addEventListener('click', exitSE);
+document.getElementById('se-play').addEventListener('click', () => { seqPlayPause(); seRenderBarIcons(); });
+document.getElementById('se-panic').addEventListener('click', () => panicStopAll());
+document.getElementById('se-lib').addEventListener('click', () => { exitSE(); document.getElementById('bnr-lib').click(); });
+document.getElementById('se-ai').addEventListener('click', () => { exitSE(); document.getElementById('bnr-ai').click(); });
+// ---- REVOLVE MODE — the windows orbit the HUD; the scroll wheel spins them ----
+let seRevolve = false, seOrbitAngle = 0;
+function seLayoutGrid() {
+  const { cw, ch, top } = seColsRows();
+  document.querySelectorAll('.se-mod').forEach(win => {
+    const m = SE_MODULES.find(x => x.id === win.dataset.mid); if (!m) return;
+    const gp = m.grid_position;
+    win.style.left = ((gp.x - 1) * cw) + 'px';
+    win.style.top = (top + (gp.y - 1) * ch) + 'px';
+    win.style.width = (gp.w * cw - 10) + 'px';
+    win.style.height = (gp.h * ch - 10) + 'px';
+    win.style.transform = ''; win.style.zIndex = '';
+  });
+}
+function seLayoutRevolve() {
+  const wins = [...document.querySelectorAll('.se-mod')];
+  const N = wins.length || 1;
+  const cx = innerWidth / 2, cy = innerHeight / 2 - 10;
+  const rx = Math.min(innerWidth * 0.40, 600), ry = Math.min(innerHeight * 0.30, 260);
+  const w = 380, h = 280;
+  wins.forEach((win, i) => {
+    const a = seOrbitAngle + i * Math.PI * 2 / N + Math.PI / 2; // front at bottom
+    const x = cx + Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
+    const depth = (Math.sin(a) + 1) / 2; // 1 = closest (bottom of ellipse)
+    const sc = 0.5 + depth * 0.55;
+    win.style.width = w + 'px'; win.style.height = h + 'px';
+    win.style.left = (x - w * sc / 2) + 'px';
+    win.style.top = (y - h * sc / 2) + 'px';
+    win.style.transform = 'scale(' + sc.toFixed(3) + ')';
+    win.style.transformOrigin = 'top left';
+    win.style.zIndex = 30 + Math.round(depth * 40);
+  });
+}
+function setRevolve(on) {
+  seRevolve = on;
+  document.getElementById('se-revolve').classList.toggle('on', on);
+  if (on) { seLayoutRevolve(); seToast('◉ REVOLVE — scroll to spin the console around the HUD'); }
+  else seLayoutGrid();
+}
+document.getElementById('se-revolve').addEventListener('click', () => setRevolve(!seRevolve));
+
+// scroll wheel: spins the carousel in revolve mode, cycles themes otherwise
+document.getElementById('se-root').addEventListener('wheel', e => {
+  if (!seOn) return;
+  if (e.target.closest('.se-mod-body')) return; // let module content scroll normally
+  e.preventDefault();
+  if (seRevolve) {
+    seOrbitAngle += (e.deltaY > 0 ? 1 : -1) * (Math.PI * 2 / (document.querySelectorAll('.se-mod').length || 7));
+    seLayoutRevolve();
+    return;
+  }
+  const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
+  switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
+}, { passive: false });
+
+// ---- HUD-CENTER AI CONSOLE ----
+const seAiInput = document.getElementById('se-ai-input');
+seAiInput.addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const q = seAiInput.value.trim();
+  if (!q) return;
+  seAiInput.value = '';
+  document.getElementById('se-ai-status').textContent = 'WORKING…';
+  try { await aiSearch(q); } catch (err) {}
+  document.getElementById('se-ai-status').textContent = 'AI CONSOLE';
+  seToast('🤖 ' + q.slice(0, 40));
+});
+seAiInput.addEventListener('pointerdown', e => e.stopPropagation());
+
+// ---- FLOATING BPM / VOLUME PILLS — drag anywhere, control the real transport ----
+function sePillDrag(pill) {
+  let drag = null;
+  pill.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+    drag = { dx: e.clientX - pill.offsetLeft, dy: e.clientY - pill.offsetTop };
+    try { pill.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  pill.addEventListener('pointermove', e => {
+    if (!drag) return;
+    pill.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
+    pill.style.top = Math.max(0, e.clientY - drag.dy) + 'px';
+    pill.style.right = 'auto';
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => pill.addEventListener(ev, () => drag = null));
+}
+sePillDrag(document.getElementById('se-bpm-pill'));
+sePillDrag(document.getElementById('se-vol-pill'));
+function seBpmNudge(d) {
+  const el = document.getElementById('bpm');
+  el.value = Math.max(40, Math.min(300, (parseInt(el.value) || 120) + d));
+  document.getElementById('se-bpm-val').textContent = el.value;
+}
+document.getElementById('se-bpm-dn').addEventListener('click', () => seBpmNudge(-1));
+document.getElementById('se-bpm-up').addEventListener('click', () => seBpmNudge(1));
+document.getElementById('se-vol-range').addEventListener('input', e => {
+  const mv = document.getElementById('master-vol');
+  mv.value = e.target.value;
+  mv.dispatchEvent(new Event('input'));
+});
+
+// ---- NEW YEAR'S DRAGON — serpentine gold/red flyby (samurai theme) ----
+let seDragonT = 0;
+function seDrawDragon(g, W, H) {
+  seDragonT += 1 / 60;
+  const cycle = 22, T = seDragonT % cycle;
+  if (T > 11) return; // rests between flights
+  const prog = T / 11;
+  const hx = -160 + prog * (W + 320);
+  const segs = 26;
+  for (let s = segs - 1; s >= 0; s--) {
+    const sx = hx - s * 22;
+    if (sx < -40 || sx > W + 40) continue;
+    const sy = H * 0.26 + Math.sin(seDragonT * 2.2 - s * 0.55) * 48;
+    const r = Math.max(3, 14 - s * 0.38);
+    g.fillStyle = s % 4 === 0 ? 'rgba(192,57,43,.85)' : 'rgba(217,164,65,.82)';
+    g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2); g.fill();
+    if (s % 2 === 0 && s > 0) { // dorsal fins
+      g.beginPath(); g.moveTo(sx - 4, sy - r); g.lineTo(sx, sy - r - 9); g.lineTo(sx + 4, sy - r); g.closePath();
+      g.fillStyle = 'rgba(242,205,107,.9)'; g.fill();
+    }
+    if (s === 0) { // head: eye, horns, whiskers
+      g.fillStyle = 'rgba(217,164,65,.95)';
+      g.beginPath(); g.ellipse(sx + 10, sy, 17, 11, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#120404'; g.beginPath(); g.arc(sx + 16, sy - 3, 2.3, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(242,205,107,.95)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(sx + 4, sy - 10); g.lineTo(sx - 5, sy - 21); g.stroke();
+      g.beginPath(); g.moveTo(sx + 11, sy - 10); g.lineTo(sx + 7, sy - 22); g.stroke();
+      g.beginPath(); g.moveTo(sx + 25, sy + 1); g.quadraticCurveTo(sx + 42, sy + 5, sx + 48, sy - 3); g.stroke();
+      g.beginPath(); g.moveTo(sx + 25, sy + 5); g.quadraticCurveTo(sx + 44, sy + 12, sx + 52, sy + 8); g.stroke();
+    }
+  }
+}
+window.addEventListener('resize', () => {
+  if (!seOn) return;
+  // reposition glass windows to the new viewport without re-parenting panels
+  if (seRevolve) seLayoutRevolve(); else seLayoutGrid();
+  seInitParticles();
+});
+
+// ---- Per-window show/hide toggles in the banner ----
+const WIN_TOGGLES = [
+  ['slot-pads', 'PADS'], ['slot-seq', 'SEQ'], ['slot-keyseq', 'KEYSEQ'], ['slot-keys', 'KEYS'],
+  ['slot-faders', 'MIX'], ['slot-wave', 'SYNTH'], ['slot-fx', 'FX'], ['slot-master', 'LOOP']
+];
+let winHidden = {};
+try { winHidden = JSON.parse(localStorage.getItem('skrimpad_winhidden') || '{}'); } catch (e) {}
+function applyWinVis() {
+  WIN_TOGGLES.forEach(([id]) => { const el = document.getElementById(id); if (el) el.style.display = winHidden[id] ? 'none' : ''; });
+}
+function buildWinToggles() {
+  const host = document.getElementById('win-toggles'); if (!host) return;
+  host.innerHTML = '';
+  WIN_TOGGLES.forEach(([id, label]) => {
+    const b = document.createElement('button');
+    b.className = 'win-tog' + (winHidden[id] ? '' : ' on');
+    b.textContent = label;
+    b.title = 'Toggle ' + label + ' window';
+    b.addEventListener('click', () => {
+      winHidden[id] = !winHidden[id];
+      b.classList.toggle('on', !winHidden[id]);
+      try { localStorage.setItem('skrimpad_winhidden', JSON.stringify(winHidden)); } catch (e) {}
+      applyWinVis();
+    });
+    host.appendChild(b);
+  });
+  applyWinVis();
+}
+buildWinToggles();
         // Tap Detection (Raycasting Sandbox)
         window.addEventListener('click', (e) => {
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -187,6 +759,12 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+// One version, all themes. Enter the HUD from the ⛩ button; the theme bar at
+// the bottom switches between Samurai / Space Dust / Cyberpunk / Warhammer /
+// Mushroom / 80s Arcade live. Scroll-wheel over the backdrop also cycles them.
+// (No auto-boot — the classic studio is the default landing.)
+
+</script>
         animate();
     </script>
 </body>

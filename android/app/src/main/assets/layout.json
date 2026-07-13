@@ -1,0 +1,29 @@
+{
+  "name": "Samurai Champloo",
+  "theme": {
+    "class": "champloo",
+    "bg1": "#2a0a0a",
+    "bg2": "#6b1414",
+    "bg3": "#8a1f1f",
+    "gold": "#d9a441",
+    "goldBright": "#f2cd6b",
+    "ink": "#120404",
+    "paper": "#e8dcc0",
+    "accent": "#c0392b",
+    "font": "'Oswald', 'Arial Narrow', sans-serif"
+  },
+  "hud": {
+    "type": "orbital_radar",
+    "rings": 3,
+    "sweep": true,
+    "bind": "analyser"
+  },
+  "modules": [
+    { "id": "pads",  "type": "drumpad",     "title": "太鼓 DRUMS + SEQ",  "grid_position": { "x": 1, "y": 2, "w": 4, "h": 4 }, "style_class": "glass" },
+    { "id": "keys",  "type": "keyboard",    "title": "琴 KEYS",           "grid_position": { "x": 9, "y": 2, "w": 4, "h": 3 }, "style_class": "glass" },
+    { "id": "mixer", "type": "knob_matrix", "title": "混 MIXER",          "grid_position": { "x": 9, "y": 5, "w": 4, "h": 2 }, "style_class": "glass" },
+    { "id": "synth", "type": "scope",       "title": "波 SYNTH + WAVE",   "grid_position": { "x": 1, "y": 6, "w": 4, "h": 2 }, "style_class": "glass" },
+    { "id": "fx",    "type": "knob_matrix", "title": "効 FX PEDALS",      "grid_position": { "x": 5, "y": 7, "w": 4, "h": 1 }, "style_class": "glass" },
+    { "id": "lib",   "type": "library",     "title": "蔵 LIBRARY",        "grid_position": { "x": 9, "y": 7, "w": 4, "h": 1 }, "style_class": "glass" }
+  ]
+}

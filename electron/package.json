@@ -22,6 +22,10 @@
       {
         "from": "app/index.html",
         "to": "index.html"
+      },
+      {
+        "from": "app/layout.json",
+        "to": "layout.json"
       }
     ],
     "win": {

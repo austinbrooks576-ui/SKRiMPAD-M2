@@ -1,0 +1,74 @@
+name: Build APK (Special Edition)
+
+on:
+  push:
+    branches: [claude/special-edition-samurai]
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-apk-se.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk skrimpad-m2-special-edition.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-m2-special-edition
+          path: skrimpad-m2-special-edition.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: se-v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 — Special Edition (Samurai Champloo) v1.0.${{ github.run_number }}
+          body: |
+            SKRiMPAD M2 — **Special Edition** — SIX switchable themes in one build:
+            Samurai Champloo · Space Dust · Cyberpunk · Adeptus Mechanicus ·
+            Mushroom RGB · 80s Wizard Arcade.
+
+            Press ⛩ to enter the HUD, pick a theme from the bar (or scroll-wheel the
+            backdrop to cycle). AI console in the HUD center, floating BPM/volume pills,
+            REVOLVE orbit mode, katana separators + New Year's dragon (samurai), themed
+            SVG icons, per-theme particle skies, frosted-glass modules. ✕ = classic studio.
+
+            Includes every consumer feature: 9-pad banks, separated sequencers,
+            library-first import with trim, 10 FX pedals, overload guard, MIDI +
+            controller mapping, 34 genres.
+
+            **Install:** Download `skrimpad-m2-special-edition.apk`, enable "Install unknown
+            apps" in Android settings, then open to install.
+          files: skrimpad-m2-special-edition.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
