@@ -434,6 +434,27 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 #mixer{display:flex;gap:5px;overflow-x:auto;padding:8px 2px 4px;}
 .mix-ch{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 36px;}
 .mix-track{position:relative;width:26px;height:170px;background:var(--surf3);border:1px solid var(--bdr);border-radius:13px;cursor:ns-resize;touch-action:none;}
+.mix-pan{width:34px;height:10px;accent-color:var(--orange);margin:2px 0;}
+.mix-ms{display:flex;gap:2px;}
+.mix-m,.mix-s{width:16px;height:14px;font-size:8px;font-weight:800;border-radius:3px;border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);cursor:pointer;padding:0;}
+.mix-m.on{background:var(--red);color:#fff;border-color:var(--red);}
+.mix-s.on{background:var(--yellow,#ffd600);color:#000;border-color:var(--yellow,#ffd600);}
+
+/* ---- FLOATING WINDOWS (desktop studio) ---- */
+body.studio.float #studio{display:block;position:relative;overflow:hidden;}
+body.studio.float #studio > div[id^=slot-]:not(#slot-banner):not(#slot-master){
+  position:absolute;resize:both;overflow:auto;min-width:230px;min-height:150px;
+  background:var(--surf);border:1px solid var(--bdr);border-radius:10px;
+  box-shadow:0 10px 34px rgba(0,0,0,.55);padding:8px;
+}
+body.studio.float #slot-banner{position:relative;z-index:2800;margin-bottom:4px;}
+body.studio.float #slot-master{position:fixed;bottom:0;left:0;right:0;z-index:2700;background:var(--surf);border-top:1px solid var(--bdr);}
+body.studio.float .slot-title{cursor:move;user-select:none;}
+.fw-hidden{display:none !important;}
+#float-dock{position:fixed;bottom:52px;left:10px;display:flex;gap:6px;z-index:3200;flex-wrap:wrap;}
+.fw-chip{padding:5px 12px;border-radius:14px;border:1px solid var(--teal);background:var(--surf2);color:var(--teal);font-size:10px;font-weight:800;cursor:pointer;}
+.fw-min{margin-left:auto;width:18px;height:16px;border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);border-radius:4px;font-size:9px;line-height:1;cursor:pointer;}
+#bnr-float.on{background:var(--teal);color:#000;}
 .mix-fill{position:absolute;left:0;right:0;bottom:0;border-radius:13px;opacity:.3;}
 .mix-thumb{position:absolute;left:-5px;right:-5px;height:14px;border-radius:7px;background:var(--txt);box-shadow:0 2px 6px rgba(0,0,0,.5);pointer-events:none;}
 .mix-lbl{font-size:7px;font-weight:800;width:36px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1084,6 +1105,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
 <div class="panel" id="lib-panel">
   <div class="sec-label">SOUND LIBRARY — YOUR SOUNDS ARE SAVED ON THIS DEVICE</div>
   <div class="lay-hint">CLICK = preview · RIGHT-CLICK/HOLD = assign to selected pad · CTRL+CLICK = assign to keys · ✂ = open in sample editor · ✕ = delete forever</div>
+  <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
   <div id="lib-tabs-p" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
   <div id="lib-grid-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
 </div>
@@ -1100,6 +1122,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
     <button class="bnr-btn" id="bnr-panic" title="PANIC — kill all sound">🛑</button>
     <button class="bnr-btn" id="bnr-ai" title="AI — full interface: search, styles, brain settings">🤖</button>
     <button class="bnr-btn" id="bnr-lib" title="Sound library">📚</button>
+    <button class="bnr-btn" id="bnr-float" title="Floating windows — drag, resize, minimize each tile">🪟</button>
     <button class="bnr-btn" id="bnr-analyze" title="Analyze sound">🔍</button>
     <select id="bnr-style" title="Style"></select>
     <button class="bnr-btn" id="bnr-drums" title="Generate + apply drum pattern">🥁</button>
@@ -1176,6 +1199,7 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="hbtn" id="gen-make">GENERATE</button>
       <span class="lay-hint" style="margin:0">invents a brand-new sound and saves it to MY SOUNDS</span>
     </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
     <div id="lib-tabs" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
     <div id="lib-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
   </div>
@@ -1203,6 +1227,21 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
       <button class="hbtn" id="drag-toggle">DRAG: OFF</button>
       <span style="font-size:9px;color:var(--mute)">When on, grab any tile by its title and drop it on another to swap positions.</span>
     </div>
+    <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">HARDWARE — MIDI &amp; CONTROLLERS</div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <button class="hbtn" id="midi-enable">🎹 ENABLE MIDI</button>
+      <button class="hbtn" id="midi-learn">MIDI LEARN: PAD</button>
+      <span id="midi-status" style="font-size:9px;color:var(--mute)">MIDI off</span>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:9px;color:var(--mute)">PAD BASE NOTE <input id="midi-padbase" type="number" min="0" max="96" value="36" style="width:44px;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:4px;padding:2px"></label>
+      <label style="font-size:9px;color:var(--mute)">KEYS FROM NOTE <input id="midi-keysplit" type="number" min="0" max="96" value="48" style="width:44px;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:4px;padding:2px"></label>
+    </div>
+    <div class="lay-hint" style="margin-top:6px">MIDI: notes below the split fire pads, above play keys. CC1=filter · CC7=master vol · CC20-39=pad faders. LEARN: click, then press a pad in the app, then hit a MIDI key to bind it.</div>
+    <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <span id="gp-status" style="font-size:9px;color:var(--mute)">🎮 No controller — plug in / press any button on an Xbox or generic gamepad</span>
+    </div>
+    <div class="lay-hint" style="margin-top:4px">GAMEPAD: A/B/X/Y + bumpers/triggers + D-pad fire pads 1-12 · START = play/pause · BACK = panic · right stick = BPM nudge.</div>
   </div>
 </div>
 
@@ -1364,7 +1403,8 @@ function downloadWav(buf, name) {
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
-function getOutput() { return fxChain.input || masterComp; }
+let routeOverride = null; // temporarily routes synth voices through a pad's channel strip (pan)
+function getOutput() { return routeOverride || fxChain.input || masterComp; }
 
 // =============================================
 // FX CHAIN
@@ -1710,22 +1750,37 @@ const drumDefs = [
 ];
 
 // Play a one-shot AudioBuffer (imported sample) at time t, optional pitch ratio + volume
-function playSampleBuf(buf, t, rate, vol) {
+function playSampleBuf(buf, t, rate, vol, out) {
   const src = ctx.createBufferSource();
   src.buffer = buf; src.playbackRate.value = rate || 1;
   const g = ctx.createGain(); g.gain.value = vol !== undefined ? vol : 1;
-  src.connect(g); g.connect(getOutput());
+  src.connect(g); g.connect(out || getOutput());
   src.start(t);
   return { src, g };
+}
+
+// Per-pad channel strip: StereoPanner re-wired into the fx chain on every hit
+function padChannel(def) {
+  if (!def.pan) return null;
+  if (!def._pan) def._pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  if (!def._pan) return null;
+  def._pan.pan.value = def.pan;
+  try { def._pan.disconnect(); } catch (e) {}
+  def._pan.connect(fxChain.input || masterComp);
+  return def._pan;
 }
 
 // Trigger a drum pad — primary sample, else synth voice, plus optional layer sample
 function playDrum(i, t) {
   const def = drumDefs[i];
+  if (def.muted) return;
+  if (drumDefs.some(d => d.solo) && !def.solo) return;
   const vol = def.vol !== undefined ? def.vol : 1;
-  if (def.sampleBuf) playSampleBuf(def.sampleBuf, t, 1, vol);
+  const chan = padChannel(def);
+  if (def.sampleBuf) playSampleBuf(def.sampleBuf, t, 1, vol, chan);
+  else if (chan) { routeOverride = chan; try { def.fn(t); } finally { routeOverride = null; } }
   else def.fn(t);
-  if (def.sampleBuf2) playSampleBuf(def.sampleBuf2, t, 1, vol * 0.85);
+  if (def.sampleBuf2) playSampleBuf(def.sampleBuf2, t, 1, vol * 0.85, chan);
 }
 
 // =============================================
@@ -2983,6 +3038,11 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 });
 
 function applyKeyMode(mode) {
+  // A sound assigned to this mode (right-click/hold the button) overrides everything:
+  // keys play that sample pitched around its root note.
+  const ms = modeSounds[mode];
+  synth.keySampleBuf = ms ? ms.buf : null;
+  if (ms) synth.keySampleRoot = ms.root || 60;
   // LASER and ROBOT use their own voice generators — no oscillator preset
   if (mode === 'laser' || mode === 'robot') return;
   const presets = {
@@ -3014,6 +3074,10 @@ function renderModeButtons() {
       synth.keyMode = f;
       applyKeyMode(synth.keyMode);
     });
+    if (modeSounds[f]) btn.textContent = '🎵' + btn.textContent;
+    const menuFn = e => openModeMenu(f, (e && e.clientX) || 100, (e && e.clientY) || 200);
+    btn.addEventListener('contextmenu', e => { e.preventDefault(); menuFn(e); });
+    addLongPress(btn, menuFn);
     modeBar.appendChild(btn);
   });
 }
@@ -3933,7 +3997,7 @@ async function idbSave(entry) {
   for (let c = 0; c < buf.numberOfChannels; c++) ch.push(buf.getChannelData(c).slice().buffer);
   await new Promise((res, rej) => {
     const tx = db.transaction('sounds', 'readwrite');
-    const rq = tx.objectStore('sounds').add({ name: entry.name, sub: entry.sub, sr: buf.sampleRate, len: buf.length, ch });
+    const rq = tx.objectStore('sounds').add({ name: entry.name, sub: entry.sub, cat: entry.cat || 'MY SOUNDS', sr: buf.sampleRate, len: buf.length, ch });
     rq.onsuccess = () => { entry.idbId = rq.result; res(); };
     rq.onerror = () => rej(rq.error);
   });
@@ -3955,9 +4019,12 @@ async function libLoadPersisted() {
     rows.reverse().forEach(r => {
       const buf = ctx.createBuffer(r.ch.length, r.len, r.sr);
       r.ch.forEach((ab, c) => buf.getChannelData(c).set(new Float32Array(ab)));
-      const entry = { name: r.name, sub: r.sub, buf, fn: t => playSampleBuf(buf, t, 1, 0.9), idbId: r.id };
-      SOUND_LIB['MY SOUNDS'].push(entry);
+      const cat = r.cat || 'MY SOUNDS';
+      if (!SOUND_LIB[cat]) SOUND_LIB[cat] = [];
+      const entry = { name: r.name, sub: r.sub, cat, buf, fn: t => playSampleBuf(buf, t, 1, 0.9), idbId: r.id };
+      SOUND_LIB[cat].push(entry);
     });
+    relinkModeSounds();
     if (rows.length) {
       toast('📚 ' + rows.length + ' saved sound' + (rows.length > 1 ? 's' : '') + ' loaded from your library');
       buildSoundLib();
@@ -4323,6 +4390,8 @@ async function aiSearch(q) {
   if (!q || !q.trim()) return;
   const ql = q.toLowerCase();
   aiLog('🔎 ' + q, 'info');
+  // ---- TOOL COMMANDS — real audio operations, always run on-device ----
+  if (await aiToolCommand(ql)) return;
   if (aiOnline()) {
     try {
       const txt = await aiLLM('User request: "' + q + '". Interpret it. Return bpm+tracks and/or melody as fits. If they ask for one single SOUND (not a beat or melody), return {"sound":"KICK|SNARE|HAT|BASS|LEAD|LASER|FX|AMBIENT"} instead.');
@@ -4381,22 +4450,40 @@ function buildMixer() {
       fill.style.height = (def.vol * 100) + '%';
       val.textContent = Math.round(def.vol * 100);
     };
+    const SNAPS = [0, 0.25, 0.5, 0.75, 1]; // detents — fader clicks onto these when close
     const setFromY = y => {
       const r = track.getBoundingClientRect();
-      def.vol = Math.max(0, Math.min(1, 1 - (y - r.top) / r.height));
+      let v = Math.max(0, Math.min(1, 1 - (y - r.top) / r.height));
+      const near = SNAPS.find(s => Math.abs(v - s) < 0.035);
+      if (near !== undefined) v = near;
+      def.vol = v;
       render();
     };
     let dragging = false;
     track.addEventListener('pointerdown', e => { dragging = true; track.setPointerCapture(e.pointerId); setFromY(e.clientY); });
     track.addEventListener('pointermove', e => { if (dragging) setFromY(e.clientY); });
     ['pointerup', 'pointercancel'].forEach(ev => track.addEventListener(ev, () => dragging = false));
+    track.addEventListener('dblclick', () => { def.vol = 0.5; render(); }); // double-tap = unity
     track.addEventListener('contextmenu', e => {
       e.preventDefault();
       const v = prompt(def.name + ' volume % (0-100)', String(Math.round(def.vol * 100)));
       const n = parseFloat(v);
       if (!isNaN(n)) { def.vol = Math.max(0, Math.min(1, n / 100)); render(); }
     });
-    ch.appendChild(track); ch.appendChild(val); ch.appendChild(lbl);
+    // PAN knob — horizontal mini-slider under the fader
+    const pan = document.createElement('input');
+    pan.type = 'range'; pan.min = -1; pan.max = 1; pan.step = 0.05; pan.value = def.pan || 0;
+    pan.className = 'mix-pan'; pan.title = def.name + ' pan (double-click = center)';
+    pan.addEventListener('input', () => { def.pan = parseFloat(pan.value); if (Math.abs(def.pan) < 0.08) { def.pan = 0; pan.value = 0; } });
+    pan.addEventListener('dblclick', () => { def.pan = 0; pan.value = 0; });
+    // MUTE / SOLO
+    const msRow = document.createElement('div'); msRow.className = 'mix-ms';
+    const mBtn = document.createElement('button'); mBtn.textContent = 'M'; mBtn.className = 'mix-m' + (def.muted ? ' on' : '');
+    const sBtn = document.createElement('button'); sBtn.textContent = 'S'; sBtn.className = 'mix-s' + (def.solo ? ' on' : '');
+    mBtn.addEventListener('click', () => { def.muted = !def.muted; mBtn.classList.toggle('on', def.muted); });
+    sBtn.addEventListener('click', () => { def.solo = !def.solo; sBtn.classList.toggle('on', def.solo); });
+    msRow.appendChild(mBtn); msRow.appendChild(sBtn);
+    ch.appendChild(track); ch.appendChild(pan); ch.appendChild(msRow); ch.appendChild(val); ch.appendChild(lbl);
     mix.appendChild(ch);
     requestAnimationFrame(render);
   });
@@ -5061,6 +5148,529 @@ document.querySelectorAll('.slot-title').forEach(el => makeEditable(el, () => el
 document.getElementById('keyboard-wrap').addEventListener('contextmenu', e => {
   e.preventDefault(); openKeysMenu(e.clientX, e.clientY);
 });
+
+// =====================================================================
+// MODE-BUTTON SOUND ASSIGNMENT — right-click / hold a mode button
+// =====================================================================
+const modeSounds = {}; // mode name -> { buf, root, name }
+
+function saveModeSoundNames() {
+  const out = {};
+  Object.entries(modeSounds).forEach(([m, s]) => { if (s && s.name) out[m] = { name: s.name, root: s.root || 60 }; });
+  try { localStorage.setItem('skrimpad_modesounds', JSON.stringify(out)); } catch (e) {}
+}
+// After the persistent library loads, re-link saved mode assignments by sound name
+function relinkModeSounds() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('skrimpad_modesounds') || '{}'); } catch (e) { return; }
+  const all = Object.values(SOUND_LIB).flat();
+  Object.entries(saved).forEach(([m, s]) => {
+    const hit = all.find(e => e.buf && e.name === s.name);
+    if (hit) modeSounds[m] = { buf: hit.buf, root: s.root || 60, name: hit.name };
+  });
+  if (Object.keys(modeSounds).length) renderModeButtons();
+}
+function openModeMenu(mode, x, y) {
+  ctxMenu.innerHTML = `<div class="ctx-title" style="color:var(--purple)">${mode.toUpperCase()} — MODE SOUND</div>`;
+  const items = [];
+  items.push({ label: modeSounds[mode] ? 'REPLACE SOUND (IMPORT FILE)' : 'ASSIGN SOUND (IMPORT FILE)', act: () => {
+    importAudioSample((buf, name) => {
+      modeSounds[mode] = { buf, root: 60, name: (name || 'MODE SOUND').replace(/\.[^.]+$/, '').slice(0, 18).toUpperCase() };
+      saveModeSoundNames(); renderModeButtons();
+      if (synth.keyMode === mode) applyKeyMode(mode);
+      toast(mode.toUpperCase() + ' now plays your sound across the keys');
+    }, mode + ' sound');
+  } });
+  // assign from library — every buffer-backed sound, newest first
+  const libSounds = Object.values(SOUND_LIB).flat().filter(s => s.buf).slice(0, 10);
+  libSounds.forEach(s => items.push({ label: '📚 ' + s.name, act: () => {
+    modeSounds[mode] = { buf: s.buf, root: 60, name: s.name };
+    saveModeSoundNames(); renderModeButtons();
+    if (synth.keyMode === mode) applyKeyMode(mode);
+    toast(s.name + ' → ' + mode.toUpperCase());
+  } }));
+  if (modeSounds[mode]) {
+    items.push({ label: 'SET ROOT NOTE (now ' + (modeSounds[mode].root || 60) + ')', act: () => {
+      const v = parseInt(prompt('MIDI root note (60 = middle C)', String(modeSounds[mode].root || 60)));
+      if (!isNaN(v)) { modeSounds[mode].root = Math.max(24, Math.min(96, v)); saveModeSoundNames(); if (synth.keyMode === mode) applyKeyMode(mode); }
+    } });
+    items.push({ label: '✂ EDIT SOUND', act: () => openSampleEditor(modeSounds[mode].buf, mode.toUpperCase()) });
+    items.push({ label: '✕ CLEAR SOUND (back to synth)', act: () => {
+      delete modeSounds[mode]; saveModeSoundNames(); renderModeButtons();
+      if (synth.keyMode === mode) applyKeyMode(mode);
+    } });
+  }
+  items.forEach(it => {
+    const el = document.createElement('div');
+    el.className = 'ctx-item'; el.textContent = it.label;
+    el.addEventListener('click', () => { it.act(); closeSeqMenu(); });
+    ctxMenu.appendChild(el);
+  });
+  positionMenu(x, y);
+}
+
+// =====================================================================
+// ZIP SAMPLE-PACK IMPORT — extracts in-app, names + files itself
+// =====================================================================
+const INSTR_MAP = [
+  [/\b(kick|bd|bassdrum|boot)\b/i, 'KICKS'],
+  [/\b(snare|clap|rim|sd|snap)\b/i, 'SNARES'],
+  [/\b(hat|hihat|hi-hat|hh|cymbal|ride|crash|shaker|perc|tamb)\b/i, 'HATS & PERC'],
+  [/\b(bass|sub|808)\b/i, 'BASS'],
+  [/\b(vox|vocal|voice|acapella|chant|adlib)\b/i, 'VOX'],
+  [/\b(loop|break|groove|drumloop)\b/i, 'LOOPS'],
+  [/\b(melody|lead|synth|pluck|arp|chord|keys|piano|string|flute|guitar|brass|bell)\b/i, 'SYNTH'],
+  [/\b(fx|riser|sweep|impact|foley|noise|texture|whoosh)\b/i, 'FX'],
+];
+// "ESW Aura Bass - Almost Strings - C" -> { cat:'BASS', name:'Bass - Almost Strings' }
+function organizeSampleName(raw) {
+  let base = raw.split('/').pop().replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim();
+  let cat = 'MY SOUNDS', kw = null;
+  for (const [re, c] of INSTR_MAP) { const m = base.match(re); if (m) { cat = c; kw = m[0]; break; } }
+  const isMarker = w => /^([A-G](#|b)?(m|min|maj|major|minor)?\d?|\d{2,3}\s?bpm|\d{2,3})$/i.test(w.trim());
+  let segs = base.split(/\s*-\s*/).filter(Boolean);
+  // drop trailing musical key / bpm segments: "C", "F#m", "Amin", "120bpm"
+  while (segs.length > 1 && isMarker(segs[segs.length - 1])) segs.pop();
+  if (kw) {
+    const si = segs.findIndex(s => s.toLowerCase().includes(kw.toLowerCase()));
+    if (si >= 0) {
+      const words = segs[si].split(/\s+/);
+      const wi = words.findIndex(w => w.toLowerCase().includes(kw.toLowerCase()));
+      if (wi >= 0) segs[si] = words.slice(wi).join(' '); // strip vendor prefix words
+      if (si > 0) segs = segs.slice(si);
+    }
+  }
+  // strip inline trailing markers inside the final segment ("Kick 120bpm" -> "Kick")
+  segs = segs.map(s => {
+    const words = s.split(/\s+/);
+    while (words.length > 1 && isMarker(words[words.length - 1])) words.pop();
+    return words.join(' ');
+  });
+  return { cat, name: segs.join(' - ') || base };
+}
+function libAddToCategory(cat, name, sub, buf, persist) {
+  if (!SOUND_LIB[cat]) SOUND_LIB[cat] = [];
+  const entry = { name: name.slice(0, 24).toUpperCase(), sub, cat, buf, fn: t => playSampleBuf(buf, t, 1, 0.9) };
+  SOUND_LIB[cat].unshift(entry);
+  if (persist && buf.duration <= 70) idbSave(entry).catch(() => {});
+  return entry;
+}
+function zipParse(ab) {
+  const dv = new DataView(ab);
+  let eocd = -1;
+  for (let i = ab.byteLength - 22; i >= Math.max(0, ab.byteLength - 65558); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Not a valid ZIP file');
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const entries = [];
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const csize = dv.getUint32(off + 20, true);
+    const fnLen = dv.getUint16(off + 28, true), exLen = dv.getUint16(off + 30, true), cmLen = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(new Uint8Array(ab, off + 46, fnLen));
+    if (csize > 0) {
+      const lfn = dv.getUint16(lho + 26, true), lex = dv.getUint16(lho + 28, true);
+      entries.push({ name, method, csize, dataStart: lho + 30 + lfn + lex });
+    }
+    off += 46 + fnLen + exLen + cmLen;
+  }
+  return entries;
+}
+async function zipInflate(ab, e) {
+  const slice = ab.slice(e.dataStart, e.dataStart + e.csize);
+  if (e.method === 0) return slice;
+  if (e.method === 8) return await new Response(new Blob([slice]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+  throw new Error('unsupported compression');
+}
+async function importZipData(ab, packName) {
+  if (!audioReady) initAudio();
+  let entries;
+  try { entries = zipParse(ab); } catch (err) { toast('📦 ' + err.message); return; }
+  const audio = entries.filter(e => /\.(wav|mp3|ogg|flac|aif|aiff|m4a)$/i.test(e.name) && !/__MACOSX|\.DS_Store/.test(e.name));
+  if (!audio.length) { toast('📦 No audio files inside that zip'); return; }
+  toast('📦 Unpacking ' + audio.length + ' sounds…');
+  let ok = 0; const cats = new Set();
+  for (const e of audio.slice(0, 120)) {
+    try {
+      const data = await zipInflate(ab, e);
+      const buf = await ctx.decodeAudioData(data);
+      const { cat, name } = organizeSampleName(e.name);
+      libAddToCategory(cat, name, packName || 'zip pack', buf, true);
+      cats.add(cat); ok++;
+    } catch (err) { /* skip unreadable file */ }
+  }
+  buildSoundLib();
+  toast('📦 ' + ok + ' sounds filed under: ' + [...cats].join(', '));
+  aiLog('ZIP pack imported — ' + ok + ' sounds auto-organized into ' + cats.size + ' tabs', 'good');
+}
+function importZipPack() {
+  if (typeof AndroidFileHandler !== 'undefined') {
+    window.__zipImportCallback = async b64 => {
+      if (!b64) { toast('Import cancelled'); return; }
+      const bin = atob(b64), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      importZipData(bytes.buffer, 'zip pack');
+    };
+    AndroidFileHandler.pickFile('application/zip', '__zipImportCallback');
+  } else {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.zip,application/zip';
+    inp.onchange = async e => {
+      const f = e.target.files[0]; if (!f) return;
+      importZipData(await f.arrayBuffer(), f.name.replace(/\.zip$/i, ''));
+    };
+    inp.click();
+  }
+}
+document.querySelectorAll('.zip-import-btn').forEach(b => b.addEventListener('click', importZipPack));
+
+// =====================================================================
+// SMART AI TOOL COMMANDS — real DSP behind plain English
+// =====================================================================
+function detectBPM(buf) {
+  const sr = buf.sampleRate, d = buf.getChannelData(0);
+  const hop = Math.floor(sr / 200);
+  const frames = Math.min(Math.floor(d.length / hop), 200 * 60); // analyze up to 60s
+  const env = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) { let s = 0; const o = i * hop; for (let j = 0; j < hop; j++) { const v = d[o + j]; s += v * v; } env[i] = Math.sqrt(s / hop); }
+  const on = new Float32Array(frames);
+  for (let i = 1; i < frames; i++) on[i] = Math.max(0, env[i] - env[i - 1]);
+  const fps = sr / hop;
+  let best = 0, bestLag = 0;
+  const minLag = Math.floor(fps * 60 / 200), maxLag = Math.min(frames - 1, Math.ceil(fps * 60 / 60));
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let s = 0;
+    for (let i = 0; i < frames - lag; i++) s += on[i] * on[i + lag];
+    if (s > best) { best = s; bestLag = lag; }
+  }
+  if (!bestLag) return null;
+  let bpm = 60 * fps / bestLag;
+  while (bpm < 70) bpm *= 2;
+  while (bpm > 190) bpm /= 2;
+  return Math.round(bpm);
+}
+async function stemRender(buf, kind) {
+  const oc = new OfflineAudioContext(2, buf.length, buf.sampleRate);
+  const src = oc.createBufferSource(); src.buffer = buf;
+  if (kind === 'bass') {
+    const f = oc.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 120; f.Q.value = 0.7;
+    src.connect(f); f.connect(oc.destination);
+  } else if (kind === 'vocals' || kind === 'melody') {
+    const split = oc.createChannelSplitter(2), mid = oc.createGain();
+    const gl = oc.createGain(); gl.gain.value = 0.5; const gr = oc.createGain(); gr.gain.value = 0.5;
+    src.connect(split); split.connect(gl, 0); split.connect(gr, 1); gl.connect(mid); gr.connect(mid);
+    const hp = oc.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = kind === 'melody' ? 180 : 220;
+    const lp = oc.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = kind === 'melody' ? 8000 : 5000;
+    mid.connect(hp); hp.connect(lp); lp.connect(oc.destination);
+  } else { // drums
+    const split = oc.createChannelSplitter(2), side = oc.createGain();
+    const gl = oc.createGain(); gl.gain.value = 0.7; const gr = oc.createGain(); gr.gain.value = -0.7;
+    src.connect(split); split.connect(gl, 0); split.connect(gr, 1); gl.connect(side); gr.connect(side);
+    const hp = oc.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+    side.connect(hp); hp.connect(oc.destination);
+  }
+  src.start(0);
+  return oc.startRendering();
+}
+// Get a song to work on: prefer the loaded backing track, else ask for a file
+function aiPickSong() {
+  return new Promise(res => {
+    if (looper.master.audioBuf) { res({ buf: looper.master.audioBuf, name: 'backing track' }); return; }
+    toast('Pick the song file to work on');
+    importAudioSample((buf, name) => res({ buf, name: name || 'song' }), 'Song');
+  });
+}
+function capBuf(buf) { // cap at 150s so offline renders stay quick
+  const maxLen = buf.sampleRate * 150;
+  if (buf.length <= maxLen) return buf;
+  const t = ctx.createBuffer(buf.numberOfChannels, maxLen, buf.sampleRate);
+  for (let c = 0; c < buf.numberOfChannels; c++) t.getChannelData(c).set(buf.getChannelData(c).subarray(0, maxLen));
+  return t;
+}
+async function aiIsolateStem(kind) {
+  const song = await aiPickSong(); if (!song) return;
+  toast('Isolating ' + kind + '…');
+  const stem = await stemRender(capBuf(song.buf), kind);
+  const base = song.name.replace(/\.[^.]+$/, '').slice(0, 10).toUpperCase();
+  const entry = libAddToCategory(kind === 'bass' ? 'BASS' : kind === 'drums' ? 'HATS & PERC' : 'VOX', base + ' ' + kind.toUpperCase(), 'isolated stem', stem, false);
+  keyLanes[KEY_LANES - 1].sampleBuf = stem; keyLanes[KEY_LANES - 1].sampleRoot = 60; keyLanes[KEY_LANES - 1].voice = 'sample';
+  libCategory = entry.cat; buildSoundLib();
+  aiLog('Isolated the ' + kind + ' (EQ + mid/side split — approximate, not studio-grade) → library + keys lane 5. ✂ EDIT to trim it.', 'good');
+  toast('🎚 ' + kind.toUpperCase() + ' isolated → library');
+}
+async function aiMatchBPM() {
+  const song = await aiPickSong(); if (!song) return;
+  toast('Listening for the tempo…');
+  await new Promise(r => setTimeout(r, 30));
+  const bpm = detectBPM(song.buf);
+  if (!bpm) { aiLog('Could not lock onto a steady tempo in that file', 'tip'); return; }
+  document.getElementById('bpm').value = bpm;
+  const bv = document.getElementById('ai-bpm-val'); if (bv) bv.textContent = bpm;
+  aiLog('Detected ' + bpm + ' BPM from "' + song.name.slice(0, 24) + '" — tempo matched.', 'good');
+  toast('🎯 Matched: ' + bpm + ' BPM');
+}
+async function aiExtractHits(type) {
+  const song = await aiPickSong(); if (!song) return;
+  toast('Hunting for ' + type + ' hits…');
+  const drums = await stemRender(capBuf(song.buf), 'drums');
+  const sr = drums.sampleRate, d = drums.getChannelData(0);
+  const hop = Math.floor(sr / 200), frames = Math.floor(d.length / hop);
+  const env = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) { let s = 0; const o = i * hop; for (let j = 0; j < hop; j++) s += Math.abs(d[o + j]); env[i] = s / hop; }
+  let mean = 0; for (let i = 0; i < frames; i++) mean += env[i]; mean /= frames || 1;
+  const peaks = [];
+  const gap = Math.floor(0.18 * 200);
+  for (let i = 2; i < frames - 1; i++) {
+    if (env[i] > mean * 2.5 && env[i] >= env[i - 1] && env[i] >= env[i + 1] && (!peaks.length || i - peaks[peaks.length - 1].i > gap)) peaks.push({ i, v: env[i] });
+  }
+  peaks.sort((a, b) => b.v - a.v);
+  const picked = [];
+  for (const p of peaks.slice(0, 24)) {
+    const start = p.i * hop, len = Math.min(Math.floor(0.4 * sr), d.length - start);
+    if (len < sr * 0.05) continue;
+    // classify by zero-crossing rate: kick ≈ low, snare ≈ mid, hat ≈ high
+    let zc = 0; for (let j = start + 1; j < start + len; j++) if ((d[j] >= 0) !== (d[j - 1] >= 0)) zc++;
+    const zcr = zc / len * sr / 1000; // crossings per ms
+    const cls = zcr < 2 ? 'kick' : zcr < 8 ? 'snare' : 'hat';
+    if (type !== 'drum' && cls !== type) continue;
+    const slice = ctx.createBuffer(1, len, sr);
+    const sd = slice.getChannelData(0);
+    for (let j = 0; j < len; j++) sd[j] = d[start + j] * (j > len - 800 ? (len - j) / 800 : 1);
+    picked.push(slice);
+    if (picked.length >= 6) break;
+  }
+  if (!picked.length) { aiLog('No clean ' + type + ' hits found — try a busier section of the song', 'tip'); return; }
+  const base = song.name.replace(/\.[^.]+$/, '').slice(0, 8).toUpperCase();
+  const cat = type === 'kick' ? 'KICKS' : type === 'hat' ? 'HATS & PERC' : 'SNARES';
+  picked.forEach((b, i) => libAddToCategory(cat, base + ' ' + type.toUpperCase() + ' ' + (i + 1), 'extracted hit', b, false));
+  libCategory = cat; buildSoundLib();
+  aiLog('Pulled ' + picked.length + ' ' + type + ' hits out of "' + song.name.slice(0, 20) + '" → ' + cat + ' tab. Right-click one to put it on a pad.', 'good');
+  toast('🥁 ' + picked.length + ' ' + type + 's extracted');
+}
+// Genre words → an ACTUAL onboard style id + a sensible starting tempo.
+const GENRE_HINTS = [
+  [/boom ?bap|90s hip ?hop|golden era|old ?school/, 'oldschool', 92],
+  [/memphis|phonk|trap|drill/, 'memphis', 130],
+  [/dirty ?south|crunk/, 'dirtysouth', 140],
+  [/grime|uk drill/, 'grime', 140],
+  [/dubstep|brostep|riddim/, 'dubstep', 140],
+  [/house|edm|club|deep house/, 'house', 124],
+  [/trance|uplifting/, 'trance', 138],
+  [/lo ?fi|chill|study|jazzhop/, 'lofi', 82],
+  [/vaporwave|synthwave|retro/, 'vaporwave', 90],
+  [/west ?coast|g ?funk|gangsta/, 'westcoast', 96],
+  [/reggae|\bdub\b|dancehall/, 'dub', 75],
+  [/garage|2 ?step/, 'garage', 130],
+  [/hardcore|gabber/, 'hardcore', 180],
+  [/jungle|dnb|drum ?n ?bass|breakbeat/, 'jungle', 165],
+  [/breakcore|breaks/, 'breakcore', 170],
+  [/industrial|ebm/, 'industrial', 128],
+  [/tribal|afro|percussion/, 'tribal', 118],
+  [/viking|nordic|war|epic/, 'viking', 90],
+];
+function aiStyleMimic(ql) {
+  // never reproduces the actual song — infers genre + tempo and composes an ORIGINAL track
+  let picked = null, bpm = null;
+  for (const [re, style, b] of GENRE_HINTS) if (re.test(ql)) { picked = style; bpm = b; break; }
+  if (!picked) {
+    const styleId = Object.keys(AI_STYLES).find(id => id !== 'default' && ql.includes(id));
+    if (styleId) picked = styleId;
+  }
+  if (picked && AI_STYLES[picked]) { AI.style = picked; buildStyleUI(); }
+  if (bpm) { document.getElementById('bpm').value = bpm; const bv = document.getElementById('ai-bpm-val'); if (bv) bv.textContent = bpm; }
+  aiSuggestDrumsLocal(); aiApplyDrums(); aiGenerateMelodyLocal();
+  aiLog('Composed an ORIGINAL track inspired by that vibe' + (picked ? ' (' + picked + ' style)' : '') + ' — I never copy the actual song, that would be theft. Tweak and make it yours!', 'good');
+}
+async function aiToolCommand(ql) {
+  const mentionsSong = /\bfrom\b|song|track|file|mp3|wav|audio|this beat|the beat/.test(ql);
+  // "match the bpm of X" / "detect tempo"
+  if (/bpm|tempo/.test(ql) && /match|detect|find|what('| i)?s|sync|same|read/.test(ql) && mentionsSong) { await aiMatchBPM(); return true; }
+  // "give me the snares from X" / "extract kicks"
+  const hitM = /(snare|kick|hat)/.exec(ql);
+  if (hitM && mentionsSong && /give me|extract|grab|pull|get|rip|chop|steal|take/.test(ql)) { await aiExtractHits(hitM[1]); return true; }
+  // "isolate the vocals/bass/melody/drums"
+  const stem = /(vocal|vox|voice|acapella|singing)/.test(ql) ? 'vocals'
+    : /(bass ?line|\bbass\b|\bsub\b|808s?)/.test(ql) ? 'bass'
+    : /(melody|lead|instrumental)/.test(ql) ? 'melody'
+    : /(drum|percussion|beat)\b/.test(ql) ? 'drums' : null;
+  if (stem && /isolat|extract|split|separat|solo out|pull|strip|remove everything but|give me the/.test(ql)) { await aiIsolateStem(stem); return true; }
+  // "make a song like X"
+  if (/(make|write|create|compose).*(like|similar to|in the style of|sounds like|vibe of)|like the song/.test(ql)) { aiStyleMimic(ql); return true; }
+  return false;
+}
+
+// =====================================================================
+// MIDI INPUT — plug in a keyboard/controller, notes + CC just work
+// =====================================================================
+let midiAccess = null, midiLearnArm = false;
+let midiMap = { padBase: 36, keySplit: 48, notes: {} };
+try { Object.assign(midiMap, JSON.parse(localStorage.getItem('skrimpad_midi') || '{}')); } catch (e) {}
+function saveMidi() { try { localStorage.setItem('skrimpad_midi', JSON.stringify(midiMap)); } catch (e) {} }
+function updateMidiStatus() {
+  const el = document.getElementById('midi-status'); if (!el) return;
+  if (!midiAccess) { el.textContent = 'MIDI off'; return; }
+  const names = [...midiAccess.inputs.values()].map(i => i.name).join(', ');
+  el.textContent = midiAccess.inputs.size ? '🟢 ' + names.slice(0, 40) : 'No MIDI devices — plug one in';
+}
+function onMIDI(e) {
+  const [st, d1, d2] = e.data, cmd = st & 0xf0;
+  if (!audioReady) initAudio();
+  if (cmd === 0x90 && d2 > 0) {
+    if (midiLearnArm) {
+      midiMap.notes['n' + d1] = lastTouchedPad;
+      saveMidi(); midiLearnArm = false;
+      const lb = document.getElementById('midi-learn'); if (lb) lb.textContent = 'MIDI LEARN: PAD';
+      toast('🎹 Note ' + d1 + ' → ' + drumDefs[lastTouchedPad].name); return;
+    }
+    const bound = midiMap.notes['n' + d1];
+    if (bound !== undefined) { playDrum(bound, ctx.currentTime); return; }
+    if (d1 < midiMap.keySplit) {
+      const p = d1 - midiMap.padBase;
+      if (p >= 0 && p < drumDefs.length) { playDrum(p, ctx.currentTime); return; }
+    }
+    noteOn(d1);
+  } else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
+    if (midiMap.notes['n' + d1] === undefined && d1 >= midiMap.keySplit) noteOff(d1);
+  } else if (cmd === 0xb0) { // control change
+    if (d1 === 1) synth.filtCut = 100 + (d2 / 127) * 7900;
+    else if (d1 === 7 && typeof masterGain !== 'undefined' && masterGain) masterGain.gain.value = d2 / 127;
+    else if (d1 >= 20 && d1 < 20 + drumDefs.length) drumDefs[d1 - 20].vol = d2 / 127;
+  }
+}
+function initMIDI() {
+  if (!navigator.requestMIDIAccess) { toast('MIDI is not supported in this browser/app build'); return; }
+  navigator.requestMIDIAccess({ sysex: false }).then(acc => {
+    midiAccess = acc;
+    const hook = () => acc.inputs.forEach(inp => inp.onmidimessage = onMIDI);
+    hook();
+    acc.onstatechange = () => { hook(); updateMidiStatus(); };
+    updateMidiStatus();
+    toast('🎹 MIDI ready — ' + acc.inputs.size + ' device(s) connected');
+  }).catch(() => toast('MIDI access denied'));
+}
+const midiEnableBtn = document.getElementById('midi-enable');
+if (midiEnableBtn) {
+  midiEnableBtn.addEventListener('click', initMIDI);
+  document.getElementById('midi-learn').addEventListener('click', () => {
+    midiLearnArm = !midiLearnArm;
+    document.getElementById('midi-learn').textContent = midiLearnArm ? 'HIT A MIDI KEY…' : 'MIDI LEARN: PAD';
+    if (midiLearnArm) toast('Tap the app pad you want first, then press a key on your MIDI device');
+  });
+  const pb = document.getElementById('midi-padbase'), ks = document.getElementById('midi-keysplit');
+  pb.value = midiMap.padBase; ks.value = midiMap.keySplit;
+  pb.addEventListener('change', () => { midiMap.padBase = parseInt(pb.value) || 36; saveMidi(); });
+  ks.addEventListener('change', () => { midiMap.keySplit = parseInt(ks.value) || 48; saveMidi(); });
+}
+
+// =====================================================================
+// GAMEPAD — Xbox / generic controllers play pads + transport
+// =====================================================================
+let gpRunning = false, gpPrev = [], gpTick = 0;
+const GP_PAD_BUTTONS = [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15]; // A B X Y LB RB LT RT D-pad
+function gpLoop() {
+  if (!gpRunning) return;
+  const gp = navigator.getGamepads && [...navigator.getGamepads()].find(g => g);
+  if (gp) {
+    if (!audioReady && gp.buttons.some(b => b.pressed)) initAudio();
+    gp.buttons.forEach((b, i) => {
+      const was = gpPrev[i]; gpPrev[i] = b.pressed;
+      if (!b.pressed || was) return;
+      if (i === 9) { seqPlayPause(); return; }        // Start
+      if (i === 8) { panicStopAll(); return; }        // Back/Select
+      const gi = GP_PAD_BUTTONS.indexOf(i);
+      if (gi >= 0 && audioReady) { playDrum(gi, ctx.currentTime); lastTouchedPad = gi; }
+    });
+    const ax = gp.axes || [];
+    if (Math.abs(ax[3] || 0) > 0.6 && ++gpTick % 10 === 0) { // right stick Y nudges BPM
+      const el = document.getElementById('bpm');
+      el.value = Math.max(40, Math.min(300, parseInt(el.value) + (ax[3] < 0 ? 1 : -1)));
+    }
+  }
+  requestAnimationFrame(gpLoop);
+}
+window.addEventListener('gamepadconnected', e => {
+  gpRunning = true; gpPrev = [];
+  const el = document.getElementById('gp-status');
+  if (el) el.textContent = '🟢 🎮 ' + e.gamepad.id.slice(0, 36);
+  toast('🎮 Controller connected — buttons play pads, START = play/pause');
+  gpLoop();
+});
+window.addEventListener('gamepaddisconnected', () => {
+  gpRunning = false;
+  const el = document.getElementById('gp-status');
+  if (el) el.textContent = '🎮 No controller — plug in / press any button on an Xbox or generic gamepad';
+});
+
+// =====================================================================
+// FLOATING WINDOWS — every studio tile drags, resizes, minimizes
+// =====================================================================
+let fwZ = 100;
+const FLOAT_SLOTS = ['slot-pads', 'slot-seq', 'slot-keys', 'slot-wave', 'slot-faders', 'slot-fx'];
+function fwSaveGeo(el, id) {
+  try { localStorage.setItem('fw_' + id, JSON.stringify({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })); } catch (e) {}
+}
+function fwSetup(id, i) {
+  const el = document.getElementById(id); if (!el || el._fw) return;
+  el._fw = true;
+  const title = el.querySelector('.slot-title'); if (!title) return;
+  const min = document.createElement('button');
+  min.className = 'fw-min'; min.textContent = '—'; min.title = 'Minimize to dock';
+  min.addEventListener('click', ev => {
+    ev.stopPropagation();
+    el.classList.add('fw-hidden');
+    const dock = document.getElementById('float-dock');
+    const chip = document.createElement('button');
+    chip.className = 'fw-chip'; chip.textContent = title.firstChild.textContent.trim();
+    chip.addEventListener('click', () => { el.classList.remove('fw-hidden'); chip.remove(); });
+    dock.appendChild(chip);
+  });
+  title.appendChild(min);
+  let drag = null;
+  title.addEventListener('pointerdown', e => {
+    if (!document.body.classList.contains('float') || e.target === min) return;
+    drag = { dx: e.clientX - el.offsetLeft, dy: e.clientY - el.offsetTop };
+    try { title.setPointerCapture(e.pointerId); } catch (err) {}
+    el.style.zIndex = ++fwZ;
+  });
+  title.addEventListener('pointermove', e => {
+    if (!drag) return;
+    el.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
+    el.style.top = Math.max(0, e.clientY - drag.dy) + 'px';
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => title.addEventListener(ev, () => { if (drag) { drag = null; fwSaveGeo(el, id); } }));
+  el.addEventListener('pointerdown', () => { if (document.body.classList.contains('float')) el.style.zIndex = ++fwZ; });
+}
+function setFloat(on) {
+  if (!document.body.classList.contains('studio')) { toast('🪟 Floating windows live in the desktop studio layout'); return; }
+  document.body.classList.toggle('float', on);
+  try { localStorage.setItem('skrimpad_float', on ? '1' : '0'); } catch (e) {}
+  const fb = document.getElementById('bnr-float'); if (fb) fb.classList.toggle('on', on);
+  if (!document.getElementById('float-dock')) {
+    const dock = document.createElement('div'); dock.id = 'float-dock';
+    document.getElementById('studio').appendChild(dock);
+  }
+  FLOAT_SLOTS.forEach((id, i) => {
+    const el = document.getElementById(id); if (!el) return;
+    fwSetup(id, i);
+    if (on) {
+      let geo = null;
+      try { geo = JSON.parse(localStorage.getItem('fw_' + id) || 'null'); } catch (e) {}
+      geo = geo || { x: 16 + (i % 3) * 420, y: 44 + Math.floor(i / 3) * 320, w: 400, h: 300 };
+      Object.assign(el.style, { left: geo.x + 'px', top: geo.y + 'px', width: geo.w + 'px', height: geo.h + 'px' });
+    } else {
+      el.classList.remove('fw-hidden');
+      el.style.left = el.style.top = el.style.width = el.style.height = el.style.zIndex = '';
+    }
+  });
+  if (!on) { const dock = document.getElementById('float-dock'); if (dock) dock.innerHTML = ''; }
+  if (on) toast('🪟 Drag tiles by their title · pull the corner to resize · — minimizes to the dock');
+}
+document.getElementById('bnr-float').addEventListener('click', () => setFloat(!document.body.classList.contains('float')));
+if (localStorage.getItem('skrimpad_float') === '1') setTimeout(() => { if (document.body.classList.contains('studio')) setFloat(true); }, 400);
 
 applyLayout();
 
