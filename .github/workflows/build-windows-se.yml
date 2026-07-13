@@ -60,9 +60,10 @@ jobs:
             - **Installer** (.exe) — installs to Program Files with shortcuts
             - **Portable** (.exe) — runs from anywhere, no install needed
 
-            Red-and-gold Ukiyo-e theme, circular orbital HUD, arc meters, parallax
-            background, frosted-glass modules driven by `layout.json`. Boots into the
-            HUD; press ✕ to return to the classic studio.
+            SIX switchable themes in one build: Samurai Champloo, Space Dust, Cyberpunk,
+            Adeptus Mechanicus, Mushroom RGB, 80s Wizard Arcade — with the HUD AI console,
+            floating BPM/volume pills, REVOLVE orbit mode, katanas + dragon, and every
+            consumer feature. ⛩ enters the HUD; ✕ returns to the classic studio.
 
             **Requirements:** Windows 10+ (64-bit)
           files: |

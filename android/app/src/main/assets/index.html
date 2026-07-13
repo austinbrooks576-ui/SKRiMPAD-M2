@@ -626,10 +626,30 @@ body.se-active #se-root{
 #se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-54%);z-index:20;
   width:min(56vh,440px);height:min(56vh,440px);pointer-events:none;}
 #se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(var(--se-glow-rgb),.28));}
-#se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
-#se-hud-label .big{font-family:var(--se-font);font-size:38px;letter-spacing:.1em;color:var(--se-glow);line-height:1;}
-#se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper);opacity:.75;margin-top:4px;}
-#se-hud-label .kanji{font-size:13px;letter-spacing:.3em;color:var(--se-accent);margin-top:6px;}
+#se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;}
+#se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper);opacity:.75;margin-top:5px;}
+#se-hud-label .kanji{font-size:13px;letter-spacing:.3em;color:var(--se-accent);margin-bottom:7px;}
+/* the AI lives in the center of the HUD */
+#se-ai-input{width:170px;padding:8px 12px;border-radius:18px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.8);
+  color:var(--se-glow);font-family:var(--se-font);font-size:11px;letter-spacing:.06em;text-align:center;outline:none;display:block;}
+#se-ai-input::placeholder{color:var(--se-paper);opacity:.45;}
+#se-ai-input:focus{box-shadow:0 0 16px rgba(var(--se-glow-rgb),.5);}
+/* floating draggable BPM / VOL pills */
+.se-pill{position:absolute;top:56px;right:14px;z-index:64;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:20px;
+  border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.72);backdrop-filter:blur(6px);cursor:grab;user-select:none;
+  color:var(--se-glow);font-family:var(--se-font);touch-action:none;}
+#se-vol-pill{top:106px;}
+.se-pill .pl{font-size:9px;letter-spacing:.22em;color:var(--se-paper);opacity:.7;}
+.se-pill b{font-size:15px;min-width:36px;text-align:center;}
+.se-pill button{width:21px;height:21px;border-radius:50%;border:1px solid var(--se-line);background:transparent;color:var(--se-glow);cursor:pointer;line-height:1;font-size:13px;padding:0;}
+.se-pill input[type=range]{width:92px;accent-color:var(--se-glow);}
+/* katana separators (champloo only) */
+.se-katana{position:absolute;left:50%;transform:translateX(-50%);width:min(680px,86vw);height:22px;z-index:12;opacity:.9;display:none;pointer-events:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.55));}
+#se-root[data-theme=champloo] .se-katana{display:block;}
+.kat-top{top:47px;}
+.kat-bot{bottom:46px;transform:translateX(-50%) scaleX(-1);}
+#se-revolve.on{background:var(--se-glow);color:var(--se-ink);}
+.se-mod{transition:transform .25s ease, left .25s ease, top .25s ease;}
 
 /* flanking arc meters */
 .se-arc{position:absolute;top:50%;transform:translateY(-50%);z-index:18;pointer-events:none;width:130px;height:min(60vh,470px);}
@@ -1557,6 +1577,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <button class="se-bar-btn" id="se-panic" title="Panic — kill all sound"></button>
     <button class="se-bar-btn" id="se-ai" title="AI console"></button>
     <button class="se-bar-btn" id="se-lib" title="Sound library"></button>
+    <button class="se-bar-btn" id="se-revolve" title="REVOLVE — windows orbit the HUD; scroll wheel spins them"></button>
     <div class="spacer"></div>
     <button class="se-bar-btn" id="se-exit" title="Back to classic studio"></button>
   </div>
@@ -1564,7 +1585,37 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
   <canvas class="se-arc right" id="se-arc-r"></canvas>
   <div id="se-hud-wrap">
     <canvas id="se-hud" width="440" height="440"></canvas>
-    <div id="se-hud-label"><div class="big" id="se-bpm-big">90</div><div class="sub">BPM · MASTER</div><div class="kanji" id="se-hud-glyph">音 之 型</div></div>
+    <div id="se-hud-label">
+      <div class="kanji" id="se-hud-glyph">音 之 型</div>
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Try: 'make a drill beat' · 'isolate the vocals' · 'match the bpm of this song' · 'give me the snares from a track'">
+      <div class="sub" id="se-ai-status">AI CONSOLE</div>
+    </div>
+  </div>
+  <!-- katana separators — samurai theme only -->
+  <svg class="se-katana kat-top" viewBox="0 0 600 22">
+    <path d="M14 11 L468 6 Q502 6 522 11 Q502 16 468 16 L14 13 Z" fill="#d9c8a0"/>
+    <path d="M14 11 L468 8 L468 13 L14 12 Z" fill="#f4ecd8" opacity=".65"/>
+    <rect x="468" y="3" width="8" height="16" rx="2" fill="#d9a441"/>
+    <rect x="476" y="7" width="72" height="9" rx="4" fill="#5a1010"/>
+    <path d="M482 7l6 9M492 7l6 9M502 7l6 9M512 7l6 9M522 7l6 9M532 7l6 9" stroke="#d9a441" stroke-width="2"/>
+    <rect x="548" y="6" width="6" height="11" rx="2" fill="#d9a441"/>
+  </svg>
+  <svg class="se-katana kat-bot" viewBox="0 0 600 22">
+    <path d="M14 11 L468 6 Q502 6 522 11 Q502 16 468 16 L14 13 Z" fill="#d9c8a0"/>
+    <path d="M14 11 L468 8 L468 13 L14 12 Z" fill="#f4ecd8" opacity=".65"/>
+    <rect x="468" y="3" width="8" height="16" rx="2" fill="#d9a441"/>
+    <rect x="476" y="7" width="72" height="9" rx="4" fill="#5a1010"/>
+    <path d="M482 7l6 9M492 7l6 9M502 7l6 9M512 7l6 9M522 7l6 9M532 7l6 9" stroke="#d9a441" stroke-width="2"/>
+    <rect x="548" y="6" width="6" height="11" rx="2" fill="#d9a441"/>
+  </svg>
+  <!-- floating BPM + volume pills (drag anywhere) -->
+  <div class="se-pill" id="se-bpm-pill">
+    <span class="pl">BPM</span>
+    <button id="se-bpm-dn">−</button><b id="se-bpm-val">120</b><button id="se-bpm-up">+</button>
+  </div>
+  <div class="se-pill" id="se-vol-pill">
+    <span class="pl">VOL</span>
+    <input type="range" id="se-vol-range" min="0" max="1" step=".01" value=".8">
   </div>
   <div id="se-modules"></div>
   <div id="se-dock"></div>
@@ -6431,7 +6482,8 @@ const SE_ICONS = {
   mixer: '<path d="M6 3v18M12 3v18M18 3v18M3 8h6M9 14h6M15 6h6"/>',
   synth: '<path d="M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/>',
   fx: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
-  seq: '<rect x="3" y="6" width="4" height="12"/><rect x="10" y="9" width="4" height="9"/><rect x="17" y="4" width="4" height="14"/>'
+  seq: '<rect x="3" y="6" width="4" height="12"/><rect x="10" y="9" width="4" height="9"/><rect x="17" y="4" width="4" height="14"/>',
+  orbit: '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="5" transform="rotate(-20 12 12)"/><circle cx="20" cy="8" r="1.6"/>'
 };
 function svgIcon(name, cls) { return '<svg viewBox="0 0 24 24"' + (cls ? ' class="' + cls + '"' : '') + '>' + (SE_ICONS[name] || '') + '</svg>'; }
 
@@ -6442,53 +6494,54 @@ const SE_THEMES = {
     name: 'Samurai Champloo', sub: '侍 SPECIAL EDITION', glyph: '音 之 型', particles: 'petals',
     c1: '#2a0a0a', c2: '#6b1414', c3: '#8a1f1f', line: '#d9a441', glow: '#f2cd6b', accent: '#c0392b',
     ink: '#120404', paper: '#e8dcc0', font: "'Oswald','Arial Narrow',sans-serif",
-    titles: { pads: '太鼓 DRUMS + SEQ', keys: '琴 KEYS', mixer: '混 MIXER', synth: '波 SYNTH', fx: '効 FX', lib: '蔵 LIBRARY' }
+    titles: { pads: '太鼓 DRUMS', seq: '拍 SEQUENCERS', keys: '琴 KEYS', mixer: '混 MIXER', synth: '波 SYNTH', fx: '効 FX', lib: '蔵 LIBRARY' }
   },
   spacedust: {
     name: 'Space Dust', sub: '✦ NEBULA DECK', glyph: '⟡ ✦ ⟡', particles: 'stars',
     c1: '#10163a', c2: '#070518', c3: '#02010a', line: '#6f7dff', glow: '#8be9ff', accent: '#e650c8',
     ink: '#03020c', paper: '#dfe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
-    titles: { pads: '◈ DRUMS', keys: '◈ KEYS', mixer: '◈ MIXER', synth: '◈ SYNTH', fx: '◈ FX', lib: '◈ LIBRARY' }
+    titles: { pads: '◈ DRUMS', seq: '◈ SEQUENCERS', keys: '◈ KEYS', mixer: '◈ MIXER', synth: '◈ SYNTH', fx: '◈ FX', lib: '◈ LIBRARY' }
   },
   cyberpunk: {
     name: 'Cyberpunk', sub: '// NIGHT CITY OS', glyph: '01 // 10', particles: 'rain',
     c1: '#05060a', c2: '#0a0d18', c3: '#05070f', line: '#00f0ff', glow: '#fcee0a', accent: '#ff003c',
     ink: '#04060a', paper: '#c8f8ff', font: "'Courier New',monospace",
-    titles: { pads: '▚ DRUMS', keys: '▚ KEYS', mixer: '▚ MIXER', synth: '▚ SYNTH', fx: '▚ FX', lib: '▚ LIBRARY' }
+    titles: { pads: '▚ DRUMS', seq: '▚ SEQ_GRID', keys: '▚ KEYS', mixer: '▚ MIXER', synth: '▚ SYNTH', fx: '▚ FX', lib: '▚ LIBRARY' }
   },
   warhammer: {
     name: 'Adeptus Mechanicus', sub: '☩ OMNISSIAH', glyph: '☩ ✠ ☩', particles: 'embers',
     c1: '#161009', c2: '#0c0906', c3: '#1a0a06', line: '#b08d57', glow: '#e0b878', accent: '#8c1410',
     ink: '#0a0705', paper: '#e6d3ad', font: "'Times New Roman',Georgia,serif",
-    titles: { pads: '⚙ DRUMS', keys: '⚙ KEYS', mixer: '⚙ MIXER', synth: '⚙ SYNTH', fx: '⚙ FX', lib: '⚙ ARCHIVE' }
+    titles: { pads: '⚙ DRUMS', seq: '⚙ RITES', keys: '⚙ KEYS', mixer: '⚙ MIXER', synth: '⚙ SYNTH', fx: '⚙ FX', lib: '⚙ ARCHIVE' }
   },
   mushroom: {
     name: 'Mushroom RGB', sub: '✿ SPORE SYNTH', glyph: '✦ ✿ ✦', particles: 'spores', rgb: true,
     c1: '#0a0618', c2: '#120a24', c3: '#06040f', line: '#ff3cb4', glow: '#5aff8c', accent: '#5a8cff',
     ink: '#05040f', paper: '#ffe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
-    titles: { pads: '✿ DRUMS', keys: '✿ KEYS', mixer: '✿ MIXER', synth: '✿ SYNTH', fx: '✿ FX', lib: '✿ LIBRARY' }
+    titles: { pads: '✿ DRUMS', seq: '✿ SEQUENCERS', keys: '✿ KEYS', mixer: '✿ MIXER', synth: '✿ SYNTH', fx: '✿ FX', lib: '✿ LIBRARY' }
   },
   arcade: {
     name: '80s Wizard Arcade', sub: '★ INSERT COIN', glyph: '★ ▲ ★', particles: 'galaga',
     c1: '#000004', c2: '#000008', c3: '#000004', line: '#ff2828', glow: '#ffe23c', accent: '#3ca0ff',
     ink: '#000006', paper: '#ffffff', font: "'Courier New',monospace",
-    titles: { pads: '▶ DRUMS', keys: '▶ KEYS', mixer: '▶ MIXER', synth: '▶ SYNTH', fx: '▶ FX', lib: '▶ LIBRARY' }
+    titles: { pads: '▶ DRUMS', seq: '▶ SEQUENCE', keys: '▶ KEYS', mixer: '▶ MIXER', synth: '▶ SYNTH', fx: '▶ FX', lib: '▶ LIBRARY' }
   }
 };
 // Module layout (grid positions) is shared across themes; titles come from the theme.
 const SE_MODULES = [
-  { id: 'pads', icon: 'drums', grid_position: { x: 1, y: 2, w: 4, h: 4 } },
+  { id: 'pads', icon: 'drums', grid_position: { x: 1, y: 2, w: 4, h: 3 } },
+  { id: 'seq', icon: 'seq', grid_position: { x: 1, y: 5, w: 4, h: 2 } },
+  { id: 'synth', icon: 'synth', grid_position: { x: 1, y: 7, w: 4, h: 2 } },
   { id: 'keys', icon: 'keys', grid_position: { x: 9, y: 2, w: 4, h: 3 } },
   { id: 'mixer', icon: 'mixer', grid_position: { x: 9, y: 5, w: 4, h: 2 } },
-  { id: 'synth', icon: 'synth', grid_position: { x: 1, y: 6, w: 4, h: 2 } },
-  { id: 'fx', icon: 'fx', grid_position: { x: 5, y: 7, w: 4, h: 1 } },
-  { id: 'lib', icon: 'lib', grid_position: { x: 9, y: 7, w: 4, h: 1 } }
+  { id: 'lib', icon: 'lib', grid_position: { x: 9, y: 7, w: 4, h: 2 } },
+  { id: 'fx', icon: 'fx', grid_position: { x: 5, y: 7, w: 4, h: 2 } }
 ];
 let seThemeId = 'champloo';
 let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
 let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
-const SE_SOURCE = { pads: 'pads-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
+const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
 
 function seToast(msg) {
   const t = document.getElementById('se-toast'); if (!t) return;
@@ -6509,6 +6562,8 @@ function seApplyTheme(th) {
   document.getElementById('se-root').setAttribute('data-theme', seThemeId);
   const ti = document.getElementById('se-subtitle'); if (ti) ti.textContent = th.sub;
   const gl = document.getElementById('se-hud-glyph'); if (gl) gl.textContent = th.glyph;
+  // the classic synth (scope + wave shaper) recolors to match the theme
+  document.body.style.setProperty('--wave-accent', th.glow);
 }
 function seColsRows() {
   // 12-col grid mapped onto the viewport, leaving the center clear for the HUD
@@ -6638,7 +6693,7 @@ function seDrawHUD() {
     // center hub
     g.beginPath(); g.arc(cx, cy, 52, 0, Math.PI * 2);
     g.fillStyle = 'rgba(' + inkC + ',.55)'; g.fill(); g.strokeStyle = th.glow; g.lineWidth = 2; g.stroke();
-    const bpmEl = document.getElementById('se-bpm-big'); if (bpmEl) bpmEl.textContent = (document.getElementById('bpm') || {}).value || '90';
+    const bpmEl = document.getElementById('se-bpm-val'); if (bpmEl) bpmEl.textContent = (document.getElementById('bpm') || {}).value || '90';
   };
   loop();
 }
@@ -6724,6 +6779,8 @@ function seParticleFrame() {
       g.beginPath(); g.ellipse(p.x, p.y, p.r + 1.5, p.r * 0.6, p.ph + t, 0, Math.PI * 2); g.fill();
     }
   }
+  // the New Year's dragon rides the samurai sky
+  if (seThemeId === 'champloo') seDrawDragon(g, W, H);
   // mushroom theme: cycle the RGB accent lines live
   if (th.rgb) {
     const hue = (t * 60) % 360;
@@ -6740,6 +6797,7 @@ function seRenderBarIcons() {
   document.getElementById('se-panic').innerHTML = svgIcon('panic');
   document.getElementById('se-ai').innerHTML = svgIcon('ai');
   document.getElementById('se-lib').innerHTML = svgIcon('lib');
+  document.getElementById('se-revolve').innerHTML = svgIcon('orbit');
   document.getElementById('se-exit').innerHTML = svgIcon('exit');
 }
 function buildThemeBar() {
@@ -6793,11 +6851,12 @@ function enterSE(themeId) {
   seToast(seLayout.theme.name + ' — pick a theme below · drag the glass panels · ✕ = classic');
 }
 function exitSE() {
-  seOn = false;
+  seOn = false; seRevolve = false;
   if (seHudRAF) cancelAnimationFrame(seHudRAF);
   if (seParticleRAF) cancelAnimationFrame(seParticleRAF);
   seRestoreModules();
   document.body.classList.remove('se-active');
+  document.body.style.removeProperty('--wave-accent');
   applyLayout();
   toast('Back to classic studio');
 }
@@ -6809,26 +6868,143 @@ document.getElementById('se-play').addEventListener('click', () => { seqPlayPaus
 document.getElementById('se-panic').addEventListener('click', () => panicStopAll());
 document.getElementById('se-lib').addEventListener('click', () => { exitSE(); document.getElementById('bnr-lib').click(); });
 document.getElementById('se-ai').addEventListener('click', () => { exitSE(); document.getElementById('bnr-ai').click(); });
-// scroll wheel cycles themes while in the HUD (dynamic flow navigation)
-document.getElementById('se-root').addEventListener('wheel', e => {
-  if (!seOn) return;
-  if (e.target.closest('.se-mod-body')) return; // let module content scroll normally
-  e.preventDefault();
-  const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
-  switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
-}, { passive: false });
-window.addEventListener('resize', () => {
-  if (!seOn) return;
-  // reposition existing glass windows to the new grid without re-parenting panels
+// ---- REVOLVE MODE — the windows orbit the HUD; the scroll wheel spins them ----
+let seRevolve = false, seOrbitAngle = 0;
+function seLayoutGrid() {
   const { cw, ch, top } = seColsRows();
   document.querySelectorAll('.se-mod').forEach(win => {
-    const m = seLayout.modules.find(x => x.id === win.dataset.mid); if (!m) return;
+    const m = SE_MODULES.find(x => x.id === win.dataset.mid); if (!m) return;
     const gp = m.grid_position;
     win.style.left = ((gp.x - 1) * cw) + 'px';
     win.style.top = (top + (gp.y - 1) * ch) + 'px';
     win.style.width = (gp.w * cw - 10) + 'px';
     win.style.height = (gp.h * ch - 10) + 'px';
+    win.style.transform = ''; win.style.zIndex = '';
   });
+}
+function seLayoutRevolve() {
+  const wins = [...document.querySelectorAll('.se-mod')];
+  const N = wins.length || 1;
+  const cx = innerWidth / 2, cy = innerHeight / 2 - 10;
+  const rx = Math.min(innerWidth * 0.40, 600), ry = Math.min(innerHeight * 0.30, 260);
+  const w = 380, h = 280;
+  wins.forEach((win, i) => {
+    const a = seOrbitAngle + i * Math.PI * 2 / N + Math.PI / 2; // front at bottom
+    const x = cx + Math.cos(a) * rx, y = cy + Math.sin(a) * ry;
+    const depth = (Math.sin(a) + 1) / 2; // 1 = closest (bottom of ellipse)
+    const sc = 0.5 + depth * 0.55;
+    win.style.width = w + 'px'; win.style.height = h + 'px';
+    win.style.left = (x - w * sc / 2) + 'px';
+    win.style.top = (y - h * sc / 2) + 'px';
+    win.style.transform = 'scale(' + sc.toFixed(3) + ')';
+    win.style.transformOrigin = 'top left';
+    win.style.zIndex = 30 + Math.round(depth * 40);
+  });
+}
+function setRevolve(on) {
+  seRevolve = on;
+  document.getElementById('se-revolve').classList.toggle('on', on);
+  if (on) { seLayoutRevolve(); seToast('◉ REVOLVE — scroll to spin the console around the HUD'); }
+  else seLayoutGrid();
+}
+document.getElementById('se-revolve').addEventListener('click', () => setRevolve(!seRevolve));
+
+// scroll wheel: spins the carousel in revolve mode, cycles themes otherwise
+document.getElementById('se-root').addEventListener('wheel', e => {
+  if (!seOn) return;
+  if (e.target.closest('.se-mod-body')) return; // let module content scroll normally
+  e.preventDefault();
+  if (seRevolve) {
+    seOrbitAngle += (e.deltaY > 0 ? 1 : -1) * (Math.PI * 2 / (document.querySelectorAll('.se-mod').length || 7));
+    seLayoutRevolve();
+    return;
+  }
+  const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
+  switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
+}, { passive: false });
+
+// ---- HUD-CENTER AI CONSOLE ----
+const seAiInput = document.getElementById('se-ai-input');
+seAiInput.addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const q = seAiInput.value.trim();
+  if (!q) return;
+  seAiInput.value = '';
+  document.getElementById('se-ai-status').textContent = 'WORKING…';
+  try { await aiSearch(q); } catch (err) {}
+  document.getElementById('se-ai-status').textContent = 'AI CONSOLE';
+  seToast('🤖 ' + q.slice(0, 40));
+});
+seAiInput.addEventListener('pointerdown', e => e.stopPropagation());
+
+// ---- FLOATING BPM / VOLUME PILLS — drag anywhere, control the real transport ----
+function sePillDrag(pill) {
+  let drag = null;
+  pill.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+    drag = { dx: e.clientX - pill.offsetLeft, dy: e.clientY - pill.offsetTop };
+    try { pill.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  pill.addEventListener('pointermove', e => {
+    if (!drag) return;
+    pill.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
+    pill.style.top = Math.max(0, e.clientY - drag.dy) + 'px';
+    pill.style.right = 'auto';
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => pill.addEventListener(ev, () => drag = null));
+}
+sePillDrag(document.getElementById('se-bpm-pill'));
+sePillDrag(document.getElementById('se-vol-pill'));
+function seBpmNudge(d) {
+  const el = document.getElementById('bpm');
+  el.value = Math.max(40, Math.min(300, (parseInt(el.value) || 120) + d));
+  document.getElementById('se-bpm-val').textContent = el.value;
+}
+document.getElementById('se-bpm-dn').addEventListener('click', () => seBpmNudge(-1));
+document.getElementById('se-bpm-up').addEventListener('click', () => seBpmNudge(1));
+document.getElementById('se-vol-range').addEventListener('input', e => {
+  const mv = document.getElementById('master-vol');
+  mv.value = e.target.value;
+  mv.dispatchEvent(new Event('input'));
+});
+
+// ---- NEW YEAR'S DRAGON — serpentine gold/red flyby (samurai theme) ----
+let seDragonT = 0;
+function seDrawDragon(g, W, H) {
+  seDragonT += 1 / 60;
+  const cycle = 22, T = seDragonT % cycle;
+  if (T > 11) return; // rests between flights
+  const prog = T / 11;
+  const hx = -160 + prog * (W + 320);
+  const segs = 26;
+  for (let s = segs - 1; s >= 0; s--) {
+    const sx = hx - s * 22;
+    if (sx < -40 || sx > W + 40) continue;
+    const sy = H * 0.26 + Math.sin(seDragonT * 2.2 - s * 0.55) * 48;
+    const r = Math.max(3, 14 - s * 0.38);
+    g.fillStyle = s % 4 === 0 ? 'rgba(192,57,43,.85)' : 'rgba(217,164,65,.82)';
+    g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2); g.fill();
+    if (s % 2 === 0 && s > 0) { // dorsal fins
+      g.beginPath(); g.moveTo(sx - 4, sy - r); g.lineTo(sx, sy - r - 9); g.lineTo(sx + 4, sy - r); g.closePath();
+      g.fillStyle = 'rgba(242,205,107,.9)'; g.fill();
+    }
+    if (s === 0) { // head: eye, horns, whiskers
+      g.fillStyle = 'rgba(217,164,65,.95)';
+      g.beginPath(); g.ellipse(sx + 10, sy, 17, 11, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#120404'; g.beginPath(); g.arc(sx + 16, sy - 3, 2.3, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(242,205,107,.95)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(sx + 4, sy - 10); g.lineTo(sx - 5, sy - 21); g.stroke();
+      g.beginPath(); g.moveTo(sx + 11, sy - 10); g.lineTo(sx + 7, sy - 22); g.stroke();
+      g.beginPath(); g.moveTo(sx + 25, sy + 1); g.quadraticCurveTo(sx + 42, sy + 5, sx + 48, sy - 3); g.stroke();
+      g.beginPath(); g.moveTo(sx + 25, sy + 5); g.quadraticCurveTo(sx + 44, sy + 12, sx + 52, sy + 8); g.stroke();
+    }
+  }
+}
+window.addEventListener('resize', () => {
+  if (!seOn) return;
+  // reposition glass windows to the new viewport without re-parenting panels
+  if (seRevolve) seLayoutRevolve(); else seLayoutGrid();
+  seInitParticles();
 });
 
 // ---- Per-window show/hide toggles in the banner ----

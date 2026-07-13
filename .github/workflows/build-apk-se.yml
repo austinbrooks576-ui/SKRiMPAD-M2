@@ -52,16 +52,18 @@ jobs:
           tag_name: se-v1.0.${{ github.run_number }}
           name: SKRiMPAD M2 — Special Edition (Samurai Champloo) v1.0.${{ github.run_number }}
           body: |
-            SKRiMPAD M2 — **Special Edition** (Samurai Champloo HUD)
+            SKRiMPAD M2 — **Special Edition** — SIX switchable themes in one build:
+            Samurai Champloo · Space Dust · Cyberpunk · Adeptus Mechanicus ·
+            Mushroom RGB · 80s Wizard Arcade.
 
-            A red-and-gold Ukiyo-e themed edition with a circular orbital HUD centerpiece,
-            arced level meters, parallax woodblock background, and frosted-glass module
-            windows. The whole layout is driven by `layout.json` — swap that file to
-            re-theme the whole console. Boots straight into the HUD; press ✕ (top-right)
-            to flip to the classic studio anytime.
+            Press ⛩ to enter the HUD, pick a theme from the bar (or scroll-wheel the
+            backdrop to cycle). AI console in the HUD center, floating BPM/volume pills,
+            REVOLVE orbit mode, katana separators + New Year's dragon (samurai), themed
+            SVG icons, per-theme particle skies, frosted-glass modules. ✕ = classic studio.
 
-            Includes every main-edition feature: mode-button sound assignment, smart AI
-            commands, snap mixer, ZIP pack import, MIDI + gamepad, floating windows.
+            Includes every consumer feature: 9-pad banks, separated sequencers,
+            library-first import with trim, 10 FX pedals, overload guard, MIDI +
+            controller mapping, 34 genres.
 
             **Install:** Download `skrimpad-m2-special-edition.apk`, enable "Install unknown
             apps" in Android settings, then open to install.
