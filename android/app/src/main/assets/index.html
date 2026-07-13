@@ -256,6 +256,20 @@ input[type=range]{width:100%;accent-color:var(--teal);height:20px;cursor:pointer
 .lib-sound:hover{border-color:var(--teal);color:var(--teal);}
 .lib-sound:active{background:var(--teal);color:#000;}
 .lib-sound .lib-sub{font-size:8px;color:var(--mute);font-weight:600;margin-top:2px;}
+.drop-zone{border:2px dashed var(--bdr);border-radius:10px;padding:14px 10px;text-align:center;font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--mute);margin-bottom:10px;cursor:pointer;transition:.15s;background:var(--surf2);}
+.drop-zone:hover{border-color:var(--teal);color:var(--teal);}
+.drop-zone.drag-over{border-color:var(--teal);background:rgba(34,211,197,.12);color:var(--teal);transform:scale(1.01);}
+.drop-zone .dz-sub{font-size:8px;font-weight:600;color:var(--mute);margin-top:4px;letter-spacing:.04em;}
+/* per-window show/hide toggles in the studio banner */
+#win-toggles{display:none;gap:3px;align-items:center;flex-wrap:wrap;margin-left:6px;}
+body.studio #win-toggles{display:flex;}
+.win-tog{padding:3px 7px;border-radius:10px;border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);font-size:8px;font-weight:800;letter-spacing:.06em;cursor:pointer;transition:.12s;}
+.win-tog.on{background:var(--teal);color:#001;border-color:var(--teal);}
+/* resize reflow — internal grids shrink/wrap so components stay in view */
+body.studio.float #studio > div[id^=slot-]{overflow:auto;}
+body.studio.float #pad-grid{grid-template-columns:repeat(auto-fit,minmax(46px,1fr)) !important;}
+body.studio.float #mixer{flex-wrap:wrap;}
+body.studio.float .se-mod-body,body.studio.float #keys-side{min-width:0;}
 
 /* mobile faders panel */
 #fader-grid-mobile{display:flex;flex-direction:column;gap:4px;}
@@ -1106,6 +1120,7 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
   <div class="sec-label">SOUND LIBRARY — YOUR SOUNDS ARE SAVED ON THIS DEVICE</div>
   <div class="lay-hint">CLICK = preview · RIGHT-CLICK/HOLD = assign to selected pad · CTRL+CLICK = assign to keys · ✂ = open in sample editor · ✕ = delete forever</div>
   <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
+  <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
   <div id="lib-tabs-p" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
   <div id="lib-grid-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
 </div>
@@ -1128,6 +1143,7 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
     <button class="bnr-btn" id="bnr-drums" title="Generate + apply drum pattern">🥁</button>
     <button class="bnr-btn" id="bnr-melody" title="Generate melody from key seq">🎼</button>
     <div id="banner-ctrl"></div>
+    <div id="win-toggles" title="Show / hide feature windows"></div>
   </div>
   <div id="slot-pads"><div class="slot-title">PADS<span class="qmark" data-tip="DRUM PADS — tap to play. Right-click: rename, import audio sample, layer a 2nd sample, program pattern.">?</span></div></div>
   <div id="slot-seq"><div class="slot-title">SEQ<span class="qmark" data-tip="STEP SEQUENCER — click cells to place hits. ▶ plays / ⏸ pauses. ✕ clears all steps. Right-click a row for pattern presets.">?</span></div></div>
@@ -1200,6 +1216,7 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
       <span class="lay-hint" style="margin:0">invents a brand-new sound and saves it to MY SOUNDS</span>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
+    <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
     <div id="lib-tabs" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
     <div id="lib-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
   </div>
@@ -1293,8 +1310,46 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
 </div><!-- /app -->
 <div id="toast"></div>
 
+<!-- In-app text prompt (window.prompt is dropped by Android WebView) -->
+<div id="prompt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:5000;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:min(360px,94vw);background:var(--surf,#14161c);border:1px solid var(--bdr,#333);border-radius:14px;padding:16px;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+    <div id="prompt-msg" style="font-size:12px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;color:var(--txt,#eee)"></div>
+    <input id="prompt-input" type="text" style="width:100%;padding:10px;border:1px solid var(--bdr,#333);border-radius:8px;background:var(--surf2,#1c1f27);color:var(--txt,#eee);font-size:14px;box-sizing:border-box;">
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button id="prompt-cancel" style="padding:8px 16px;border-radius:8px;border:1px solid var(--bdr,#333);background:var(--surf2,#1c1f27);color:var(--mute,#999);font-weight:700;font-size:12px;cursor:pointer">CANCEL</button>
+      <button id="prompt-ok" style="padding:8px 16px;border-radius:8px;border:1px solid var(--teal,#22d3c5);background:var(--teal,#22d3c5);color:#001;font-weight:800;font-size:12px;cursor:pointer">OK</button>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
+// Promise-based in-app replacement for window.prompt (which Android WebView drops).
+// Works identically on Android, Windows (electron) and web.
+function uiPrompt(message, defaultValue) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('prompt-modal');
+    const input = document.getElementById('prompt-input');
+    const msg = document.getElementById('prompt-msg');
+    if (!modal) { resolve(window.prompt ? window.prompt(message, defaultValue) : null); return; }
+    msg.textContent = message || '';
+    input.value = defaultValue != null ? defaultValue : '';
+    modal.style.display = 'flex';
+    setTimeout(() => { input.focus(); input.select(); }, 30);
+    const done = val => {
+      modal.style.display = 'none';
+      input.onkeydown = null;
+      okBtn.onclick = null; cancelBtn.onclick = null; modal.onclick = null;
+      resolve(val);
+    };
+    const okBtn = document.getElementById('prompt-ok');
+    const cancelBtn = document.getElementById('prompt-cancel');
+    okBtn.onclick = () => done(input.value);
+    cancelBtn.onclick = () => done(null);
+    modal.onclick = e => { if (e.target === modal) done(null); };
+    input.onkeydown = e => { if (e.key === 'Enter') done(input.value); else if (e.key === 'Escape') done(null); };
+  });
+}
 
 // =============================================
 // AUDIO ENGINE
@@ -2732,8 +2787,8 @@ function openPadMenu(i, x, y) {
   const def = drumDefs[i];
   ctxMenu.innerHTML = `<div class="ctx-title" style="color:${def.color}">${def.name}</div>`;
   const items = [
-    { label: 'RENAME PAD', act: () => {
-        const name = prompt('Rename pad', def.name);
+    { label: 'RENAME PAD', act: async () => {
+        const name = await uiPrompt('Rename pad', def.name);
         if (name && name.trim()) { def.name = name.trim().toUpperCase(); refreshDrumName(i); }
       } },
     { label: def.sampleBuf ? 'REPLACE SAMPLE' : 'IMPORT SAMPLE (WAV/MP3/OGG)', act: () => {
@@ -3711,6 +3766,38 @@ function buildSoundLib() {
   buildSoundLibGrid();
 }
 
+// ---- Sound classification for the library footer (type · key · seconds) ----
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function freqToNote(f) { if (!f || f < 20 || f > 5000) return null; const m = Math.round(69 + 12 * Math.log2(f / 440)); return NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); }
+function detectFreq(buf) {
+  const d = buf.getChannelData(0), sr = buf.sampleRate;
+  const start = Math.floor(d.length * 0.08), N = Math.min(4096, d.length - start);
+  if (N < 512) return null;
+  let rms = 0; for (let i = 0; i < N; i++) { const v = d[start + i]; rms += v * v; } rms = Math.sqrt(rms / N);
+  if (rms < 0.004) return null;
+  // zero-crossing rate — very high means noisy/unpitched (hats, snares)
+  let zc = 0; for (let i = 1; i < N; i++) if ((d[start + i] >= 0) !== (d[start + i - 1] >= 0)) zc++;
+  if (zc / N * sr / 1000 > 10) return null;
+  let bestLag = 0, best = 0;
+  const minLag = Math.floor(sr / 1200), maxLag = Math.floor(sr / 45);
+  for (let lag = minLag; lag < maxLag; lag++) { let s = 0; for (let i = 0; i < N - lag; i++) s += d[start + i] * d[start + i + lag]; if (s > best) { best = s; bestLag = lag; } }
+  return bestLag ? sr / bestLag : null;
+}
+const CAT_TYPE = { KICKS: 'kick', SNARES: 'snare', 'HATS & PERC': 'perc', BASS: 'bass', SYNTH: 'synth', FX: 'fx', VOX: 'vocal', LOOPS: 'loop', 'MY SOUNDS': 'sample' };
+function soundMeta(s, cat) {
+  if (s._meta) return s._meta;
+  const type = CAT_TYPE[s.cat || cat] || 'sound';
+  let meta;
+  if (s.buf) {
+    const dur = s.buf.duration < 10 ? s.buf.duration.toFixed(2) + 's' : Math.round(s.buf.duration) + 's';
+    const note = freqToNote(detectFreq(s.buf));
+    meta = type + ' · ' + (note || 'unpitched') + ' · ' + dur;
+    s._meta = meta; // cache — detection is one-time
+  } else {
+    meta = type + ' · synth voice';
+  }
+  return meta;
+}
 function buildSoundLibGrid() {
   if (!audioReady) initAudio();
   LIB_TARGETS.forEach(([, gridId]) => {
@@ -3720,7 +3807,7 @@ function buildSoundLibGrid() {
     (SOUND_LIB[libCategory] || []).forEach(s => {
       const btn = document.createElement('div');
       btn.className = 'lib-sound';
-      btn.innerHTML = `<div>${s.name}</div><div class="lib-sub">${s.sub}</div>`;
+      btn.innerHTML = `<div>${s.name}</div><div class="lib-sub">${soundMeta(s, libCategory)}</div>`;
       btn.addEventListener('click', e => {
         initAudio();
         if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
@@ -3964,7 +4051,7 @@ function addLongPress(el, fn, ms) {
 
 // ---- Right-click (or hold) to edit any label / value ----
 function makeEditable(el, getVal, setVal, label) {
-  const fn = () => { const v = prompt(label || 'Edit', getVal()); if (v != null && v.trim()) setVal(v.trim()); };
+  const fn = async () => { const v = await uiPrompt(label || 'Edit', getVal()); if (v != null && v.trim()) setVal(v.trim()); };
   el.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); fn(); });
   addLongPress(el, fn);
 }
@@ -4464,9 +4551,9 @@ function buildMixer() {
     track.addEventListener('pointermove', e => { if (dragging) setFromY(e.clientY); });
     ['pointerup', 'pointercancel'].forEach(ev => track.addEventListener(ev, () => dragging = false));
     track.addEventListener('dblclick', () => { def.vol = 0.5; render(); }); // double-tap = unity
-    track.addEventListener('contextmenu', e => {
+    track.addEventListener('contextmenu', async e => {
       e.preventDefault();
-      const v = prompt(def.name + ' volume % (0-100)', String(Math.round(def.vol * 100)));
+      const v = await uiPrompt(def.name + ' volume % (0-100)', String(Math.round(def.vol * 100)));
       const n = parseFloat(v);
       if (!isNaN(n)) { def.vol = Math.max(0, Math.min(1, n / 100)); render(); }
     });
@@ -4696,12 +4783,12 @@ document.getElementById('file-new').addEventListener('click', () => {
   curProject = 'UNTITLED';
   fileRefreshList();
 });
-document.getElementById('file-save').addEventListener('click', () => {
-  if (curProject === 'UNTITLED') { const n = prompt('Project name', 'MY TRACK'); if (!n) return; fileSave(n.trim().toUpperCase()); }
+document.getElementById('file-save').addEventListener('click', async () => {
+  if (curProject === 'UNTITLED') { const n = await uiPrompt('Project name', 'MY TRACK'); if (!n) return; fileSave(n.trim().toUpperCase()); }
   else fileSave(curProject);
 });
-document.getElementById('file-saveas').addEventListener('click', () => {
-  const n = prompt('Save as…', curProject === 'UNTITLED' ? 'MY TRACK' : curProject + ' 2');
+document.getElementById('file-saveas').addEventListener('click', async () => {
+  const n = await uiPrompt('Save as…', curProject === 'UNTITLED' ? 'MY TRACK' : curProject + ' 2');
   if (n && n.trim()) fileSave(n.trim().toUpperCase());
 });
 document.getElementById('file-export').addEventListener('click', () => {
@@ -5190,8 +5277,8 @@ function openModeMenu(mode, x, y) {
     toast(s.name + ' → ' + mode.toUpperCase());
   } }));
   if (modeSounds[mode]) {
-    items.push({ label: 'SET ROOT NOTE (now ' + (modeSounds[mode].root || 60) + ')', act: () => {
-      const v = parseInt(prompt('MIDI root note (60 = middle C)', String(modeSounds[mode].root || 60)));
+    items.push({ label: 'SET ROOT NOTE (now ' + (modeSounds[mode].root || 60) + ')', act: async () => {
+      const v = parseInt(await uiPrompt('MIDI root note (60 = middle C)', String(modeSounds[mode].root || 60)));
       if (!isNaN(v)) { modeSounds[mode].root = Math.max(24, Math.min(96, v)); saveModeSoundNames(); if (synth.keyMode === mode) applyKeyMode(mode); }
     } });
     items.push({ label: '✂ EDIT SOUND', act: () => openSampleEditor(modeSounds[mode].buf, mode.toUpperCase()) });
@@ -5327,6 +5414,43 @@ function importZipPack() {
   }
 }
 document.querySelectorAll('.zip-import-btn').forEach(b => b.addEventListener('click', importZipPack));
+
+// ---- Drag-and-drop import: .zip packs + loose audio files from the OS ----
+async function handleDroppedFiles(files) {
+  if (!audioReady) initAudio();
+  let audioCount = 0;
+  for (const f of files) {
+    const nm = (f.name || '').toLowerCase();
+    if (nm.endsWith('.zip') || f.type === 'application/zip') {
+      await importZipData(await f.arrayBuffer(), f.name.replace(/\.zip$/i, ''));
+    } else if (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aif|aiff|m4a)$/i.test(nm)) {
+      try {
+        const buf = await ctx.decodeAudioData(await f.arrayBuffer());
+        const { cat, name } = organizeSampleName(f.name);
+        libAddToCategory(cat, name, 'dropped', buf, true);
+        audioCount++;
+      } catch (err) { /* skip unreadable */ }
+    }
+  }
+  if (audioCount) { buildSoundLib(); toast('⬇ Imported ' + audioCount + ' file' + (audioCount > 1 ? 's' : '')); }
+}
+document.querySelectorAll('.drop-zone').forEach(dz => {
+  dz.addEventListener('click', importZipPack); // tap = browse (zip or single via picker)
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('drag-over'); }));
+  ['dragleave', 'dragend'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag-over'); }));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); e.stopPropagation(); dz.classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files.length) handleDroppedFiles([...e.dataTransfer.files]);
+  });
+});
+// also accept drops anywhere on the window (desktop convenience)
+window.addEventListener('dragover', e => { e.preventDefault(); });
+window.addEventListener('drop', e => {
+  if (e.dataTransfer && e.dataTransfer.files.length && !e.target.closest('.drop-zone')) {
+    e.preventDefault();
+    handleDroppedFiles([...e.dataTransfer.files]);
+  }
+});
 
 // =====================================================================
 // SMART AI TOOL COMMANDS — real DSP behind plain English
@@ -5672,7 +5796,38 @@ function setFloat(on) {
 document.getElementById('bnr-float').addEventListener('click', () => setFloat(!document.body.classList.contains('float')));
 if (localStorage.getItem('skrimpad_float') === '1') setTimeout(() => { if (document.body.classList.contains('studio')) setFloat(true); }, 400);
 
+// ---- Per-window show/hide toggles in the banner ----
+const WIN_TOGGLES = [
+  ['slot-pads', 'PADS'], ['slot-seq', 'SEQ'], ['slot-keys', 'KEYS'],
+  ['slot-faders', 'MIX'], ['slot-wave', 'SYNTH'], ['slot-fx', 'FX'], ['slot-master', 'LOOP']
+];
+let winHidden = {};
+try { winHidden = JSON.parse(localStorage.getItem('skrimpad_winhidden') || '{}'); } catch (e) {}
+function applyWinVis() {
+  WIN_TOGGLES.forEach(([id]) => { const el = document.getElementById(id); if (el) el.style.display = winHidden[id] ? 'none' : ''; });
+}
+function buildWinToggles() {
+  const host = document.getElementById('win-toggles'); if (!host) return;
+  host.innerHTML = '';
+  WIN_TOGGLES.forEach(([id, label]) => {
+    const b = document.createElement('button');
+    b.className = 'win-tog' + (winHidden[id] ? '' : ' on');
+    b.textContent = label;
+    b.title = 'Toggle ' + label + ' window';
+    b.addEventListener('click', () => {
+      winHidden[id] = !winHidden[id];
+      b.classList.toggle('on', !winHidden[id]);
+      try { localStorage.setItem('skrimpad_winhidden', JSON.stringify(winHidden)); } catch (e) {}
+      applyWinVis();
+    });
+    host.appendChild(b);
+  });
+  applyWinVis();
+}
+buildWinToggles();
+
 applyLayout();
+applyWinVis();
 
 // Default sequence preset
 [[0,0],[0,4],[0,8],[0,12],[1,4],[1,12],[2,0],[2,2],[2,4],[2,6],[2,8],[2,10],[2,12],[2,14]].forEach(([t,s]) => {
