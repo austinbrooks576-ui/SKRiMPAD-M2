@@ -56,7 +56,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}
 
 /* DRUM PADS */
-#pad-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px;}
+#pad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px;}
+#pad-banks{display:flex;gap:5px;margin-bottom:8px;}
+.bank-btn{flex:1;padding:6px;border-radius:var(--r2);border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);font-size:10px;font-weight:800;letter-spacing:.08em;cursor:pointer;transition:.12s;}
+.bank-btn.on{background:var(--teal);color:#001;border-color:var(--teal);}
 .pad{
   aspect-ratio:1;border-radius:var(--r);border:1.5px solid;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -288,11 +291,12 @@ body.studio #studio{
   grid-template-areas:
     "banner banner banner banner"
     "pads   keys   faders wave"
-    "seq    keys   faders fx"
+    "seq    keyseq faders fx"
     "master master master master";
 }
 .slot-title{font-size:8px;font-weight:800;letter-spacing:.12em;color:var(--mute);text-transform:uppercase;margin-bottom:5px;flex-shrink:0;cursor:grab;position:relative;padding-right:16px;}
-#slot-pads,#slot-seq,#slot-keys,#slot-fx,#slot-wave,#slot-faders,#slot-master{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:7px;min-height:0;min-width:0;position:relative;}
+#slot-pads,#slot-seq,#slot-keyseq,#slot-keys,#slot-fx,#slot-wave,#slot-faders,#slot-master{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:7px;min-height:0;min-width:0;position:relative;}
+#slot-keyseq{grid-area:keyseq;display:flex;flex-direction:column;overflow:auto;}
 #slot-pads{grid-area:pads;display:flex;flex-direction:column;align-items:center;}
 #slot-seq{grid-area:seq;display:flex;flex-direction:column;overflow:hidden;}
 #slot-keys{grid-area:keys;display:flex;flex-direction:column;gap:5px;overflow:hidden;}
@@ -408,8 +412,8 @@ body.studio #slot-wave .range-wrap label{font-size:7.5px;}
   /* Less panel padding so content breathes */
   .panel{padding:6px;}
 
-  /* PADS: 8 columns × 2 rows — pads become wide touch targets */
-  #pad-grid{grid-template-columns:repeat(8,1fr);gap:4px;margin-bottom:6px;}
+  /* PADS: 3x3 bank grid — pads stay big touch targets */
+  #pad-grid{grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px;}
   .pad{aspect-ratio:unset;height:calc((100vw - 28px) / 16 * 1.5);}
 
   /* SEQUENCER: slimmer rows to fit 16 tracks on screen */
@@ -690,6 +694,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
 <!-- TABS -->
 <div id="tabs">
   <div class="tab on" data-tab="pads">PADS</div>
+  <div class="tab" data-tab="seq">SEQ</div>
   <div class="tab" data-tab="synth">SYNTH</div>
   <div class="tab" data-tab="keys">KEYS</div>
   <div class="tab" data-tab="fx">FX</div>
@@ -705,7 +710,12 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
 <!-- PADS -->
 <div class="panel on" id="pads-panel">
   <div id="pad-grid"></div>
-  <div class="sec-label">STEP SEQUENCER</div>
+  <div class="lay-hint">9 pads per bank — BANK A/B/C switches which sounds are under your fingers. The SEQ tab programs the patterns.</div>
+</div>
+
+<!-- SEQUENCERS — drums + keys, separated from their instruments -->
+<div class="panel" id="seq-panel">
+  <div class="sec-label">DRUM SEQUENCER</div>
   <div id="seq-wrap">
     <div id="seq-grid"></div>
   </div>
@@ -1126,6 +1136,91 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
       </div>
     </div>
 
+    <!-- BITCRUSH -->
+    <div class="pedal" style="border-color:var(--red)">
+      <div class="pedal-header">
+        <div class="pedal-name" style="color:var(--red)">CRUSH</div>
+        <div class="pedal-toggle" id="fx-crush-toggle" data-fx="crush"></div>
+      </div>
+      <div class="pedal-knobs">
+        <div class="pknob">
+          <label>BITS</label>
+          <input type="range" id="crush-bits" min="1" max="12" step="1" value="8" class="fx-range" data-fx="crush" data-param="bits">
+          <span id="crush-bits-val">8</span>
+        </div>
+        <div class="pknob">
+          <label>MIX</label>
+          <input type="range" id="crush-mix" min="0" max="1" step=".01" value=".7" class="fx-range" data-fx="crush" data-param="mix">
+          <span id="crush-mix-val">.7</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- TREMOLO -->
+    <div class="pedal" style="border-color:var(--yellow,#ffd600)">
+      <div class="pedal-header">
+        <div class="pedal-name" style="color:var(--yellow,#ffd600)">TREMOLO</div>
+        <div class="pedal-toggle" id="fx-trem-toggle" data-fx="trem"></div>
+      </div>
+      <div class="pedal-knobs">
+        <div class="pknob">
+          <label>RATE</label>
+          <input type="range" id="trem-rate" min="0.5" max="20" step=".1" value="5" class="fx-range" data-fx="trem" data-param="rate">
+          <span id="trem-rate-val">5.00Hz</span>
+        </div>
+        <div class="pknob">
+          <label>DEPTH</label>
+          <input type="range" id="trem-depth" min="0" max="1" step=".01" value=".6" class="fx-range" data-fx="trem" data-param="depth">
+          <span id="trem-depth-val">.6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTO-WAH -->
+    <div class="pedal" style="border-color:var(--green)">
+      <div class="pedal-header">
+        <div class="pedal-name" style="color:var(--green)">AUTO-WAH</div>
+        <div class="pedal-toggle" id="fx-wah-toggle" data-fx="wah"></div>
+      </div>
+      <div class="pedal-knobs">
+        <div class="pknob">
+          <label>RATE</label>
+          <input type="range" id="wah-rate" min="0.2" max="8" step=".1" value="2" class="fx-range" data-fx="wah" data-param="rate">
+          <span id="wah-rate-val">2.00Hz</span>
+        </div>
+        <div class="pknob">
+          <label>RANGE</label>
+          <input type="range" id="wah-range" min="0" max="1" step=".01" value=".6" class="fx-range" data-fx="wah" data-param="range">
+          <span id="wah-range-val">.6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FLANGER -->
+    <div class="pedal" style="border-color:var(--blue)">
+      <div class="pedal-header">
+        <div class="pedal-name" style="color:var(--blue)">FLANGER</div>
+        <div class="pedal-toggle" id="fx-flange-toggle" data-fx="flange"></div>
+      </div>
+      <div class="pedal-knobs">
+        <div class="pknob">
+          <label>RATE</label>
+          <input type="range" id="flange-rate" min="0.05" max="4" step=".05" value=".3" class="fx-range" data-fx="flange" data-param="rate">
+          <span id="flange-rate-val">0.30Hz</span>
+        </div>
+        <div class="pknob">
+          <label>DEPTH</label>
+          <input type="range" id="flange-depth" min="0" max="1" step=".01" value=".5" class="fx-range" data-fx="flange" data-param="depth">
+          <span id="flange-depth-val">.5</span>
+        </div>
+        <div class="pknob">
+          <label>FDBK</label>
+          <input type="range" id="flange-feedback" min="0" max="1" step=".01" value=".4" class="fx-range" data-fx="flange" data-param="feedback">
+          <span id="flange-feedback-val">.4</span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1279,7 +1374,8 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <div id="win-toggles" title="Show / hide feature windows"></div>
   </div>
   <div id="slot-pads"><div class="slot-title">PADS<span class="qmark" data-tip="DRUM PADS — tap to play. Right-click: rename, import audio sample, layer a 2nd sample, program pattern.">?</span></div></div>
-  <div id="slot-seq"><div class="slot-title">SEQ<span class="qmark" data-tip="STEP SEQUENCER — click cells to place hits. ▶ plays / ⏸ pauses. ✕ clears all steps. Right-click a row for pattern presets.">?</span></div></div>
+  <div id="slot-seq"><div class="slot-title">DRUM SEQ<span class="qmark" data-tip="STEP SEQUENCER — click cells to place hits. ▶ plays / ⏸ pauses. ✕ clears all steps. Right-click a row for pattern presets.">?</span></div></div>
+  <div id="slot-keyseq"><div class="slot-title">KEY SEQ<span class="qmark" data-tip="KEY SEQUENCER — 5 melody lanes, each with its own voice and lock. Play a key, click steps to place it.">?</span></div></div>
   <div id="slot-keys"><div class="slot-title">KEYS<span class="qmark" data-tip="KEYBOARD — ELEC/PIANO/BASS/PAD: standard synth presets. LASER: swept-frequency sci-fi sound. ROBOT: ring-mod buzz. Right-click keyboard to import pitched sample or open sound library.">?</span></div><div id="keys-side"></div></div>
   <div id="slot-faders"><div class="slot-title">FADERS<span class="qmark" data-tip="PER-PAD VOLUME — each fader sets the output level of that drum voice. Sample-based pads apply this directly; synth voices use the global volume.">?</span></div><div id="fader-col"></div></div>
   <div id="slot-wave"><div class="slot-title">SYNTH<span class="qmark" data-tip="WAVE SHAPER — drag the green wave to sculpt the sound. ◀ ▶ switch between OSC 1 and OSC 2.">?</span></div></div>
@@ -1392,6 +1488,10 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
       <span id="gp-status" style="font-size:9px;color:var(--mute)">🎮 No controller — plug in / press any button on an Xbox or generic gamepad</span>
     </div>
     <div class="lay-hint" style="margin-top:4px">GAMEPAD: A/B/X/Y + bumpers/triggers + D-pad fire pads 1-12 · START = play/pause · BACK = panic · right stick = BPM nudge.</div>
+    <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <button class="hbtn" id="hw-map-btn">🎛 PROGRAM KEYS — MIDI / CONTROLLER / KEYBOARD</button>
+      <label style="font-size:9px;color:var(--mute);display:flex;align-items:center;gap:4px"><input type="checkbox" id="guard-toggle" checked> 🛡 OVERLOAD GUARD (auto kill-switch)</label>
+    </div>
   </div>
 </div>
 
@@ -1428,6 +1528,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
       <button class="hbtn" id="edit-topad">→ PAD</button>
       <button class="hbtn" id="edit-tokeys">→ KEYS</button>
       <button class="hbtn" id="edit-wav">📤 WAV</button>
+      <button class="hbtn" id="edit-use" style="display:none;color:var(--teal);border-color:var(--teal);font-weight:800">➤ USE THIS</button>
     </div>
   </div>
 </div>
@@ -1472,6 +1573,32 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
 </div>
 
 <div id="toast"></div>
+
+<!-- HW MAPPING — program every pad's MIDI note + controller button -->
+<div id="hw-map-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:4600;align-items:center;justify-content:center;padding:16px;">
+  <div style="width:min(440px,94vw);max-height:84vh;overflow-y:auto;background:var(--surf,#14161c);border:1px solid var(--bdr,#333);border-radius:14px;padding:14px;">
+    <div style="display:flex;align-items:center;margin-bottom:8px"><b style="font-size:12px;letter-spacing:.06em">🎛 PROGRAM YOUR HARDWARE</b><div style="flex:1"></div><button class="hbtn" id="hw-map-close">✕</button></div>
+    <div class="lay-hint" style="margin:0 0 8px">Type the MIDI note / controller button number for each pad. Blank = unbound. Changes save instantly.</div>
+    <div id="hw-map-grid" style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;align-items:center;font-size:10px;"></div>
+    <div style="margin-top:12px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">COMPUTER KEYBOARD (FIXED)</div>
+    <div class="lay-hint" style="margin-top:4px">SPACE = play/pause · ESC = panic · ← → = BPM · 1-9 = pads · A W S E D F T G Y H U J K = piano keys · Z X = octave.</div>
+  </div>
+</div>
+
+<!-- SOUND PICKER — library-first import for pads / keys / filters -->
+<div id="pick-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:4600;align-items:center;justify-content:center;padding:16px;">
+  <div style="width:min(480px,94vw);max-height:84vh;overflow-y:auto;background:var(--surf,#14161c);border:1px solid var(--bdr,#333);border-radius:14px;padding:14px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <b id="pick-label" style="font-size:12px;letter-spacing:.06em">PICK A SOUND</b>
+      <div style="flex:1"></div>
+      <button class="hbtn" id="pick-file" title="Browse the device instead">📥 DEVICE FILE…</button>
+      <button class="hbtn" id="pick-close">✕</button>
+    </div>
+    <input id="pick-search" type="text" placeholder="Search your library…" style="width:100%;padding:8px;border:1px solid var(--bdr,#333);border-radius:8px;background:var(--surf2,#1c1f27);color:var(--txt,#eee);font-size:12px;box-sizing:border-box;margin-bottom:10px;">
+    <div class="lay-hint" style="margin:0 0 8px">TAP = preview · ✔ USE = name it + apply · ✂ TRIM = cut it up first, then ➤ USE THIS sends the trimmed sound back here.</div>
+    <div id="pick-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
+  </div>
+</div>
 
 <!-- In-app text prompt (window.prompt is dropped by Android WebView) -->
 <div id="prompt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:5000;align-items:center;justify-content:center;padding:20px;">
@@ -1547,6 +1674,7 @@ function initAudio() {
   initFX();
   startVis();
   startRetro();
+  startOverloadGuard();
   renderModeButtons();
   audioReady = true;
   libLoadPersisted();
@@ -1634,7 +1762,11 @@ const fxState = {
   chorus: { enabled: false, rate: 1, depth: 0.005, mix: 0.4 },
   phaser: { enabled: false, rate: 0.5, depth: 0.5, feedback: 0.5 },
   comp: { enabled: false, threshold: -24, ratio: 4, release: 0.25 },
-  clip: { enabled: false, amount: 0.5, soft: 0.4, level: 0.8 }
+  clip: { enabled: false, amount: 0.5, soft: 0.4, level: 0.8 },
+  crush: { enabled: false, bits: 8, mix: 0.7 },
+  trem: { enabled: false, rate: 5, depth: 0.6 },
+  wah: { enabled: false, rate: 2, range: 0.6 },
+  flange: { enabled: false, rate: 0.3, depth: 0.5, feedback: 0.4 }
 };
 
 const fxChain = {};
@@ -1783,7 +1915,57 @@ function initFX() {
   fxChain.clipWS.connect(fxChain.clipGain);
   fxChain.clipGain.connect(fxChain.clipEnd = ctx.createGain());
   fxChain.clipBypass.connect(fxChain.clipEnd);
-  fxChain.clipEnd.connect(out);
+
+  // ---- BITCRUSH (waveshaper step-quantize) ----
+  fxChain.crushWS = ctx.createWaveShaper();
+  fxChain.crushWS.curve = makeCrushCurve(8);
+  fxChain.crushMix = ctx.createGain(); fxChain.crushMix.gain.value = 0;
+  fxChain.crushDry = ctx.createGain(); fxChain.crushDry.gain.value = 1;
+  fxChain.clipEnd.connect(fxChain.crushDry);
+  fxChain.clipEnd.connect(fxChain.crushWS);
+  fxChain.crushWS.connect(fxChain.crushMix);
+  fxChain.crushDry.connect(fxChain.crushEnd = ctx.createGain());
+  fxChain.crushMix.connect(fxChain.crushEnd);
+
+  // ---- TREMOLO (LFO on gain) ----
+  fxChain.tremGain = ctx.createGain(); fxChain.tremGain.gain.value = 1;
+  fxChain.tremLFO = ctx.createOscillator(); fxChain.tremLFO.frequency.value = 5;
+  fxChain.tremDepth = ctx.createGain(); fxChain.tremDepth.gain.value = 0; // off
+  fxChain.tremLFO.connect(fxChain.tremDepth); fxChain.tremDepth.connect(fxChain.tremGain.gain);
+  fxChain.tremLFO.start();
+  fxChain.crushEnd.connect(fxChain.tremGain);
+
+  // ---- AUTO-WAH (LFO-swept bandpass) ----
+  fxChain.wahFilter = ctx.createBiquadFilter(); fxChain.wahFilter.type = 'bandpass';
+  fxChain.wahFilter.frequency.value = 800; fxChain.wahFilter.Q.value = 3;
+  fxChain.wahLFO = ctx.createOscillator(); fxChain.wahLFO.frequency.value = 2;
+  fxChain.wahRange = ctx.createGain(); fxChain.wahRange.gain.value = 0;
+  fxChain.wahLFO.connect(fxChain.wahRange); fxChain.wahRange.connect(fxChain.wahFilter.frequency);
+  fxChain.wahLFO.start();
+  fxChain.wahMix = ctx.createGain(); fxChain.wahMix.gain.value = 0;
+  fxChain.wahDry = ctx.createGain(); fxChain.wahDry.gain.value = 1;
+  fxChain.tremGain.connect(fxChain.wahDry);
+  fxChain.tremGain.connect(fxChain.wahFilter);
+  fxChain.wahFilter.connect(fxChain.wahMix);
+  fxChain.wahDry.connect(fxChain.wahEnd = ctx.createGain());
+  fxChain.wahMix.connect(fxChain.wahEnd);
+
+  // ---- FLANGER (modulated short delay + feedback) ----
+  fxChain.flangeDelay = ctx.createDelay(0.03); fxChain.flangeDelay.delayTime.value = 0.005;
+  fxChain.flangeLFO = ctx.createOscillator(); fxChain.flangeLFO.frequency.value = 0.3;
+  fxChain.flangeDepth = ctx.createGain(); fxChain.flangeDepth.gain.value = 0.003;
+  fxChain.flangeLFO.connect(fxChain.flangeDepth); fxChain.flangeDepth.connect(fxChain.flangeDelay.delayTime);
+  fxChain.flangeLFO.start();
+  fxChain.flangeFB = ctx.createGain(); fxChain.flangeFB.gain.value = 0.4;
+  fxChain.flangeDelay.connect(fxChain.flangeFB); fxChain.flangeFB.connect(fxChain.flangeDelay);
+  fxChain.flangeMix = ctx.createGain(); fxChain.flangeMix.gain.value = 0;
+  fxChain.flangeDry = ctx.createGain(); fxChain.flangeDry.gain.value = 1;
+  fxChain.wahEnd.connect(fxChain.flangeDry);
+  fxChain.wahEnd.connect(fxChain.flangeDelay);
+  fxChain.flangeDelay.connect(fxChain.flangeMix);
+  fxChain.flangeDry.connect(fxChain.flangeEnd = ctx.createGain());
+  fxChain.flangeMix.connect(fxChain.flangeEnd);
+  fxChain.flangeEnd.connect(out);
 
   // Init bypass states (all off)
   fxChain.distBypass.gain.value = 1;
@@ -1792,6 +1974,15 @@ function initFX() {
   fxChain.compEnd.gain.value = 1;
   fxChain.clipBypass.gain.value = 1;
   fxChain.clipEnd.gain.value = 1;
+}
+
+function makeCrushCurve(bits) {
+  const n = 4096, curve = new Float32Array(n), steps = Math.pow(2, Math.max(1, bits));
+  for (let i = 0; i < n; i++) {
+    const x = i * 2 / n - 1;
+    curve[i] = Math.round(x * steps) / steps;
+  }
+  return curve;
 }
 
 function makeDistCurve(amount) {
@@ -1850,12 +2041,50 @@ function setFXEnabled(fx, enabled) {
       fxChain.clipGain.gain.value   = enabled ? fxState.clip.level : 0;
       if (enabled) rebuildClipCurve();
       break;
+    case 'crush':
+      fxChain.crushMix.gain.value = enabled ? fxState.crush.mix : 0;
+      fxChain.crushDry.gain.value = enabled ? 1 - fxState.crush.mix * 0.7 : 1;
+      break;
+    case 'trem':
+      fxChain.tremDepth.gain.value = enabled ? fxState.trem.depth * 0.5 : 0;
+      fxChain.tremGain.gain.value = enabled ? 1 - fxState.trem.depth * 0.5 : 1;
+      break;
+    case 'wah':
+      fxChain.wahMix.gain.value = enabled ? 0.9 : 0;
+      fxChain.wahDry.gain.value = enabled ? 0.35 : 1;
+      fxChain.wahRange.gain.value = enabled ? fxState.wah.range * 1200 : 0;
+      break;
+    case 'flange':
+      fxChain.flangeMix.gain.value = enabled ? 0.6 : 0;
+      fxChain.flangeFB.gain.value = enabled ? fxState.flange.feedback * 0.85 : 0;
+      break;
   }
 }
 
 function updateFXParam(fx, param, value) {
   fxState[fx][param] = value;
   if (!audioReady) return;
+  if (fx === 'crush') {
+    if (param === 'bits') fxChain.crushWS.curve = makeCrushCurve(value);
+    if (fxState.crush.enabled) { fxChain.crushMix.gain.value = fxState.crush.mix; fxChain.crushDry.gain.value = 1 - fxState.crush.mix * 0.7; }
+    return;
+  }
+  if (fx === 'trem') {
+    if (param === 'rate') fxChain.tremLFO.frequency.value = value;
+    if (fxState.trem.enabled && param === 'depth') { fxChain.tremDepth.gain.value = value * 0.5; fxChain.tremGain.gain.value = 1 - value * 0.5; }
+    return;
+  }
+  if (fx === 'wah') {
+    if (param === 'rate') fxChain.wahLFO.frequency.value = value;
+    if (fxState.wah.enabled && param === 'range') fxChain.wahRange.gain.value = value * 1200;
+    return;
+  }
+  if (fx === 'flange') {
+    if (param === 'rate') fxChain.flangeLFO.frequency.value = value;
+    if (param === 'depth') fxChain.flangeDepth.gain.value = 0.001 + value * 0.006;
+    if (fxState.flange.enabled && param === 'feedback') fxChain.flangeFB.gain.value = value * 0.85;
+    return;
+  }
   if (fx === 'dist') {
     if (param === 'drive') fxChain.distWS.curve = makeDistCurve(fxState.dist.enabled ? value : 0);
     if (param === 'tone') fxChain.distFilter.frequency.value = value;
@@ -1911,6 +2140,38 @@ function rebuildClipCurve() {
   const amount = parseFloat(document.getElementById('clip-amount')?.value || 0.5);
   const soft   = parseFloat(document.getElementById('clip-soft')?.value || 0.4);
   fxChain.clipWS.curve = makeClipCurve(amount, soft);
+}
+
+// ---- OVERLOAD GUARD — auto kill-switch for overstacked cacophony.
+// Watches the master analyser; if the output stays slammed near clipping
+// for ~2.5s straight, it flips the PANIC switch before your ears do.
+let guardEnabled = localStorage.getItem('skrimpad_guard') !== '0';
+let guardTimer = null;
+function startOverloadGuard() {
+  if (guardTimer) return;
+  const buf = new Uint8Array(analyser.fftSize);
+  let hot = 0;
+  guardTimer = setInterval(() => {
+    if (!guardEnabled || !audioReady) return;
+    analyser.getByteTimeDomainData(buf);
+    let s = 0;
+    for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; s += v * v; }
+    const rms = Math.sqrt(s / buf.length);
+    hot = rms > 0.62 ? hot + 1 : 0;
+    if (hot >= 10) {
+      hot = 0;
+      panicStopAll();
+      toast('🛡 OVERLOAD GUARD — the output was clipping into chaos, so everything was killed. Turn some layers down.');
+    }
+  }, 250);
+}
+
+// ---- Theme-aware synth colours — the scope/wave-shaper follow --wave-accent
+function waveAccent(alpha) {
+  let v = (getComputedStyle(document.body).getPropertyValue('--wave-accent') || '').trim() || '#00e676';
+  const m = v.replace('#', ''); const n = parseInt(m.length === 3 ? m.split('').map(c => c + c).join('') : m, 16);
+  const rgb = ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
+  return alpha != null ? 'rgba(' + rgb + ',' + alpha + ')' : v;
 }
 
 // =============================================
@@ -2431,13 +2692,13 @@ function drawWaveEditor() {
   const W = cv.width, H = cv.height;
   const samples = OSC_WAVES[waveTarget].samples;
   c.fillStyle = '#04120b'; c.fillRect(0, 0, W, H);
-  c.strokeStyle = 'rgba(0,230,118,.09)'; c.lineWidth = 1;
+  c.strokeStyle = waveAccent(0.09); c.lineWidth = 1;
   for (let x = 0; x <= W; x += W / 16) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
   for (let y = 0; y <= H; y += H / 6) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
-  c.strokeStyle = 'rgba(0,230,118,.3)';
+  c.strokeStyle = waveAccent(0.3);
   c.beginPath(); c.moveTo(0, H / 2); c.lineTo(W, H / 2); c.stroke();
-  c.strokeStyle = '#00E676'; c.lineWidth = 2;
-  c.shadowColor = '#00E676'; c.shadowBlur = 10;
+  c.strokeStyle = waveAccent(); c.lineWidth = 2;
+  c.shadowColor = waveAccent(); c.shadowBlur = 10;
   c.beginPath();
   for (let i = 0; i < WAVE_N; i++) {
     const x = i / (WAVE_N - 1) * W;
@@ -2746,7 +3007,7 @@ function startScope() {
     analyser.getByteTimeDomainData(buf);
     canvas.width = canvas.offsetWidth || 640;
     c.fillStyle = '#04120b'; c.fillRect(0, 0, canvas.width, canvas.height);
-    c.strokeStyle = '#00E676'; c.lineWidth = 1.5; c.beginPath();
+    c.strokeStyle = waveAccent(); c.lineWidth = 1.5; c.beginPath();
     const step = buf.length / canvas.width;
     for (let x = 0; x < canvas.width; x++) {
       const y = (buf[Math.floor(x * step)] / 255) * canvas.height;
@@ -2798,10 +3059,31 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-// DRUM PADS
+// DRUM PADS — 3x3 grid with A/B/C banks (all 20 sounds stay live for the
+// sequencer/mixer; the bank just picks which 9 are under your fingers)
+let padBank = 0;
+const PAD_BANK_SIZE = 9;
 function buildPads() {
   const grid = document.getElementById('pad-grid');
-  drumDefs.forEach((def, i) => {
+  grid.innerHTML = '';
+  let bankRow = document.getElementById('pad-banks');
+  if (!bankRow) {
+    bankRow = document.createElement('div');
+    bankRow.id = 'pad-banks';
+    grid.parentNode.insertBefore(bankRow, grid);
+  }
+  bankRow.innerHTML = '';
+  const nBanks = Math.ceil(drumDefs.length / PAD_BANK_SIZE);
+  for (let b = 0; b < nBanks; b++) {
+    const btn = document.createElement('button');
+    btn.className = 'bank-btn' + (b === padBank ? ' on' : '');
+    btn.textContent = 'BANK ' + String.fromCharCode(65 + b);
+    btn.addEventListener('click', () => { padBank = b; buildPads(); });
+    bankRow.appendChild(btn);
+  }
+  const start = padBank * PAD_BANK_SIZE;
+  drumDefs.slice(start, start + PAD_BANK_SIZE).forEach((def, bi) => {
+    const i = start + bi;
     const pad = document.createElement('div');
     pad.className = 'pad';
     pad.style.borderColor = def.color;
@@ -2812,6 +3094,7 @@ function buildPads() {
     const triggerPad = () => {
       initAudio();
       playDrum(i, ctx.currentTime);
+      lastTouchedPad = i;
       loopCapture('drum', { drumIdx: i });
       pad.classList.add('hit');
       setTimeout(() => pad.classList.remove('hit'), 120);
@@ -2908,8 +3191,8 @@ function refreshDrumName(i) {
   if (lbl) lbl.textContent = def.name;
 }
 
-// Import an MP3/audio file, decode to an AudioBuffer, hand to callback
-function importAudioSample(onLoaded, label) {
+// Import an MP3/audio file from the DEVICE (OS picker), decode, hand to callback
+function importAudioFile(onLoaded, label) {
   if (!audioReady) initAudio();
 
   // Use Android native file picker if available
@@ -2943,6 +3226,60 @@ function importAudioSample(onLoaded, label) {
     };
     inp.click();
   }
+}
+
+// Import a sound — LIBRARY-FIRST. Every pad/key/filter import opens the in-app
+// library: preview, rename in a text box, ✂ trim in the editor, then apply.
+// "DEVICE FILE…" is still there as the fallback to the OS explorer.
+function importAudioSample(onLoaded, label) {
+  if (!audioReady) initAudio();
+  const modal = document.getElementById('pick-modal');
+  if (!modal) { importAudioFile(onLoaded, label); return; }
+  const grid = document.getElementById('pick-grid');
+  const q = document.getElementById('pick-search');
+  const close = () => { modal.style.display = 'none'; };
+  const render = () => {
+    grid.innerHTML = '';
+    const term = q.value.trim().toLowerCase();
+    const sounds = Object.values(SOUND_LIB).flat().filter(s => s.buf && (!term || s.name.toLowerCase().includes(term))).slice(0, 60);
+    if (!sounds.length) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--mute);font-size:10px;padding:14px">Library is empty — use DEVICE FILE, drop a ZIP pack in the LIB tab, or 🎲 generate sounds.</div>';
+      return;
+    }
+    sounds.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'lib-sound';
+      el.innerHTML = `<div>${s.name}</div><div class="lib-sub">${soundMeta(s, s.cat || 'MY SOUNDS')}</div>`;
+      el.addEventListener('click', () => playSampleBuf(s.buf, ctx.currentTime + 0.01, 1, 0.9)); // tap = preview
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:4px;margin-top:5px;justify-content:center';
+      const use = document.createElement('button');
+      use.className = 'hbtn'; use.textContent = '✔ USE'; use.style.cssText = 'font-size:9px;color:var(--teal);border-color:var(--teal)';
+      use.addEventListener('click', async e => {
+        e.stopPropagation();
+        const nm = await uiPrompt('Name this sound', s.name);
+        if (nm == null) return;
+        close(); onLoaded(s.buf, (nm.trim() || s.name));
+        toast((label || 'Sound') + ': ' + (nm.trim() || s.name));
+      });
+      const trim = document.createElement('button');
+      trim.className = 'hbtn'; trim.textContent = '✂ TRIM'; trim.style.fontSize = '9px';
+      trim.addEventListener('click', e => {
+        e.stopPropagation(); close();
+        window.__pendingApply = (buf2, name2) => { onLoaded(buf2, name2 || s.name); toast((label || 'Sound') + ': trimmed + applied'); };
+        openSampleEditor(s.buf, s.name);
+        const ub = document.getElementById('edit-use'); if (ub) ub.style.display = '';
+      });
+      row.appendChild(use); row.appendChild(trim); el.appendChild(row);
+      grid.appendChild(el);
+    });
+  };
+  q.value = ''; q.oninput = render; render();
+  document.getElementById('pick-label').textContent = (label || 'PICK A SOUND').toUpperCase();
+  document.getElementById('pick-file').onclick = () => { close(); importAudioFile(onLoaded, label); };
+  document.getElementById('pick-close').onclick = close;
+  modal.onclick = e => { if (e.target === modal) close(); };
+  modal.style.display = 'flex';
 }
 
 // PAD right-click menu — rename, import sample, program row
@@ -3763,7 +4100,7 @@ function enterStudio() {
   const side = $('keys-side');
   moveTo(document.querySelector('#keys-panel .mode-bar'), side);
   moveTo($('keyboard-wrap'), side);
-  moveTo($('key-seq-wrap'), side);
+  moveTo($('key-seq-wrap'), $('slot-keyseq')); // key seq gets its own window, separate from the keys
   moveTo($('keys-oct'), side);
   // both loops become taskbar strips inside the master banner
   moveTo($('lt-0'), $('slot-master'));
@@ -4420,7 +4757,48 @@ Object.assign(AI_STYLES, {
     15:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0], 7:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], 19:[0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0] }},
   viking:     { label:'Viking', mood:'War march', bpmRange:[80,96], melodyDensity:0.4, tracks:{
     6:[1,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0], 5:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,1],
-    0:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], 8:[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 9:[0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1] }}
+    0:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], 8:[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 9:[0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1] }},
+  trap:       { label:'Trap', mood:'Rattling 808s', bpmRange:[130,150], melodyDensity:0.3, tracks:{
+    0:[1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0], 1:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
+    2:[1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,1], 12:[1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0] }},
+  drill:      { label:'Drill', mood:'Sliding menace', bpmRange:[138,146], melodyDensity:0.25, tracks:{
+    0:[1,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0], 1:[0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0],
+    2:[1,0,1,0,1,1,0,1,1,0,1,0,1,1,0,1], 12:[1,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0] }},
+  boombap:    { label:'Boom Bap', mood:'Head-nod dust', bpmRange:[88,96], melodyDensity:0.4, tracks:{
+    0:[1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0], 1:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1],
+    2:[1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0], 12:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0] }},
+  afrobeats:  { label:'Afrobeats', mood:'Sunny bounce', bpmRange:[98,110], melodyDensity:0.5, tracks:{
+    0:[1,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0], 1:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
+    2:[0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0], 9:[0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1] }},
+  amapiano:   { label:'Amapiano', mood:'Log-drum roll', bpmRange:[110,115], melodyDensity:0.4, tracks:{
+    0:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 12:[1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,0],
+    2:[1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0], 9:[0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0] }},
+  reggaeton:  { label:'Reggaeton', mood:'Dembow ride', bpmRange:[92,100], melodyDensity:0.45, tracks:{
+    0:[1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0], 1:[0,0,0,1,0,0,1,0,0,0,0,1,0,0,1,0],
+    2:[1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0] }},
+  dancehall:  { label:'Dancehall', mood:'Bashment', bpmRange:[95,105], melodyDensity:0.35, tracks:{
+    0:[1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0], 1:[0,0,0,0,1,0,0,1,0,0,0,0,1,0,0,0],
+    9:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0] }},
+  techno:     { label:'Techno', mood:'Warehouse pulse', bpmRange:[128,136], melodyDensity:0.2, tracks:{
+    0:[1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0], 3:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],
+    2:[1,1,0,1,1,1,0,1,1,1,0,1,1,1,0,1], 12:[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1] }},
+  psytrance:  { label:'Psytrance', mood:'Full-power', bpmRange:[140,148], melodyDensity:0.3, tracks:{
+    0:[1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0], 12:[0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1],
+    2:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0] }},
+  synthwave:  { label:'Synthwave', mood:'Neon drive', bpmRange:[100,115], melodyDensity:0.5, tracks:{
+    0:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], 1:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
+    2:[1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0], 3:[0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0] }},
+  funk:       { label:'Funk', mood:'Pocket groove', bpmRange:[100,112], melodyDensity:0.55, tracks:{
+    0:[1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0], 1:[0,0,0,0,1,0,0,1,0,0,0,0,1,0,1,0],
+    2:[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], 9:[0,0,1,0,0,0,0,1,0,0,1,0,0,0,0,1] }},
+  disco:      { label:'Disco', mood:'Four-on-floor shine', bpmRange:[115,125], melodyDensity:0.5, tracks:{
+    0:[1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0], 3:[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0],
+    1:[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 2:[1,0,1,1,1,0,1,1,1,0,1,1,1,0,1,1] }},
+  ambient:    { label:'Ambient', mood:'Weightless', bpmRange:[60,80], melodyDensity:0.2, tracks:{
+    0:[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 9:[0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0] }},
+  cinematic:  { label:'Cinematic', mood:'Trailer tension', bpmRange:[75,95], melodyDensity:0.3, tracks:{
+    6:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1], 0:[1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+    8:[0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0], 9:[0,0,0,1,0,0,0,1,0,0,0,1,0,0,1,1] }}
 });
 
 function buildStyleUI() {
@@ -5163,6 +5541,18 @@ document.getElementById('edit-wav').addEventListener('click', () => { if (ED.buf
 document.getElementById('edit-close').addEventListener('click', () => {
   if (ED.playSrc) { try { ED.playSrc.stop(); } catch (e) {} }
   document.getElementById('edit-modal').classList.remove('open');
+  window.__pendingApply = null;
+  document.getElementById('edit-use').style.display = 'none';
+});
+// ➤ USE THIS — hands the (possibly trimmed) buffer back to whatever asked for a sound
+document.getElementById('edit-use').addEventListener('click', () => {
+  if (!window.__pendingApply) return;
+  const cb = window.__pendingApply;
+  window.__pendingApply = null;
+  document.getElementById('edit-use').style.display = 'none';
+  const buf = ED.buf, name = ED.name;
+  document.getElementById('edit-modal').classList.remove('open');
+  cb(buf, name);
 });
 document.getElementById('edit-modal').addEventListener('click', e => { if (e.target.id === 'edit-modal') document.getElementById('edit-close').click(); });
 
@@ -5668,7 +6058,7 @@ function aiPickSong() {
   return new Promise(res => {
     if (looper.master.audioBuf) { res({ buf: looper.master.audioBuf, name: 'backing track' }); return; }
     toast('Pick the song file to work on');
-    importAudioSample((buf, name) => res({ buf, name: name || 'song' }), 'Song');
+    importAudioFile((buf, name) => res({ buf, name: name || 'song' }), 'Song'); // songs come from the device, not the library
   });
 }
 function capBuf(buf) { // cap at 150s so offline renders stay quick
@@ -5740,8 +6130,22 @@ async function aiExtractHits(type) {
 }
 // Genre words → an ACTUAL onboard style id + a sensible starting tempo.
 const GENRE_HINTS = [
-  [/boom ?bap|90s hip ?hop|golden era|old ?school/, 'oldschool', 92],
-  [/memphis|phonk|trap|drill/, 'memphis', 130],
+  [/boom ?bap|90s hip ?hop|golden era/, 'boombap', 92],
+  [/old ?school/, 'oldschool', 92],
+  [/\btrap\b|rage|hyperpop/, 'trap', 140],
+  [/drill|uk drill/, 'drill', 142],
+  [/afro ?beat|afropop|naija/, 'afrobeats', 104],
+  [/amapiano|log ?drum/, 'amapiano', 112],
+  [/reggaeton|dembow|latin/, 'reggaeton', 96],
+  [/dancehall|bashment/, 'dancehall', 100],
+  [/techno|warehouse|berlin/, 'techno', 130],
+  [/psytrance|goa/, 'psytrance', 144],
+  [/synthwave|retrowave|outrun/, 'synthwave', 108],
+  [/funk\b|groove/, 'funk', 106],
+  [/disco|nu ?disco/, 'disco', 120],
+  [/ambient|drone|meditat/, 'ambient', 70],
+  [/cinematic|film|trailer|score/, 'cinematic', 85],
+  [/memphis|phonk/, 'memphis', 130],
   [/dirty ?south|crunk/, 'dirtysouth', 140],
   [/grime|uk drill/, 'grime', 140],
   [/dubstep|brostep|riddim/, 'dubstep', 140],
@@ -5853,11 +6257,61 @@ if (midiEnableBtn) {
   ks.addEventListener('change', () => { midiMap.keySplit = parseInt(ks.value) || 48; saveMidi(); });
 }
 
+// ---- 🎛 HARDWARE MAPPING MENU — program MIDI notes + controller buttons per pad ----
+function openHwMap() {
+  const grid = document.getElementById('hw-map-grid');
+  grid.innerHTML = '<b style="color:var(--mute)">PAD</b><b style="color:var(--mute)">MIDI NOTE</b><b style="color:var(--mute)">GP BTN</b>';
+  drumDefs.forEach((def, i) => {
+    const name = document.createElement('span'); name.textContent = def.name; name.style.color = def.color;
+    const midiIn = document.createElement('input');
+    midiIn.type = 'number'; midiIn.min = 0; midiIn.max = 127;
+    midiIn.style.cssText = 'width:56px;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:4px;padding:2px';
+    const bound = Object.entries(midiMap.notes).find(([, p]) => p === i);
+    if (bound) midiIn.value = bound[0].slice(1);
+    midiIn.addEventListener('change', () => {
+      Object.keys(midiMap.notes).forEach(k => { if (midiMap.notes[k] === i) delete midiMap.notes[k]; });
+      const v = parseInt(midiIn.value);
+      if (!isNaN(v)) midiMap.notes['n' + v] = i;
+      saveMidi();
+    });
+    const gpIn = document.createElement('input');
+    gpIn.type = 'number'; gpIn.min = 0; gpIn.max = 17;
+    gpIn.style.cssText = midiIn.style.cssText;
+    const gb = Object.entries(gpMap).find(([, p]) => p === i);
+    if (gb) gpIn.value = gb[0].slice(1);
+    gpIn.addEventListener('change', () => {
+      Object.keys(gpMap).forEach(k => { if (gpMap[k] === i) delete gpMap[k]; });
+      const v = parseInt(gpIn.value);
+      if (!isNaN(v)) gpMap['b' + v] = i;
+      saveGpMap();
+    });
+    grid.appendChild(name); grid.appendChild(midiIn); grid.appendChild(gpIn);
+  });
+  document.getElementById('hw-map-modal').style.display = 'flex';
+}
+const hwBtn = document.getElementById('hw-map-btn');
+if (hwBtn) {
+  hwBtn.addEventListener('click', openHwMap);
+  document.getElementById('hw-map-close').addEventListener('click', () => document.getElementById('hw-map-modal').style.display = 'none');
+  const gt = document.getElementById('guard-toggle');
+  gt.checked = guardEnabled;
+  gt.addEventListener('change', () => {
+    guardEnabled = gt.checked;
+    try { localStorage.setItem('skrimpad_guard', guardEnabled ? '1' : '0'); } catch (e) {}
+    toast('🛡 Overload guard ' + (guardEnabled ? 'ON' : 'OFF'));
+  });
+}
+
 // =====================================================================
 // GAMEPAD — Xbox / generic controllers play pads + transport
 // =====================================================================
 let gpRunning = false, gpPrev = [], gpTick = 0;
 const GP_PAD_BUTTONS = [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15]; // A B X Y LB RB LT RT D-pad
+// remappable controller map: gamepad button index -> pad index
+let gpMap = {};
+try { gpMap = JSON.parse(localStorage.getItem('skrimpad_gpmap') || '{}'); } catch (e) {}
+if (!Object.keys(gpMap).length) GP_PAD_BUTTONS.forEach((b, gi) => gpMap['b' + b] = gi);
+function saveGpMap() { try { localStorage.setItem('skrimpad_gpmap', JSON.stringify(gpMap)); } catch (e) {} }
 function gpLoop() {
   if (!gpRunning) return;
   const gp = navigator.getGamepads && [...navigator.getGamepads()].find(g => g);
@@ -5868,8 +6322,8 @@ function gpLoop() {
       if (!b.pressed || was) return;
       if (i === 9) { seqPlayPause(); return; }        // Start
       if (i === 8) { panicStopAll(); return; }        // Back/Select
-      const gi = GP_PAD_BUTTONS.indexOf(i);
-      if (gi >= 0 && audioReady) { playDrum(gi, ctx.currentTime); lastTouchedPad = gi; }
+      const padIdx = gpMap['b' + i]; // remappable via the 🎛 MAP menu
+      if (padIdx != null && audioReady && drumDefs[padIdx]) { playDrum(padIdx, ctx.currentTime); lastTouchedPad = padIdx; }
     });
     const ax = gp.axes || [];
     if (Math.abs(ax[3] || 0) > 0.6 && ++gpTick % 10 === 0) { // right stick Y nudges BPM
@@ -5896,7 +6350,7 @@ window.addEventListener('gamepaddisconnected', () => {
 // FLOATING WINDOWS — every studio tile drags, resizes, minimizes
 // =====================================================================
 let fwZ = 100;
-const FLOAT_SLOTS = ['slot-pads', 'slot-seq', 'slot-keys', 'slot-wave', 'slot-faders', 'slot-fx'];
+const FLOAT_SLOTS = ['slot-pads', 'slot-seq', 'slot-keyseq', 'slot-keys', 'slot-wave', 'slot-faders', 'slot-fx'];
 function fwSaveGeo(el, id) {
   try { localStorage.setItem('fw_' + id, JSON.stringify({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })); } catch (e) {}
 }
@@ -6379,7 +6833,7 @@ window.addEventListener('resize', () => {
 
 // ---- Per-window show/hide toggles in the banner ----
 const WIN_TOGGLES = [
-  ['slot-pads', 'PADS'], ['slot-seq', 'SEQ'], ['slot-keys', 'KEYS'],
+  ['slot-pads', 'PADS'], ['slot-seq', 'SEQ'], ['slot-keyseq', 'KEYSEQ'], ['slot-keys', 'KEYS'],
   ['slot-faders', 'MIX'], ['slot-wave', 'SYNTH'], ['slot-fx', 'FX'], ['slot-master', 'LOOP']
 ];
 let winHidden = {};
@@ -6406,6 +6860,10 @@ function buildWinToggles() {
   applyWinVis();
 }
 buildWinToggles();
+
+// Key sequencer's mobile home is the SEQ tab, next to the drum sequencer
+// (its HTML home is keys-panel; studio mode re-homes it to slot-keyseq)
+document.getElementById('seq-panel').appendChild(document.getElementById('key-seq-wrap'));
 
 applyLayout();
 applyWinVis();
