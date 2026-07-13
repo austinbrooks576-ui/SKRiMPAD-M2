@@ -548,6 +548,7 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
   <div id="logo">SKRiM<span>PAD M2</span></div>
   <button class="hbtn" id="file-btn" title="File — save, open, export">📁</button>
   <button class="hbtn" id="panic-btn" title="PANIC — instantly kill ALL sound: loops, notes, echoes, everything">🛑</button>
+  <button class="hbtn" id="se-mobile-btn" title="SPECIAL EDITION — themed HUD: Samurai · Space Dust · Cyberpunk · Warhammer · Mushroom · Arcade">⛩</button>
   <div id="bpm-wrap">
     <label>BPM</label>
     <input id="bpm" type="number" min="40" max="300" value="120">
@@ -1179,6 +1180,8 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
       <select id="ai-api-provider" style="background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:var(--r2);padding:7px;font-size:11px;outline:none">
         <option value="anthropic">CLAUDE (ANTHROPIC)</option>
         <option value="openai">OPENAI-STYLE (GLM / OPENAI / LM STUDIO)</option>
+        <option value="gemini">GEMINI (GOOGLE)</option>
+        <option value="nano">GEMINI NANO (ON-DEVICE + FREE)</option>
         <option value="ollama">OLLAMA (LOCAL + FREE)</option>
       </select>
       <input id="ai-api-url" placeholder="API URL (blank = provider default)">
@@ -2940,6 +2943,9 @@ function buildPads() {
     pad.addEventListener('touchstart', e => { e.preventDefault(); triggerPad(); }, { passive: false });
     pad.addEventListener('mousedown', e => { if (e.button === 0) triggerPad(); });
     pad.addEventListener('contextmenu', e => { e.preventDefault(); openPadMenu(i, e.clientX, e.clientY); });
+    // hold-to-open menu must be bound HERE — pads are rebuilt on every bank
+    // switch, so a one-time startup binding silently dies (the APK bug)
+    addLongPress(pad, e => openPadMenu(i, e.clientX, e.clientY));
     grid.appendChild(pad);
   });
 }
@@ -4748,6 +4754,18 @@ const AI_PROVIDERS = {
     keyHint: 'API KEY — GLM (free tier at open.bigmodel.cn), OpenAI, or any compatible service',
     needsKey: true
   },
+  gemini: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models',
+    model: 'gemini-2.0-flash',
+    keyHint: 'API KEY — free at aistudio.google.com/apikey (Google Gemini)',
+    needsKey: true
+  },
+  nano: {
+    url: '(on-device)',
+    model: 'gemini-nano',
+    keyHint: 'NO KEY — Gemini Nano runs on-device via the browser Prompt API (Chrome 127+ with built-in AI enabled)',
+    needsKey: false
+  },
   ollama: {
     url: 'http://localhost:11434/v1/chat/completions',
     model: 'llama3.2',
@@ -4794,6 +4812,36 @@ async function aiLLM(userMsg, maxTokens) {
     const block = (j.content || []).find(b => b.type === 'text');
     if (!block) throw new Error('no text in reply');
     return block.text;
+  }
+  if (prov === 'gemini') {
+    // Google Gemini generateContent API (key in query string)
+    const gUrl = (AICFG.url || def.url).replace(/\/$/, '') + '/' + model + ':generateContent?key=' + encodeURIComponent(AICFG.key || '');
+    res = await fetch(gUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: AI_SYS_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: userMsg }] }],
+        generationConfig: { temperature: 0.9, maxOutputTokens: maxTokens || 1200 }
+      })
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const j = await res.json();
+    const txt = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts.map(p => p.text || '').join('');
+    if (!txt) throw new Error('no text in Gemini reply');
+    return txt;
+  }
+  if (prov === 'nano') {
+    // Gemini Nano ON-DEVICE via the browser's built-in Prompt API — no key, no
+    // network. API surface varies by Chrome version, so detect both shapes.
+    const LM = window.LanguageModel || (window.ai && (window.ai.languageModel || window.ai.assistant));
+    if (!LM || !LM.create) throw new Error('Gemini Nano not available on this device/browser');
+    let session;
+    try { session = await LM.create({ initialPrompts: [{ role: 'system', content: AI_SYS_PROMPT }] }); }
+    catch (e) { session = await LM.create({ systemPrompt: AI_SYS_PROMPT }); }
+    const out = await session.prompt(userMsg);
+    try { session.destroy(); } catch (e) {}
+    return out;
   }
   // OpenAI-style chat completions (GLM, OpenAI, LM Studio, Ollama, …)
   const headers = { 'Content-Type': 'application/json' };
@@ -5614,8 +5662,7 @@ buildMixer();
 buildStyleUI();
 setLane(0);
 fileRefreshList();
-// long-press = right-click on touch: pads + keyboard edit menus
-document.querySelectorAll('.pad').forEach(pd => addLongPress(pd, e => openPadMenu(parseInt(pd.dataset.idx), e.clientX, e.clientY)));
+// long-press = right-click on touch (pad long-press is bound inside buildPads)
 addLongPress(document.getElementById('keyboard-wrap'), e => openKeysMenu(e.clientX, e.clientY));
 // right-click / hold renames everywhere
 document.querySelectorAll('.lt-name').forEach(el => makeEditable(el, () => el.textContent, v => { el.textContent = v.toUpperCase(); }, 'Rename loop track'));
@@ -6279,6 +6326,17 @@ function buildWinToggles() {
   applyWinVis();
 }
 buildWinToggles();
+
+// ⛩ in the MOBILE header — the studio banner (and its ⛩) never renders at
+// phone size, which left the APK with no way into the Special Edition HUD.
+// Self-hides on builds without the SE theme system.
+{
+  const seBtn = document.getElementById('se-mobile-btn');
+  if (seBtn) {
+    if (typeof toggleSE === 'function') seBtn.addEventListener('click', () => toggleSE());
+    else seBtn.style.display = 'none';
+  }
+}
 
 // Key sequencer's mobile home is the SEQ tab, next to the drum sequencer
 // (its HTML home is keys-panel; studio mode re-homes it to slot-keyseq)
