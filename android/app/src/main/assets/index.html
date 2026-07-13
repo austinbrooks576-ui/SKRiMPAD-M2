@@ -536,60 +536,96 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
 }
 
 /* ================================================================
-   SPECIAL EDITION — Samurai Champloo HUD skin (JSON-driven)
-   Toggle with the ⛩ button. Everything below only activates
-   when <body> has the .champloo class.
+   SPECIAL EDITION — MULTI-THEME HUD (all themes in one version)
+   Activated by body.se-active; the live theme is #se-root[data-theme].
+   Every colour is a CSS variable set per theme by JS (seApplyTheme).
+   Themes: champloo · spacedust · cyberpunk · warhammer · mushroom · arcade
    ================================================================ */
-#se-root{display:none;}
-body.champloo{overflow:hidden;}
-body.champloo #app{display:none;}
-body.champloo #se-root{
-  display:block;position:fixed;inset:0;z-index:1;
-  font-family:var(--se-font,'Oswald','Arial Narrow',sans-serif);
-  color:var(--se-paper,#e8dcc0);
+#se-root{
+  --se-c1:#2a0a0a; --se-c2:#6b1414; --se-c3:#8a1f1f;
+  --se-line:#d9a441; --se-glow:#f2cd6b; --se-accent:#c0392b;
+  --se-ink:#120404; --se-paper:#e8dcc0; --se-font:'Oswald','Arial Narrow',sans-serif;
+  --se-ink-rgb:18,4,4; --se-line-rgb:217,164,65; --se-glow-rgb:242,205,107;
+  display:none;
 }
-/* layered parallax Ukiyo-e background */
+body.se-active{overflow:hidden;}
+body.se-active #app{display:none;}
+body.se-active #se-root{
+  display:block;position:fixed;inset:0;z-index:1;
+  font-family:var(--se-font);color:var(--se-paper);
+}
+/* layered parallax background — appearance driven by [data-theme] rules below */
 .se-bg{position:absolute;inset:-8% -8% -8% -8%;background-repeat:no-repeat;background-size:cover;will-change:transform;transition:transform .18s ease-out;}
 .se-bg-1{background:
-  radial-gradient(120% 90% at 50% 8%, rgba(242,205,107,.16), transparent 60%),
-  linear-gradient(160deg, var(--se-bg1,#2a0a0a) 0%, var(--se-bg2,#6b1414) 55%, var(--se-bg3,#8a1f1f) 100%);}
+  radial-gradient(120% 90% at 50% 8%, rgba(var(--se-glow-rgb),.16), transparent 60%),
+  linear-gradient(160deg, var(--se-c1) 0%, var(--se-c2) 55%, var(--se-c3) 100%);}
 .se-bg-2{opacity:.5;background:
-  repeating-linear-gradient(115deg, rgba(18,4,4,.35) 0 3px, transparent 3px 14px),
-  radial-gradient(60% 40% at 78% 82%, rgba(217,164,65,.14), transparent 70%);}
+  repeating-linear-gradient(115deg, rgba(var(--se-ink-rgb),.35) 0 3px, transparent 3px 14px),
+  radial-gradient(60% 40% at 78% 82%, rgba(var(--se-line-rgb),.14), transparent 70%);}
 .se-bg-3{opacity:.85;pointer-events:none;background:
-  radial-gradient(38% 30% at 22% 20%, rgba(242,205,107,.22), transparent 72%),
-  radial-gradient(30% 26% at 84% 24%, rgba(192,57,43,.28), transparent 70%);}
-/* faux sun disc + wave crests (traditional print motif) */
-.se-sun{position:absolute;top:6%;left:50%;width:min(30vh,240px);height:min(30vh,240px);transform:translateX(-50%);border-radius:50%;
-  background:radial-gradient(circle at 50% 45%, var(--se-gold-bright,#f2cd6b), var(--se-accent,#c0392b) 68%, transparent 72%);
-  box-shadow:0 0 90px rgba(242,205,107,.35);opacity:.42;filter:saturate(1.15);}
-.se-wave{position:absolute;left:0;right:0;bottom:-2%;height:32%;opacity:.5;
+  radial-gradient(38% 30% at 22% 20%, rgba(var(--se-glow-rgb),.22), transparent 72%),
+  radial-gradient(30% 26% at 84% 24%, rgba(var(--se-line-rgb),.24), transparent 70%);}
+#se-particles{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;}
+/* motif layer — sun/cog/grid depending on theme */
+.se-motif{position:absolute;top:6%;left:50%;width:min(30vh,240px);height:min(30vh,240px);transform:translateX(-50%);border-radius:50%;
+  background:radial-gradient(circle at 50% 45%, var(--se-glow), var(--se-accent) 68%, transparent 72%);
+  box-shadow:0 0 90px rgba(var(--se-glow-rgb),.35);opacity:.42;filter:saturate(1.15);z-index:1;}
+.se-wave{position:absolute;left:0;right:0;bottom:-2%;height:32%;opacity:.5;z-index:1;
   background:
-    radial-gradient(70% 120% at 12% 100%, rgba(18,4,4,.7) 40%, transparent 42%),
-    radial-gradient(70% 120% at 38% 100%, rgba(18,4,4,.55) 40%, transparent 42%),
-    radial-gradient(70% 120% at 64% 100%, rgba(18,4,4,.7) 40%, transparent 42%),
-    radial-gradient(70% 120% at 90% 100%, rgba(18,4,4,.55) 40%, transparent 42%);
+    radial-gradient(70% 120% at 12% 100%, rgba(var(--se-ink-rgb),.7) 40%, transparent 42%),
+    radial-gradient(70% 120% at 38% 100%, rgba(var(--se-ink-rgb),.55) 40%, transparent 42%),
+    radial-gradient(70% 120% at 64% 100%, rgba(var(--se-ink-rgb),.7) 40%, transparent 42%),
+    radial-gradient(70% 120% at 90% 100%, rgba(var(--se-ink-rgb),.55) 40%, transparent 42%);
   background-size:34% 100%;background-repeat:repeat-x;}
 
+/* ---- theme-specific background looks ---- */
+#se-root[data-theme=spacedust] .se-bg-1{background:radial-gradient(130% 100% at 50% 40%, #10163a 0%, #070518 55%, #02010a 100%);}
+#se-root[data-theme=spacedust] .se-bg-3{background:radial-gradient(40% 34% at 26% 30%, rgba(120,90,255,.32), transparent 70%),radial-gradient(36% 30% at 78% 26%, rgba(60,220,220,.26), transparent 72%),radial-gradient(50% 40% at 60% 82%, rgba(230,80,200,.22), transparent 74%);}
+#se-root[data-theme=spacedust] .se-motif,#se-root[data-theme=spacedust] .se-wave{display:none;}
+#se-root[data-theme=cyberpunk] .se-bg-1{background:linear-gradient(180deg,#05060a 0%, #0a0d18 60%, #05070f 100%);}
+#se-root[data-theme=cyberpunk] .se-bg-2{opacity:.9;background:repeating-linear-gradient(0deg, rgba(252,238,10,.05) 0 1px, transparent 1px 3px),repeating-linear-gradient(90deg, rgba(0,240,255,.05) 0 1px, transparent 1px 40px),linear-gradient(180deg,transparent 60%, rgba(0,240,255,.08));}
+#se-root[data-theme=cyberpunk] .se-bg-3{background:radial-gradient(50% 40% at 15% 90%, rgba(252,238,10,.16), transparent 70%),radial-gradient(46% 40% at 88% 20%, rgba(255,0,120,.2), transparent 72%);}
+#se-root[data-theme=cyberpunk] .se-motif,#se-root[data-theme=cyberpunk] .se-wave{display:none;}
+#se-root[data-theme=warhammer] .se-bg-1{background:radial-gradient(120% 90% at 50% 12%, rgba(176,141,87,.14), transparent 55%),linear-gradient(170deg,#161009 0%, #0c0906 60%, #1a0a06 100%);}
+#se-root[data-theme=warhammer] .se-bg-2{opacity:.55;background:repeating-linear-gradient(45deg, rgba(176,141,87,.06) 0 2px, transparent 2px 16px),radial-gradient(50% 40% at 50% 100%, rgba(140,20,10,.2), transparent 70%);}
+#se-root[data-theme=warhammer] .se-wave{display:none;}
+#se-root[data-theme=warhammer] .se-motif{background:none;box-shadow:none;opacity:.5;border:6px solid rgba(176,141,87,.5);}
+#se-root[data-theme=mushroom] .se-bg-1{background:linear-gradient(160deg,#0a0618 0%, #120a24 55%, #06040f 100%);}
+#se-root[data-theme=mushroom] .se-bg-3{background:radial-gradient(40% 34% at 30% 68%, rgba(255,60,180,.2), transparent 70%),radial-gradient(38% 32% at 72% 40%, rgba(80,255,140,.18), transparent 72%),radial-gradient(40% 34% at 55% 20%, rgba(90,140,255,.18), transparent 72%);}
+#se-root[data-theme=mushroom] .se-motif,#se-root[data-theme=mushroom] .se-wave{display:none;}
+#se-root[data-theme=arcade] .se-bg-1{background:#000004;}
+#se-root[data-theme=arcade] .se-bg-2{opacity:.5;background:repeating-linear-gradient(0deg, rgba(0,120,255,.07) 0 1px, transparent 1px 32px),repeating-linear-gradient(90deg, rgba(0,120,255,.07) 0 1px, transparent 1px 32px);}
+#se-root[data-theme=arcade] .se-bg-3{background:radial-gradient(50% 30% at 50% 0%, rgba(255,40,40,.14), transparent 70%);}
+#se-root[data-theme=arcade] .se-motif,#se-root[data-theme=arcade] .se-wave{display:none;}
+
+/* theme picker bar (bottom) */
+#se-themebar{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:66;flex-wrap:wrap;justify-content:center;max-width:96vw;
+  padding:5px 8px;border-radius:16px;background:rgba(var(--se-ink-rgb),.5);backdrop-filter:blur(5px);}
+.se-theme-btn{padding:5px 11px;border-radius:12px;border:1px solid rgba(var(--se-line-rgb),.5);background:rgba(var(--se-ink-rgb),.4);
+  color:var(--se-glow);font-family:var(--se-font);font-size:11px;letter-spacing:.1em;cursor:pointer;transition:.12s;white-space:nowrap;}
+.se-theme-btn:hover{background:var(--se-line);color:var(--se-ink);}
+.se-theme-btn.on{background:var(--se-glow);color:var(--se-ink);border-color:var(--se-glow);box-shadow:0 0 14px rgba(var(--se-glow-rgb),.5);}
+
 /* top bar */
-#se-bar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:10px;padding:0 14px;z-index:60;
-  background:linear-gradient(180deg, rgba(18,4,4,.72), rgba(18,4,4,0));backdrop-filter:blur(3px);}
-#se-bar .se-title{font-family:var(--se-font);font-size:20px;letter-spacing:.28em;color:var(--se-gold-bright,#f2cd6b);text-shadow:0 2px 8px rgba(0,0,0,.6);}
-#se-bar .se-title small{display:block;font-size:8px;letter-spacing:.4em;color:var(--se-paper,#e8dcc0);opacity:.7;margin-top:-2px;}
-.se-bar-btn{width:32px;height:30px;border-radius:7px;border:1px solid var(--se-gold,#d9a441);background:rgba(18,4,4,.55);
-  color:var(--se-gold-bright,#f2cd6b);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s;}
-.se-bar-btn:hover{background:var(--se-gold,#d9a441);color:var(--se-ink,#120404);}
+#se-bar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;z-index:60;
+  background:linear-gradient(180deg, rgba(var(--se-ink-rgb),.72), rgba(var(--se-ink-rgb),0));backdrop-filter:blur(3px);}
+#se-bar .se-title{font-family:var(--se-font);font-size:20px;letter-spacing:.28em;color:var(--se-glow);text-shadow:0 2px 8px rgba(0,0,0,.6);}
+#se-bar .se-title small{display:block;font-size:8px;letter-spacing:.36em;color:var(--se-paper);opacity:.7;margin-top:-2px;}
+.se-bar-btn{width:32px;height:30px;border-radius:7px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.55);
+  color:var(--se-glow);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s;padding:0;}
+.se-bar-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.se-bar-btn:hover{background:var(--se-line);color:var(--se-ink);}
 .se-bar-btn.play{border-color:#2ecc71;color:#8ff2b4;}
 #se-bar .spacer{flex:1;}
 
 /* circular HUD centerpiece */
-#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-52%);z-index:20;
+#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-54%);z-index:20;
   width:min(56vh,440px);height:min(56vh,440px);pointer-events:none;}
-#se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(242,205,107,.28));}
+#se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(var(--se-glow-rgb),.28));}
 #se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
-#se-hud-label .big{font-family:var(--se-font);font-size:38px;letter-spacing:.1em;color:var(--se-gold-bright,#f2cd6b);line-height:1;}
-#se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper,#e8dcc0);opacity:.75;margin-top:4px;}
-#se-hud-label .kanji{font-size:13px;letter-spacing:.3em;color:var(--se-accent,#e6795f);margin-top:6px;}
+#se-hud-label .big{font-family:var(--se-font);font-size:38px;letter-spacing:.1em;color:var(--se-glow);line-height:1;}
+#se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper);opacity:.75;margin-top:4px;}
+#se-hud-label .kanji{font-size:13px;letter-spacing:.3em;color:var(--se-accent);margin-top:6px;}
 
 /* flanking arc meters */
 .se-arc{position:absolute;top:50%;transform:translateY(-50%);z-index:18;pointer-events:none;width:130px;height:min(60vh,470px);}
@@ -598,38 +634,37 @@ body.champloo #se-root{
 
 /* floating glass module windows */
 .se-mod{position:absolute;z-index:40;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;
-  background:linear-gradient(160deg, rgba(24,8,8,.55), rgba(24,8,8,.32));
-  border:1px solid rgba(217,164,65,.5);box-shadow:0 12px 40px rgba(0,0,0,.5), inset 0 0 0 1px rgba(242,205,107,.08);
-  backdrop-filter:blur(9px) saturate(1.1);-webkit-backdrop-filter:blur(9px) saturate(1.1);}
+  background:linear-gradient(160deg, rgba(var(--se-ink-rgb),.55), rgba(var(--se-ink-rgb),.32));
+  border:1px solid rgba(var(--se-line-rgb),.5);box-shadow:0 12px 40px rgba(0,0,0,.5), inset 0 0 0 1px rgba(var(--se-glow-rgb),.08);
+  backdrop-filter:blur(9px) saturate(1.1);-webkit-backdrop-filter:blur(9px) saturate(1.1);resize:both;}
 .se-mod-head{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:move;user-select:none;
-  background:linear-gradient(180deg, rgba(217,164,65,.22), rgba(217,164,65,.04));border-bottom:1px solid rgba(217,164,65,.3);}
-.se-mod-head .mt{font-family:var(--se-font);font-size:14px;letter-spacing:.16em;color:var(--se-gold-bright,#f2cd6b);}
-.se-mod-head .mmin{margin-left:auto;width:20px;height:18px;border:1px solid rgba(217,164,65,.4);border-radius:5px;
-  background:rgba(18,4,4,.4);color:var(--se-gold,#d9a441);font-size:10px;cursor:pointer;line-height:1;}
+  background:linear-gradient(180deg, rgba(var(--se-line-rgb),.22), rgba(var(--se-line-rgb),.04));border-bottom:1px solid rgba(var(--se-line-rgb),.3);}
+.se-mod-head .mt{font-family:var(--se-font);font-size:14px;letter-spacing:.16em;color:var(--se-glow);display:flex;align-items:center;gap:6px;}
+.se-mod-head .mt svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.se-mod-head .mmin{margin-left:auto;width:20px;height:18px;border:1px solid rgba(var(--se-line-rgb),.4);border-radius:5px;
+  background:rgba(var(--se-ink-rgb),.4);color:var(--se-line);font-size:10px;cursor:pointer;line-height:1;}
 .se-mod-body{flex:1;overflow:auto;padding:8px;}
 .se-mod-body::-webkit-scrollbar{width:7px;height:7px;}
-.se-mod-body::-webkit-scrollbar-thumb{background:rgba(217,164,65,.4);border-radius:4px;}
+.se-mod-body::-webkit-scrollbar-thumb{background:rgba(var(--se-line-rgb),.4);border-radius:4px;}
 .se-mod .se-parked{position:static !important;inset:auto !important;display:block !important;overflow:visible;height:auto;padding:2px;}
 .se-mod.min .se-mod-body{display:none;}
 .se-mod.min{height:auto !important;resize:none;}
-.se-mod{resize:both;}
-/* recolor the reused controls to gold/black inside samurai glass */
-body.champloo .se-mod .pad{border-color:rgba(217,164,65,.4);}
-body.champloo .se-mod .lib-tab.on,body.champloo .se-mod .mode-btn.on{background:var(--se-gold,#d9a441);color:var(--se-ink,#120404);border-color:var(--se-gold,#d9a441);}
-#se-dock{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:55;flex-wrap:wrap;justify-content:center;}
-.se-chip{padding:5px 14px;border-radius:16px;border:1px solid var(--se-gold,#d9a441);background:rgba(18,4,4,.6);color:var(--se-gold-bright,#f2cd6b);
+/* recolor reused controls inside glass */
+body.se-active .se-mod .pad{border-color:rgba(var(--se-line-rgb),.4);}
+body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{background:var(--se-line);color:var(--se-ink);border-color:var(--se-line);}
+#se-dock{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:55;flex-wrap:wrap;justify-content:center;}
+.se-chip{padding:5px 14px;border-radius:16px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.6);color:var(--se-glow);
   font-family:var(--se-font);font-size:12px;letter-spacing:.12em;cursor:pointer;}
-#se-toast{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);z-index:70;padding:8px 16px;border-radius:20px;
-  background:rgba(18,4,4,.85);border:1px solid var(--se-gold,#d9a441);color:var(--se-gold-bright,#f2cd6b);font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;}
+#se-toast{position:absolute;bottom:82px;left:50%;transform:translateX(-50%);z-index:70;padding:8px 16px;border-radius:20px;
+  background:rgba(var(--se-ink-rgb),.85);border:1px solid var(--se-line);color:var(--se-glow);font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;}
 #se-toast.show{opacity:1;}
-/* the classic-mode entry button lives in the normal banner */
 #se-enter{cursor:pointer;}
 @media (max-width:760px){
-  #se-hud-wrap{width:74vw;height:74vw;top:44%;}
+  #se-hud-wrap{width:74vw;height:74vw;top:42%;}
   .se-arc{display:none;}
   .se-mod{position:relative !important;inset:auto !important;width:auto !important;height:auto !important;margin:8px;resize:none;}
-  body.champloo #se-root{overflow-y:auto;}
-  #se-modules{position:absolute;top:300px;left:0;right:0;padding-bottom:80px;}
+  body.se-active #se-root{overflow-y:auto;}
+  #se-modules{position:absolute;top:300px;left:0;right:0;padding-bottom:120px;}
 }
 </style>
 </head>
@@ -1234,7 +1269,7 @@ body.champloo .se-mod .lib-tab.on,body.champloo .se-mod .mode-btn.on{background:
     <button class="bnr-btn" id="bnr-panic" title="PANIC — kill all sound">🛑</button>
     <button class="bnr-btn" id="bnr-ai" title="AI — full interface: search, styles, brain settings">🤖</button>
     <button class="bnr-btn" id="bnr-lib" title="Sound library">📚</button>
-    <button class="bnr-btn" id="bnr-se" title="SPECIAL EDITION — Samurai Champloo HUD skin">⛩</button>
+    <button class="bnr-btn" id="bnr-se" title="SPECIAL EDITION — themed HUD (Samurai · Space Dust · Cyberpunk · Warhammer · Mushroom · Arcade)">⛩</button>
     <button class="bnr-btn" id="bnr-float" title="Floating windows — drag, resize, minimize each tile">🪟</button>
     <button class="bnr-btn" id="bnr-analyze" title="Analyze sound">🔍</button>
     <select id="bnr-style" title="Style"></select>
@@ -1407,30 +1442,32 @@ body.champloo .se-mod .lib-tab.on,body.champloo .se-mod .mode-btn.on{background:
 
 </div><!-- /app -->
 
-<!-- ============ SPECIAL EDITION — SAMURAI CHAMPLOO HUD ============ -->
-<div id="se-root">
+<!-- ============ SPECIAL EDITION — MULTI-THEME HUD ============ -->
+<div id="se-root" data-theme="champloo">
   <div class="se-bg se-bg-1" data-depth="6"></div>
-  <div class="se-sun" data-depth="10"></div>
+  <div class="se-motif" data-depth="10"></div>
   <div class="se-bg se-bg-2" data-depth="16"></div>
   <div class="se-wave" data-depth="24"></div>
   <div class="se-bg se-bg-3" data-depth="34"></div>
+  <canvas id="se-particles"></canvas>
   <div id="se-bar">
-    <div class="se-title">SKRiMPAD<small>侍 SPECIAL EDITION</small></div>
-    <button class="se-bar-btn play" id="se-play" title="Play / pause">▶</button>
-    <button class="se-bar-btn" id="se-panic" title="Panic — kill all sound">🛑</button>
-    <button class="se-bar-btn" id="se-ai" title="AI console">🤖</button>
-    <button class="se-bar-btn" id="se-lib" title="Sound library">📚</button>
+    <div class="se-title" id="se-title">SKRiMPAD<small id="se-subtitle">侍 SPECIAL EDITION</small></div>
+    <button class="se-bar-btn play" id="se-play" title="Play / pause"></button>
+    <button class="se-bar-btn" id="se-panic" title="Panic — kill all sound"></button>
+    <button class="se-bar-btn" id="se-ai" title="AI console"></button>
+    <button class="se-bar-btn" id="se-lib" title="Sound library"></button>
     <div class="spacer"></div>
-    <button class="se-bar-btn" id="se-exit" title="Back to classic studio">✕</button>
+    <button class="se-bar-btn" id="se-exit" title="Back to classic studio"></button>
   </div>
   <canvas class="se-arc left" id="se-arc-l"></canvas>
   <canvas class="se-arc right" id="se-arc-r"></canvas>
   <div id="se-hud-wrap">
     <canvas id="se-hud" width="440" height="440"></canvas>
-    <div id="se-hud-label"><div class="big" id="se-bpm-big">90</div><div class="sub">BPM · MASTER</div><div class="kanji">音 之 型</div></div>
+    <div id="se-hud-label"><div class="big" id="se-bpm-big">90</div><div class="sub">BPM · MASTER</div><div class="kanji" id="se-hud-glyph">音 之 型</div></div>
   </div>
   <div id="se-modules"></div>
   <div id="se-dock"></div>
+  <div id="se-themebar"></div>
   <div id="se-toast"></div>
 </div>
 
@@ -5927,20 +5964,75 @@ if (localStorage.getItem('skrimpad_float') === '1') setTimeout(() => { if (docum
 // Reuses the entire audio engine; re-parents live panels into glass
 // modules laid out by layout.json. Toggle back to classic anytime.
 // =====================================================================
-const SE_DEFAULT_LAYOUT = {
-  name: 'Samurai Champloo',
-  theme: { class: 'champloo', bg1: '#2a0a0a', bg2: '#6b1414', bg3: '#8a1f1f', gold: '#d9a441', goldBright: '#f2cd6b', ink: '#120404', paper: '#e8dcc0', accent: '#c0392b', font: "'Oswald','Arial Narrow',sans-serif" },
-  hud: { type: 'orbital_radar', rings: 3, sweep: true, bind: 'analyser' },
-  modules: [
-    { id: 'pads', title: '太鼓 DRUMS + SEQ', grid_position: { x: 1, y: 2, w: 4, h: 4 }, style_class: 'glass' },
-    { id: 'keys', title: '琴 KEYS', grid_position: { x: 9, y: 2, w: 4, h: 3 }, style_class: 'glass' },
-    { id: 'mixer', title: '混 MIXER', grid_position: { x: 9, y: 5, w: 4, h: 2 }, style_class: 'glass' },
-    { id: 'synth', title: '波 SYNTH + WAVE', grid_position: { x: 1, y: 6, w: 4, h: 2 }, style_class: 'glass' },
-    { id: 'fx', title: '効 FX PEDALS', grid_position: { x: 5, y: 7, w: 4, h: 1 }, style_class: 'glass' },
-    { id: 'lib', title: '蔵 LIBRARY', grid_position: { x: 9, y: 7, w: 4, h: 1 }, style_class: 'glass' }
-  ]
+// ---- Themed SVG icon set (no emojis) — stroked, inherits currentColor ----
+const SE_ICONS = {
+  play: '<path d="M6 4l13 8-13 8z"/>',
+  pause: '<path d="M7 4v16M17 4v16"/>',
+  panic: '<circle cx="12" cy="12" r="8"/><path d="M9 9l6 6M15 9l-6 6"/>',
+  ai: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+  lib: '<path d="M4 5h4v14H4zM10 5h4v14h-4zM16 6l4 1-3 13-4-1z"/>',
+  exit: '<path d="M6 6l12 12M18 6L6 18"/>',
+  drums: '<ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v6c0 1.7 3.6 3 8 3s8-1.3 8-3V8M3 20l4-6M21 20l-4-6"/>',
+  keys: '<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M7 6v8M11 6v8M15 6v8"/>',
+  mixer: '<path d="M6 3v18M12 3v18M18 3v18M3 8h6M9 14h6M15 6h6"/>',
+  synth: '<path d="M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/>',
+  fx: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
+  seq: '<rect x="3" y="6" width="4" height="12"/><rect x="10" y="9" width="4" height="9"/><rect x="17" y="4" width="4" height="14"/>'
 };
-let seLayout = SE_DEFAULT_LAYOUT, seOn = false, seHudRAF = null, seParked = [], seWasStudio = false;
+function svgIcon(name, cls) { return '<svg viewBox="0 0 24 24"' + (cls ? ' class="' + cls + '"' : '') + '>' + (SE_ICONS[name] || '') + '</svg>'; }
+
+// ---- THEME REGISTRY — every theme is data: palette + glyphs + module titles ----
+// c1/c2/c3 bg gradient · line (borders) · glow (bright text/hud) · accent · ink (dark) · paper (light) · font · particles renderer key
+const SE_THEMES = {
+  champloo: {
+    name: 'Samurai Champloo', sub: '侍 SPECIAL EDITION', glyph: '音 之 型', particles: 'petals',
+    c1: '#2a0a0a', c2: '#6b1414', c3: '#8a1f1f', line: '#d9a441', glow: '#f2cd6b', accent: '#c0392b',
+    ink: '#120404', paper: '#e8dcc0', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '太鼓 DRUMS + SEQ', keys: '琴 KEYS', mixer: '混 MIXER', synth: '波 SYNTH', fx: '効 FX', lib: '蔵 LIBRARY' }
+  },
+  spacedust: {
+    name: 'Space Dust', sub: '✦ NEBULA DECK', glyph: '⟡ ✦ ⟡', particles: 'stars',
+    c1: '#10163a', c2: '#070518', c3: '#02010a', line: '#6f7dff', glow: '#8be9ff', accent: '#e650c8',
+    ink: '#03020c', paper: '#dfe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '◈ DRUMS', keys: '◈ KEYS', mixer: '◈ MIXER', synth: '◈ SYNTH', fx: '◈ FX', lib: '◈ LIBRARY' }
+  },
+  cyberpunk: {
+    name: 'Cyberpunk', sub: '// NIGHT CITY OS', glyph: '01 // 10', particles: 'rain',
+    c1: '#05060a', c2: '#0a0d18', c3: '#05070f', line: '#00f0ff', glow: '#fcee0a', accent: '#ff003c',
+    ink: '#04060a', paper: '#c8f8ff', font: "'Courier New',monospace",
+    titles: { pads: '▚ DRUMS', keys: '▚ KEYS', mixer: '▚ MIXER', synth: '▚ SYNTH', fx: '▚ FX', lib: '▚ LIBRARY' }
+  },
+  warhammer: {
+    name: 'Adeptus Mechanicus', sub: '☩ OMNISSIAH', glyph: '☩ ✠ ☩', particles: 'embers',
+    c1: '#161009', c2: '#0c0906', c3: '#1a0a06', line: '#b08d57', glow: '#e0b878', accent: '#8c1410',
+    ink: '#0a0705', paper: '#e6d3ad', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '⚙ DRUMS', keys: '⚙ KEYS', mixer: '⚙ MIXER', synth: '⚙ SYNTH', fx: '⚙ FX', lib: '⚙ ARCHIVE' }
+  },
+  mushroom: {
+    name: 'Mushroom RGB', sub: '✿ SPORE SYNTH', glyph: '✦ ✿ ✦', particles: 'spores', rgb: true,
+    c1: '#0a0618', c2: '#120a24', c3: '#06040f', line: '#ff3cb4', glow: '#5aff8c', accent: '#5a8cff',
+    ink: '#05040f', paper: '#ffe6ff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '✿ DRUMS', keys: '✿ KEYS', mixer: '✿ MIXER', synth: '✿ SYNTH', fx: '✿ FX', lib: '✿ LIBRARY' }
+  },
+  arcade: {
+    name: '80s Wizard Arcade', sub: '★ INSERT COIN', glyph: '★ ▲ ★', particles: 'galaga',
+    c1: '#000004', c2: '#000008', c3: '#000004', line: '#ff2828', glow: '#ffe23c', accent: '#3ca0ff',
+    ink: '#000006', paper: '#ffffff', font: "'Courier New',monospace",
+    titles: { pads: '▶ DRUMS', keys: '▶ KEYS', mixer: '▶ MIXER', synth: '▶ SYNTH', fx: '▶ FX', lib: '▶ LIBRARY' }
+  }
+};
+// Module layout (grid positions) is shared across themes; titles come from the theme.
+const SE_MODULES = [
+  { id: 'pads', icon: 'drums', grid_position: { x: 1, y: 2, w: 4, h: 4 } },
+  { id: 'keys', icon: 'keys', grid_position: { x: 9, y: 2, w: 4, h: 3 } },
+  { id: 'mixer', icon: 'mixer', grid_position: { x: 9, y: 5, w: 4, h: 2 } },
+  { id: 'synth', icon: 'synth', grid_position: { x: 1, y: 6, w: 4, h: 2 } },
+  { id: 'fx', icon: 'fx', grid_position: { x: 5, y: 7, w: 4, h: 1 } },
+  { id: 'lib', icon: 'lib', grid_position: { x: 9, y: 7, w: 4, h: 1 } }
+];
+let seThemeId = 'champloo';
+let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
+let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
 const SE_SOURCE = { pads: 'pads-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
 
@@ -5949,19 +6041,20 @@ function seToast(msg) {
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200);
 }
-async function seLoadLayout() {
-  try {
-    const res = await fetch('layout.json', { cache: 'no-store' });
-    if (res.ok) { seLayout = await res.json(); return; }
-  } catch (e) {}
-  seLayout = SE_DEFAULT_LAYOUT; // embedded fallback (works with no external file)
+// hex → "r,g,b"
+function hexRGB(h) {
+  const m = h.replace('#', ''); const n = parseInt(m.length === 3 ? m.split('').map(c => c + c).join('') : m, 16);
+  return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
 }
 function seApplyTheme(th) {
-  const r = document.documentElement.style;
-  r.setProperty('--se-bg1', th.bg1); r.setProperty('--se-bg2', th.bg2); r.setProperty('--se-bg3', th.bg3);
-  r.setProperty('--se-gold', th.gold); r.setProperty('--se-gold-bright', th.goldBright);
-  r.setProperty('--se-ink', th.ink); r.setProperty('--se-paper', th.paper);
-  r.setProperty('--se-accent', th.accent); r.setProperty('--se-font', th.font);
+  const r = document.getElementById('se-root').style;
+  r.setProperty('--se-c1', th.c1); r.setProperty('--se-c2', th.c2); r.setProperty('--se-c3', th.c3);
+  r.setProperty('--se-line', th.line); r.setProperty('--se-glow', th.glow); r.setProperty('--se-accent', th.accent);
+  r.setProperty('--se-ink', th.ink); r.setProperty('--se-paper', th.paper); r.setProperty('--se-font', th.font);
+  r.setProperty('--se-ink-rgb', hexRGB(th.ink)); r.setProperty('--se-line-rgb', hexRGB(th.line)); r.setProperty('--se-glow-rgb', hexRGB(th.glow));
+  document.getElementById('se-root').setAttribute('data-theme', seThemeId);
+  const ti = document.getElementById('se-subtitle'); if (ti) ti.textContent = th.sub;
+  const gl = document.getElementById('se-hud-glyph'); if (gl) gl.textContent = th.glyph;
 }
 function seColsRows() {
   // 12-col grid mapped onto the viewport, leaving the center clear for the HUD
@@ -5985,7 +6078,8 @@ function seBuildModules() {
     win.style.width = (gp.w * cw - 10) + 'px';
     win.style.height = (gp.h * ch - 10) + 'px';
     const head = document.createElement('div'); head.className = 'se-mod-head';
-    head.innerHTML = `<span class="mt">${m.title}</span>`;
+    const title = (seLayout.theme.titles && seLayout.theme.titles[m.id]) || m.id.toUpperCase();
+    head.innerHTML = `<span class="mt">${svgIcon(m.icon || 'fx')}${title}</span>`;
     const min = document.createElement('button'); min.className = 'mmin'; min.textContent = '—';
     head.appendChild(min);
     const body = document.createElement('div'); body.className = 'se-mod-body';
@@ -6035,61 +6129,61 @@ function seRestoreModules() {
 function seDrawHUD() {
   const cv = document.getElementById('se-hud'); if (!cv) return;
   const g = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
-  const gold = seLayout.theme.goldBright || '#f2cd6b', accent = seLayout.theme.accent || '#c0392b';
   let sweep = 0, freq = null;
   if (audioReady && analyser) freq = new Uint8Array(analyser.frequencyBinCount);
   const loop = () => {
     if (!seOn) return;
     seHudRAF = requestAnimationFrame(loop);
+    // live theme colours (change instantly when the theme is switched)
+    const th = seLayout.theme, lineC = hexRGB(th.line), glowC = hexRGB(th.glow), accC = hexRGB(th.accent), inkC = hexRGB(th.ink);
     g.clearRect(0, 0, W, H);
     let level = 0;
     if (freq) { analyser.getByteFrequencyData(freq); for (let i = 0; i < freq.length; i++) level += freq[i]; level /= freq.length * 255; }
     // outer static rings
-    for (let r = 0; r < (seLayout.hud.rings || 3); r++) {
+    for (let r = 0; r < 3; r++) {
       const rad = 150 + r * 26;
       g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2);
-      g.strokeStyle = 'rgba(217,164,65,' + (0.5 - r * 0.12) + ')'; g.lineWidth = r === 0 ? 2 : 1; g.stroke();
+      g.strokeStyle = 'rgba(' + lineC + ',' + (0.5 - r * 0.12) + ')'; g.lineWidth = r === 0 ? 2 : 1; g.stroke();
     }
     // tick marks
-    g.strokeStyle = 'rgba(242,205,107,.55)';
+    g.strokeStyle = 'rgba(' + glowC + ',.55)';
     for (let a = 0; a < 60; a++) {
       const ang = (a / 60) * Math.PI * 2, big = a % 5 === 0;
       const r1 = 150, r2 = 150 - (big ? 12 : 6);
       g.beginPath(); g.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); g.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2); g.lineWidth = big ? 2 : 1; g.stroke();
     }
-    // radial spectrum bars (react to audio)
+    // radial spectrum bars (react to audio) — colour lerps line→glow with level
     if (freq) {
       const n = 72, step = Math.floor(freq.length / n);
       for (let i = 0; i < n; i++) {
         const v = freq[i * step] / 255, ang = (i / n) * Math.PI * 2 - Math.PI / 2;
         const r1 = 60, r2 = 60 + v * 78;
         g.beginPath(); g.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); g.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
-        g.strokeStyle = 'rgba(' + (192 + v * 63) + ',' + (57 + v * 148) + ',43,' + (0.4 + v * 0.6) + ')'; g.lineWidth = 3; g.stroke();
+        g.strokeStyle = 'rgba(' + (v > 0.5 ? glowC : accC) + ',' + (0.4 + v * 0.6) + ')'; g.lineWidth = 3; g.stroke();
       }
     }
     // rotating dial ring driven by transport / level
     const t = performance.now() / 1000;
     const spin = t * (0.4 + level * 3);
     g.save(); g.translate(cx, cy); g.rotate(spin);
-    g.beginPath(); g.arc(0, 0, 118, 0, Math.PI * 1.5); g.strokeStyle = gold; g.lineWidth = 3; g.stroke();
-    g.beginPath(); g.arc(0, 0, 100, Math.PI, Math.PI * 2.1); g.strokeStyle = accent; g.lineWidth = 2; g.stroke();
+    g.beginPath(); g.arc(0, 0, 118, 0, Math.PI * 1.5); g.strokeStyle = th.glow; g.lineWidth = 3; g.stroke();
+    g.beginPath(); g.arc(0, 0, 100, Math.PI, Math.PI * 2.1); g.strokeStyle = th.accent; g.lineWidth = 2; g.stroke();
     g.restore();
     // sweep needle (radar) — speed follows BPM if playing
-    if (seLayout.hud.sweep) {
+    {
       const bpm = parseInt((document.getElementById('bpm') || {}).value) || 90;
       sweep += (seqPlaying ? bpm / 900 : 0.012);
       const ang = sweep % (Math.PI * 2);
       const grd = g.createLinearGradient(cx, cy, cx + Math.cos(ang) * 150, cy + Math.sin(ang) * 150);
-      grd.addColorStop(0, 'rgba(242,205,107,.9)'); grd.addColorStop(1, 'rgba(242,205,107,0)');
+      grd.addColorStop(0, 'rgba(' + glowC + ',.9)'); grd.addColorStop(1, 'rgba(' + glowC + ',0)');
       g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(ang) * 150, cy + Math.sin(ang) * 150);
       g.strokeStyle = grd; g.lineWidth = 3; g.stroke();
-      // faint afterglow wedge
       g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 150, ang - 0.5, ang); g.closePath();
-      g.fillStyle = 'rgba(242,205,107,.06)'; g.fill();
+      g.fillStyle = 'rgba(' + glowC + ',.06)'; g.fill();
     }
     // center hub
     g.beginPath(); g.arc(cx, cy, 52, 0, Math.PI * 2);
-    g.fillStyle = 'rgba(18,4,4,.55)'; g.fill(); g.strokeStyle = gold; g.lineWidth = 2; g.stroke();
+    g.fillStyle = 'rgba(' + inkC + ',.55)'; g.fill(); g.strokeStyle = th.glow; g.lineWidth = 2; g.stroke();
     const bpmEl = document.getElementById('se-bpm-big'); if (bpmEl) bpmEl.textContent = (document.getElementById('bpm') || {}).value || '90';
   };
   loop();
@@ -6108,8 +6202,8 @@ function seDrawArcs() {
       if (freq) { analyser.getByteFrequencyData(freq); const half = side ? [freq.length / 2, freq.length] : [0, freq.length / 2]; for (let i = half[0]; i < half[1]; i++) level += freq[i]; level /= (freq.length / 2) * 255; }
       const cx = side ? -10 : W + 10, cy = H / 2, rad = H * 0.46;
       const a0 = side ? -Math.PI / 3 : Math.PI + Math.PI / 3, a1 = side ? Math.PI / 3 : Math.PI - Math.PI / 3;
-      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.max(a0, a1)); g.strokeStyle = 'rgba(217,164,65,.28)'; g.lineWidth = 8; g.stroke();
-      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.min(a0, a1) + (Math.abs(a1 - a0)) * level); g.strokeStyle = 'rgba(242,205,107,.9)'; g.lineWidth = 8; g.stroke();
+      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.max(a0, a1)); g.strokeStyle = 'rgba(' + hexRGB(seLayout.theme.line) + ',.28)'; g.lineWidth = 8; g.stroke();
+      g.beginPath(); g.arc(cx, cy, rad, Math.min(a0, a1), Math.min(a0, a1) + (Math.abs(a1 - a0)) * level); g.strokeStyle = 'rgba(' + hexRGB(seLayout.theme.glow) + ',.9)'; g.lineWidth = 8; g.stroke();
     };
     loop();
   });
@@ -6121,45 +6215,154 @@ function seParallax(e) {
   const mx = (e.clientX / innerWidth - 0.5), my = (e.clientY / innerHeight - 0.5);
   document.querySelectorAll('#se-root [data-depth]').forEach(el => {
     const d = parseFloat(el.dataset.depth) || 0;
-    el.style.transform = (el.classList.contains('se-sun') ? 'translateX(-50%) ' : '') + `translate(${-mx * d}px, ${-my * d}px)`;
+    el.style.transform = (el.classList.contains('se-motif') ? 'translateX(-50%) ' : '') + `translate(${-mx * d}px, ${-my * d}px)`;
   });
 }
-function enterSamurai() {
+
+// ---- Animated particle field — a different look per theme ----
+let seParticles = [];
+function seInitParticles() {
+  const cv = document.getElementById('se-particles'); if (!cv) return;
+  cv.width = innerWidth; cv.height = innerHeight;
+  const kind = seLayout.theme.particles, N = kind === 'stars' || kind === 'galaga' ? 140 : 70;
+  seParticles = [];
+  for (let i = 0; i < N; i++) seParticles.push({
+    x: Math.random() * cv.width, y: Math.random() * cv.height,
+    z: Math.random(), r: Math.random() * 2 + 0.5,
+    vx: (Math.random() - 0.5) * 0.3, vy: Math.random() * 0.6 + 0.1,
+    hue: Math.random() * 360, ph: Math.random() * Math.PI * 2
+  });
+}
+function seParticleFrame() {
+  if (!seOn) return;
+  seParticleRAF = requestAnimationFrame(seParticleFrame);
+  const cv = document.getElementById('se-particles'); if (!cv) return;
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height, th = seLayout.theme, kind = th.particles;
+  g.clearRect(0, 0, W, H);
+  const t = performance.now() / 1000;
+  for (const p of seParticles) {
+    if (kind === 'stars' || kind === 'galaga') {           // starfield drifting downward
+      p.y += (kind === 'galaga' ? 1.6 : 0.4) * (0.3 + p.z);
+      if (p.y > H) { p.y = 0; p.x = Math.random() * W; }
+      const tw = 0.5 + 0.5 * Math.sin(t * 3 + p.ph);
+      g.fillStyle = kind === 'galaga'
+        ? ['#fff', '#ff2828', '#3ca0ff', '#ffe23c'][(p.ph * 4 | 0) % 4]
+        : 'rgba(' + hexRGB(th.glow) + ',' + tw + ')';
+      g.fillRect(p.x, p.y, p.r * (p.z + 0.5), p.r * (p.z + 0.5));
+    } else if (kind === 'rain') {                          // cyberpunk code-rain streaks
+      p.y += 3 + p.z * 4; if (p.y > H) { p.y = -20; p.x = Math.random() * W; }
+      g.strokeStyle = 'rgba(' + hexRGB(p.z > 0.5 ? th.line : th.glow) + ',' + (0.15 + p.z * 0.5) + ')';
+      g.lineWidth = 1; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x, p.y + 14); g.stroke();
+    } else if (kind === 'embers') {                        // warhammer rising embers
+      p.y -= 0.4 + p.z; p.x += Math.sin(t + p.ph) * 0.3;
+      if (p.y < 0) { p.y = H; p.x = Math.random() * W; }
+      g.fillStyle = 'rgba(' + hexRGB(th.accent) + ',' + (0.2 + p.z * 0.5) + ')';
+      g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+    } else if (kind === 'spores') {                        // mushroom RGB drifting spores
+      p.x += p.vx; p.y += Math.sin(t + p.ph) * 0.4 - 0.2;
+      if (p.y < 0) p.y = H; if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+      g.fillStyle = 'hsla(' + ((p.hue + t * 60) % 360) + ',90%,65%,0.7)';
+      g.beginPath(); g.arc(p.x, p.y, p.r + 1, 0, Math.PI * 2); g.fill();
+    } else {                                                // petals (samurai) drifting down
+      p.y += 0.5 + p.z; p.x += Math.sin(t + p.ph) * 0.6;
+      if (p.y > H) { p.y = -10; p.x = Math.random() * W; }
+      g.fillStyle = 'rgba(' + hexRGB(th.accent) + ',' + (0.25 + p.z * 0.4) + ')';
+      g.beginPath(); g.ellipse(p.x, p.y, p.r + 1.5, p.r * 0.6, p.ph + t, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // mushroom theme: cycle the RGB accent lines live
+  if (th.rgb) {
+    const hue = (t * 60) % 360;
+    const root = document.getElementById('se-root').style;
+    root.setProperty('--se-line', 'hsl(' + hue + ',90%,62%)');
+    root.setProperty('--se-glow', 'hsl(' + ((hue + 120) % 360) + ',90%,68%)');
+    root.setProperty('--se-line-rgb', '255,90,180'); root.setProperty('--se-glow-rgb', '120,255,150');
+  }
+}
+
+// ---- Enter / exit / switch themes ----
+function seRenderBarIcons() {
+  document.getElementById('se-play').innerHTML = svgIcon(seqPlaying ? 'pause' : 'play');
+  document.getElementById('se-panic').innerHTML = svgIcon('panic');
+  document.getElementById('se-ai').innerHTML = svgIcon('ai');
+  document.getElementById('se-lib').innerHTML = svgIcon('lib');
+  document.getElementById('se-exit').innerHTML = svgIcon('exit');
+}
+function buildThemeBar() {
+  const bar = document.getElementById('se-themebar'); if (!bar) return;
+  bar.innerHTML = '';
+  Object.entries(SE_THEMES).forEach(([id, th]) => {
+    const b = document.createElement('button');
+    b.className = 'se-theme-btn' + (id === seThemeId ? ' on' : '');
+    b.textContent = th.name;
+    b.addEventListener('click', () => switchTheme(id));
+    bar.appendChild(b);
+  });
+  const cls = document.createElement('button');
+  cls.className = 'se-theme-btn'; cls.textContent = '✕ CLASSIC';
+  cls.addEventListener('click', exitSE);
+  bar.appendChild(cls);
+}
+function switchTheme(id) {
+  if (!SE_THEMES[id]) return;
+  seThemeId = id; seLayout = { theme: SE_THEMES[id], modules: SE_MODULES };
+  seApplyTheme(seLayout.theme);
+  document.querySelectorAll('#se-themebar .se-theme-btn').forEach(b => b.classList.toggle('on', b.textContent === SE_THEMES[id].name));
+  // rebuild module titles/icons for the new theme, keep positions
+  document.querySelectorAll('.se-mod').forEach(win => {
+    const m = SE_MODULES.find(x => x.id === win.dataset.mid); if (!m) return;
+    const title = seLayout.theme.titles[m.id] || m.id.toUpperCase();
+    const mt = win.querySelector('.se-mod-head .mt'); if (mt) mt.innerHTML = svgIcon(m.icon) + title;
+  });
+  seInitParticles();
+  const t = document.getElementById('se-title'); if (t) { const s = document.getElementById('se-subtitle'); }
+  seToast(SE_THEMES[id].name + ' — theme engaged');
+}
+function enterSE(themeId) {
   if (!audioReady) initAudio();
-  // collapse the studio grid so each panel is whole again before we re-home it
+  if (themeId) seThemeId = themeId;
+  seLayout = { theme: SE_THEMES[seThemeId], modules: SE_MODULES };
   seWasStudio = document.body.classList.contains('studio');
   if (seWasStudio) exitStudio();
   seOn = true;
+  document.body.classList.add('se-active');
   seApplyTheme(seLayout.theme);
-  document.body.classList.add(seLayout.theme.class || 'champloo');
+  seRenderBarIcons();
+  buildThemeBar();
   document.getElementById('se-dock').innerHTML = '';
   seBuildModules();
   seDrawHUD();
   seDrawArcs();
+  seInitParticles();
+  seParticleFrame();
   if (!seParallaxBound) { window.addEventListener('pointermove', seParallax); seParallaxBound = true; }
-  seToast('侍 ' + (seLayout.name || 'Special Edition') + ' — drag the glass panels · ✕ returns to classic');
+  seToast(seLayout.theme.name + ' — pick a theme below · drag the glass panels · ✕ = classic');
 }
-function exitSamurai() {
+function exitSE() {
   seOn = false;
   if (seHudRAF) cancelAnimationFrame(seHudRAF);
+  if (seParticleRAF) cancelAnimationFrame(seParticleRAF);
   seRestoreModules();
-  document.body.classList.remove(seLayout.theme.class || 'champloo', 'champloo');
-  // re-apply the desktop studio grid if that's where we came from
+  document.body.classList.remove('se-active');
   applyLayout();
   toast('Back to classic studio');
 }
-async function toggleSamurai() {
-  if (seOn) { exitSamurai(); return; }
-  await seLoadLayout();
-  enterSamurai();
-}
+function toggleSE() { if (seOn) exitSE(); else enterSE(); }
 // wire entry + in-skin controls
-document.getElementById('bnr-se').addEventListener('click', toggleSamurai);
-document.getElementById('se-exit').addEventListener('click', exitSamurai);
-document.getElementById('se-play').addEventListener('click', () => { seqPlayPause(); document.getElementById('se-play').textContent = seqPlaying ? '⏸' : '▶'; });
+document.getElementById('bnr-se').addEventListener('click', toggleSE);
+document.getElementById('se-exit').addEventListener('click', exitSE);
+document.getElementById('se-play').addEventListener('click', () => { seqPlayPause(); seRenderBarIcons(); });
 document.getElementById('se-panic').addEventListener('click', () => panicStopAll());
-document.getElementById('se-lib').addEventListener('click', () => { exitSamurai(); document.getElementById('bnr-lib').click(); });
-document.getElementById('se-ai').addEventListener('click', () => { exitSamurai(); document.getElementById('bnr-ai').click(); });
+document.getElementById('se-lib').addEventListener('click', () => { exitSE(); document.getElementById('bnr-lib').click(); });
+document.getElementById('se-ai').addEventListener('click', () => { exitSE(); document.getElementById('bnr-ai').click(); });
+// scroll wheel cycles themes while in the HUD (dynamic flow navigation)
+document.getElementById('se-root').addEventListener('wheel', e => {
+  if (!seOn) return;
+  if (e.target.closest('.se-mod-body')) return; // let module content scroll normally
+  e.preventDefault();
+  const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
+  switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
+}, { passive: false });
 window.addEventListener('resize', () => {
   if (!seOn) return;
   // reposition existing glass windows to the new grid without re-parenting panels
@@ -6214,10 +6417,10 @@ applyWinVis();
   if (el) { el.classList.add('on'); el.style.background = drumDefs[t].color; }
 });
 
-// SPECIAL EDITION build boots straight into the Samurai Champloo HUD.
-// (The ⛩/✕ button still flips between this and the classic studio.)
-const SE_AUTOBOOT = true;
-if (SE_AUTOBOOT) window.addEventListener('load', () => setTimeout(() => { try { toggleSamurai(); } catch (e) {} }, 350));
+// One version, all themes. Enter the HUD from the ⛩ button; the theme bar at
+// the bottom switches between Samurai / Space Dust / Cyberpunk / Warhammer /
+// Mushroom / 80s Arcade live. Scroll-wheel over the backdrop also cycles them.
+// (No auto-boot — the classic studio is the default landing.)
 
 </script>
 </body>
