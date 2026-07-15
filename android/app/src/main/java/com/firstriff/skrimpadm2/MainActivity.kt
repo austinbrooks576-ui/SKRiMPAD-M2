@@ -121,13 +121,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestAudioPermission() {
+        val needed = mutableListOf<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                AUDIO_PERMISSION_REQUEST
-            )
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
+        // Bluetooth LE MIDI controllers need BLUETOOTH_CONNECT on Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), AUDIO_PERMISSION_REQUEST)
         }
     }
 
@@ -136,8 +143,11 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == AUDIO_PERMISSION_REQUEST) {
-            if (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Microphone access denied — some loop features limited", Toast.LENGTH_SHORT).show()
+            permissions.forEachIndexed { i, perm ->
+                val granted = i < grantResults.size && grantResults[i] == PackageManager.PERMISSION_GRANTED
+                if (!granted && perm == Manifest.permission.RECORD_AUDIO) {
+                    Toast.makeText(this, "Microphone access denied — some loop features limited", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
