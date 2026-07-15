@@ -29,6 +29,7 @@ jobs:
         run: |
           mkdir -p electron/app
           cp android/app/src/main/assets/index.html electron/app/index.html
+          cp android/app/src/main/assets/layout.json electron/app/layout.json
 
       - name: Set consumer edition (hide Special Edition HUD)
         run: node scripts/set-edition.js electron/app/index.html consumer

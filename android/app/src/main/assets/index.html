@@ -628,7 +628,7 @@ body.se-active #se-root{
 #se-bar .spacer{flex:1;}
 
 /* circular HUD centerpiece */
-#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-54%);z-index:20;
+#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-54%);z-index:46;
   width:min(56vh,440px);height:min(56vh,440px);pointer-events:none;}
 #se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(var(--se-glow-rgb),.28));}
 #se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;}
@@ -681,6 +681,25 @@ body.se-active #se-root{
 /* recolor reused controls inside glass */
 body.se-active .se-mod .pad{border-color:rgba(var(--se-line-rgb),.4);}
 body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{background:var(--se-line);color:var(--se-ink);border-color:var(--se-line);}
+/* THEMED OVERLAYS — the library / sample editor / sound picker are fixed
+   modals outside #se-root, so while the SE HUD is live they dress in the
+   active theme (glass, ink, gold lines) instead of the consumer dark grey.
+   Same engine, standalone Special Edition skin. */
+body.se-active #lib-modal,body.se-active #edit-modal,body.se-active #pick-modal{background:rgba(var(--se-ink-rgb),.62);backdrop-filter:blur(3px);}
+body.se-active #lib-card,body.se-active #edit-card,body.se-active #pick-modal>div{
+  background:linear-gradient(165deg, rgba(var(--se-ink-rgb),.94), rgba(var(--se-ink-rgb),.80));
+  border:1px solid rgba(var(--se-line-rgb),.55);border-radius:14px;color:var(--se-paper);font-family:var(--se-font);
+  box-shadow:0 16px 54px rgba(0,0,0,.62), 0 0 34px rgba(var(--se-glow-rgb),.14);backdrop-filter:blur(12px);}
+body.se-active #lib-card .hbtn,body.se-active #edit-card .hbtn,body.se-active #pick-modal .hbtn{
+  border-color:rgba(var(--se-line-rgb),.55);color:var(--se-glow);background:rgba(var(--se-ink-rgb),.5);}
+body.se-active #lib-card b,body.se-active #edit-card b,body.se-active #pick-modal b{color:var(--se-glow);letter-spacing:.1em;}
+body.se-active .lib-tab.on{background:var(--se-line);color:var(--se-ink);border-color:var(--se-line);}
+body.se-active .lib-tab{border-color:rgba(var(--se-line-rgb),.4);color:var(--se-paper);background:rgba(var(--se-ink-rgb),.45);}
+body.se-active .lib-sound{background:rgba(var(--se-ink-rgb),.5);border-color:rgba(var(--se-line-rgb),.35);color:var(--se-paper);}
+body.se-active .lib-sound .lib-origin{color:var(--se-glow);}
+body.se-active .drop-zone{border-color:rgba(var(--se-line-rgb),.5);background:rgba(var(--se-ink-rgb),.4);color:var(--se-paper);}
+body.se-active .ai-gen-desc{background:rgba(var(--se-ink-rgb),.55) !important;border-color:rgba(var(--se-line-rgb),.55) !important;color:var(--se-paper) !important;}
+body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;color:var(--se-glow) !important;}
 #se-dock{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:55;flex-wrap:wrap;justify-content:center;}
 .se-chip{padding:5px 14px;border-radius:16px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.6);color:var(--se-glow);
   font-family:var(--se-font);font-size:12px;letter-spacing:.12em;cursor:pointer;}
@@ -1375,6 +1394,10 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
   <div class="lay-hint">CLICK = preview · RIGHT-CLICK/HOLD = assign to selected pad · CTRL+CLICK = assign to keys · ✂ = open in sample editor · ✕ = delete forever</div>
   <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
   <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
+  <div style="display:flex;gap:6px;margin-bottom:10px">
+    <input class="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
+    <button class="hbtn ai-gen-btn" style="color:var(--purple);border-color:var(--purple)">GENERATE</button>
+  </div>
   <div id="lib-tabs-p" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
   <div id="lib-grid-p" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
 </div>
@@ -1474,8 +1497,8 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
     <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
     <div style="display:flex;gap:6px;margin-bottom:10px">
-      <input id="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
-      <button class="hbtn" id="ai-gen-btn" style="color:var(--purple);border-color:var(--purple)">GENERATE</button>
+      <input class="ai-gen-desc" id="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
+      <button class="hbtn ai-gen-btn" id="ai-gen-btn" style="color:var(--purple);border-color:var(--purple)">GENERATE</button>
     </div>
     <div id="lib-tabs" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
     <div id="lib-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
@@ -1587,12 +1610,9 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <div class="se-title" id="se-title">SKRiMPAD<small id="se-subtitle">侍 SPECIAL EDITION</small></div>
     <button class="se-bar-btn play" id="se-play" title="Play / pause"></button>
     <button class="se-bar-btn" id="se-panic" title="Panic — kill all sound"></button>
-    <button class="se-bar-btn" id="se-ai" title="AI console"></button>
-    <button class="se-bar-btn" id="se-lib" title="Sound library"></button>
     <button class="se-bar-btn" id="se-revolve" title="REVOLVE — windows orbit the HUD; scroll wheel spins them"></button>
-    <button class="se-bar-btn" id="se-hidethemes" title="Hide / show the theme options bar" style="font-size:13px">🎨</button>
+    <button class="se-bar-btn" id="se-hidethemes" title="Theme options — pick your look" style="font-size:13px">🎨</button>
     <div class="spacer"></div>
-    <button class="se-bar-btn" id="se-exit" title="Back to classic studio"></button>
   </div>
   <canvas class="se-arc left" id="se-arc-l"></canvas>
   <canvas class="se-arc right" id="se-arc-r"></canvas>
@@ -6313,19 +6333,21 @@ function importZipPack() {
   }
 }
 document.querySelectorAll('.zip-import-btn').forEach(b => b.addEventListener('click', importZipPack));
-// AI: generate a sound from a plain-English description (library modal)
-{
-  const gd = document.getElementById('ai-gen-desc'), gb = document.getElementById('ai-gen-btn');
+// AI: generate a sound from a plain-English description — wired in BOTH the
+// library modal and the standalone library panel (the SE glass window)
+document.querySelectorAll('.ai-gen-btn').forEach(gb => {
+  const row = gb.parentElement;
+  const gd = row && row.querySelector('.ai-gen-desc');
   const run = async () => {
     const v = (gd && gd.value || '').trim(); if (!v) { toast('Describe a sound first'); return; }
-    if (gb) { gb.disabled = true; gb.textContent = '…'; }
+    gb.disabled = true; gb.textContent = '…';
     try { await genSoundFromText(v); if (gd) gd.value = ''; }
     catch (e) { toast('Generation failed'); }
-    if (gb) { gb.disabled = false; gb.textContent = 'GENERATE'; }
+    gb.disabled = false; gb.textContent = 'GENERATE';
   };
-  if (gb) gb.addEventListener('click', run);
+  gb.addEventListener('click', run);
   if (gd) gd.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
-}
+});
 
 // ---- Drag-and-drop import: .zip packs + loose audio files from the OS ----
 async function handleDroppedFiles(files) {
@@ -6928,10 +6950,14 @@ function hexRGB(h) {
 }
 function seApplyTheme(th) {
   const r = document.getElementById('se-root').style;
-  r.setProperty('--se-c1', th.c1); r.setProperty('--se-c2', th.c2); r.setProperty('--se-c3', th.c3);
-  r.setProperty('--se-line', th.line); r.setProperty('--se-glow', th.glow); r.setProperty('--se-accent', th.accent);
-  r.setProperty('--se-ink', th.ink); r.setProperty('--se-paper', th.paper); r.setProperty('--se-font', th.font);
-  r.setProperty('--se-ink-rgb', hexRGB(th.ink)); r.setProperty('--se-line-rgb', hexRGB(th.line)); r.setProperty('--se-glow-rgb', hexRGB(th.glow));
+  // vars go on BOTH #se-root and <body>: the library/editor/picker modals are
+  // fixed overlays outside #se-root, and they must dress in the same theme
+  [r, document.body.style].forEach(s => {
+    s.setProperty('--se-c1', th.c1); s.setProperty('--se-c2', th.c2); s.setProperty('--se-c3', th.c3);
+    s.setProperty('--se-line', th.line); s.setProperty('--se-glow', th.glow); s.setProperty('--se-accent', th.accent);
+    s.setProperty('--se-ink', th.ink); s.setProperty('--se-paper', th.paper); s.setProperty('--se-font', th.font);
+    s.setProperty('--se-ink-rgb', hexRGB(th.ink)); s.setProperty('--se-line-rgb', hexRGB(th.line)); s.setProperty('--se-glow-rgb', hexRGB(th.glow));
+  });
   document.getElementById('se-root').setAttribute('data-theme', seThemeId);
   const ti = document.getElementById('se-subtitle'); if (ti) ti.textContent = th.sub;
   const gl = document.getElementById('se-hud-glyph'); if (gl) gl.textContent = th.glyph;
@@ -6989,7 +7015,7 @@ function seBuildModules() {
       if (e.target === min) return;
       drag = { dx: e.clientX - win.offsetLeft, dy: e.clientY - win.offsetTop };
       try { head.setPointerCapture(e.pointerId); } catch (err) {}
-      win.style.zIndex = 200;
+      win.style.zIndex = 44; // raised above siblings but still UNDER the HUD (z 46)
     });
     head.addEventListener('pointermove', e => { if (drag) { win.style.left = Math.max(0, e.clientX - drag.dx) + 'px'; win.style.top = Math.max(44, e.clientY - drag.dy) + 'px'; } });
     ['pointerup', 'pointercancel'].forEach(ev => head.addEventListener(ev, () => drag = null));
@@ -7178,12 +7204,12 @@ let seLastRgbHue = -1;
 function seRenderBarIcons() {
   document.getElementById('se-play').innerHTML = svgIcon(seqPlaying ? 'pause' : 'play');
   document.getElementById('se-panic').innerHTML = svgIcon('panic');
-  document.getElementById('se-ai').innerHTML = svgIcon('ai');
-  document.getElementById('se-lib').innerHTML = svgIcon('lib');
   document.getElementById('se-revolve').innerHTML = svgIcon('orbit');
-  document.getElementById('se-exit').innerHTML = svgIcon('exit');
 }
 function buildThemeBar() {
+  // Theme selection lives HERE (behind the 🎨 palette button) and nowhere else.
+  // The Special Edition is its own app now — no ✕ CLASSIC escape hatch back to
+  // the consumer studio.
   const bar = document.getElementById('se-themebar'); if (!bar) return;
   bar.innerHTML = '';
   Object.entries(SE_THEMES).forEach(([id, th]) => {
@@ -7193,10 +7219,6 @@ function buildThemeBar() {
     b.addEventListener('click', () => switchTheme(id));
     bar.appendChild(b);
   });
-  const cls = document.createElement('button');
-  cls.className = 'se-theme-btn'; cls.textContent = '✕ CLASSIC';
-  cls.addEventListener('click', exitSE);
-  bar.appendChild(cls);
 }
 function switchTheme(id) {
   if (!SE_THEMES[id]) return;
@@ -7233,7 +7255,7 @@ function enterSE(themeId) {
   seInitParticles();
   seParticleFrame();
   if (!seParallaxBound) { window.addEventListener('pointermove', seParallax); seParallaxBound = true; }
-  seToast(seLayout.theme.name + ' — pick a theme below · drag the glass panels · ✕ = classic');
+  seToast(seLayout.theme.name + ' — 🎨 picks your theme · drag the glass panels');
 }
 function exitSE() {
   seOn = false; seRevolve = false;
@@ -7246,20 +7268,22 @@ function exitSE() {
   toast('Back to classic studio');
 }
 function toggleSE() { if (seOn) exitSE(); else enterSE(); }
-// CONSUMER EDITION: strip the Special Edition entry points — the app is the
-// classic studio only (no ⛩ button, no themed HUD). SE builds leave this as-is.
+// EDITION SPLIT — the two builds are separate apps now, with no way to cross:
+//  · consumer: classic studio only, every SE entry point stripped
+//  · special edition: boots STRAIGHT into the HUD and stays there — the ⛩
+//    toggles, ✕ exit, and ✕ CLASSIC chip are gone; there is no consumer UI
+//    to fall back to. The library/AI live in the HUD's own glass windows.
 if (window.SKRIMPAD_EDITION === 'consumer') {
   ['bnr-se', 'se-mobile-btn'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+} else {
+  // one-way door: exiting the HUD is not a thing in the Special Edition
+  exitSE = function () {};
+  ['bnr-se', 'se-mobile-btn'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 }
-// wire entry + in-skin controls
+// wire in-skin controls
 document.getElementById('bnr-se').addEventListener('click', toggleSE);
-document.getElementById('se-exit').addEventListener('click', exitSE);
 document.getElementById('se-play').addEventListener('click', () => { seqPlayPause(); seRenderBarIcons(); });
 document.getElementById('se-panic').addEventListener('click', () => panicStopAll());
-// Open the library / AI as an overlay ON TOP of the HUD — never drop back to
-// the classic studio (that "revert to the original pages" bug on Library tap).
-document.getElementById('se-lib').addEventListener('click', () => { document.getElementById('bnr-lib').click(); });
-document.getElementById('se-ai').addEventListener('click', () => { document.getElementById('bnr-ai').click(); });
 // ---- REVOLVE MODE — the windows orbit the HUD; the scroll wheel spins them ----
 let seRevolve = false, seOrbitAngle = 0;
 function seLayoutGrid() {
@@ -7290,7 +7314,9 @@ function seLayoutRevolve() {
     win.style.top = (y - h * sc / 2) + 'px';
     win.style.transform = 'scale(' + sc.toFixed(3) + ')';
     win.style.transformOrigin = 'top left';
-    win.style.zIndex = 30 + Math.round(depth * 40);
+    // whole orbit stays UNDER the HUD (z 46) — the glass windows sweep behind
+    // the AI node, never across its face
+    win.style.zIndex = 10 + Math.round(depth * 30);
   });
 }
 function setRevolve(on) {
@@ -7331,20 +7357,17 @@ function applyThemeBarVis() {
 }
 
 // scroll wheel: spins the carousel in revolve mode, cycles themes otherwise
+// Scroll wheel ONLY spins the REVOLVE orbit — it never changes themes.
+// Theme selection is the 🎨 palette button's job, full stop.
 document.getElementById('se-root').addEventListener('wheel', e => {
-  if (!seOn) return;
+  if (!seOn || !seRevolve) return;
   if (e.target.closest('.se-mod-body')) return; // let module content scroll normally
   e.preventDefault();
-  if (seRevolve) {
-    seOrbitAngle += (e.deltaY > 0 ? 1 : -1) * (Math.PI * 2 / (document.querySelectorAll('.se-mod').length || 7));
-    seLayoutRevolve();
-    return;
-  }
-  const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
-  switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
+  seOrbitAngle += (e.deltaY > 0 ? 1 : -1) * (Math.PI * 2 / (document.querySelectorAll('.se-mod').length || 7));
+  seLayoutRevolve();
 }, { passive: false });
 
-// ---- THUMB SWIPE — drag across the backdrop to spin the orbit / cycle themes ----
+// ---- THUMB SWIPE — drag across the backdrop to spin the orbit ----
 // (touch equivalent of the scroll wheel; continuous drag in REVOLVE mode)
 {
   const root = document.getElementById('se-root');
@@ -7504,10 +7527,20 @@ applyWinVis();
   if (el) { el.classList.add('on'); el.style.background = drumDefs[t].color; }
 });
 
-// One version, all themes. Enter the HUD from the ⛩ button; the theme bar at
-// the bottom switches between Samurai / Space Dust / Cyberpunk / Warhammer /
-// Mushroom / 80s Arcade live. Scroll-wheel over the backdrop also cycles them.
-// (No auto-boot — the classic studio is the default landing.)
+// Browsers create the AudioContext suspended until a user gesture. initAudio()
+// resumes at creation, but with the SE HUD auto-booting the context is created
+// at page load — so resume on the first real gesture too, or the whole app
+// would stay silent.
+['pointerdown', 'touchstart', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, () => {
+    if (audioReady && ctx && ctx.state === 'suspended') ctx.resume();
+  }, { capture: true, passive: true }));
+
+// SPECIAL EDITION boots straight into the themed HUD and lives there — the
+// 🎨 palette picks between Samurai / Space Dust / Cyberpunk / Warhammer /
+// Mushroom / 80s Arcade. The consumer edition never sees any of this and
+// lands in the classic studio as always.
+if (window.SKRIMPAD_EDITION !== 'consumer') setTimeout(() => enterSE(), 50);
 
 </script>
 </body>

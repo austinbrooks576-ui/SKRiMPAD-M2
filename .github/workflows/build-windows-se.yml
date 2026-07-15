@@ -70,10 +70,11 @@ jobs:
             - **`SKRiMPAD SE Setup ${{ github.run_number }} (Installer).exe`** — installs to Program Files with shortcuts
             - **`SKRiMPAD SE Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere, no install needed
 
-            SIX switchable themes in one build: Samurai Champloo, Space Dust, Cyberpunk,
-            Adeptus Mechanicus, Mushroom RGB, 80s Wizard Arcade — with the HUD AI console,
-            floating BPM/volume pills, REVOLVE orbit mode, katanas + dragon, and every
-            consumer feature. ⛩ enters the HUD; ✕ returns to the classic studio.
+            A standalone themed studio — boots straight into the HUD. SIX themes
+            behind the 🎨 palette: Samurai Champloo, Space Dust, Cyberpunk,
+            Adeptus Mechanicus, Mushroom RGB, 80s Wizard Arcade — HUD AI console,
+            floating BPM/volume pills, REVOLVE orbit (glass windows sweep behind
+            the AI node), themed library + sample editor, katanas + dragon.
 
             **Requirements:** Windows 10+ (64-bit)
           files: |

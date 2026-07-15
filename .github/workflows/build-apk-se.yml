@@ -52,18 +52,18 @@ jobs:
           tag_name: se-v1.0.${{ github.run_number }}
           name: SKRiMPAD M2 — Special Edition — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD M2 — **Special Edition** — SIX switchable themes in one build:
+            SKRiMPAD M2 — **Special Edition** — a standalone themed studio. Boots
+            straight into the HUD; SIX switchable themes behind the 🎨 palette:
             Samurai Champloo · Space Dust · Cyberpunk · Adeptus Mechanicus ·
             Mushroom RGB · 80s Wizard Arcade.
 
-            Press ⛩ to enter the HUD, pick a theme from the bar (or scroll-wheel the
-            backdrop to cycle). AI console in the HUD center, floating BPM/volume pills,
-            REVOLVE orbit mode, katana separators + New Year's dragon (samurai), themed
-            SVG icons, per-theme particle skies, frosted-glass modules. ✕ = classic studio.
+            AI console in the HUD center, floating BPM/volume pills, themed library
+            with sample editor, katana separators + New Year's dragon (samurai),
+            themed SVG icons, per-theme particle skies, frosted-glass modules.
 
-            Includes every consumer feature: 9-pad banks, separated sequencers,
-            library-first import with trim, 10 FX pedals, overload guard, MIDI +
-            controller mapping, 34 genres.
+            Full studio inside: 9-pad banks, separated sequencers, library-first
+            import with trim, 10 FX pedals, overload guard, MIDI + controller
+            mapping, 34 genres.
 
             **Install:** Download `SKRiMPAD SE Setup ${{ github.run_number }}.apk`, enable "Install
             unknown apps" in Android settings, then open to install.
