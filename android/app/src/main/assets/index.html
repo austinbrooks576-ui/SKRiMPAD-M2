@@ -472,6 +472,7 @@ body.studio.float #slot-banner{position:relative;z-index:2800;margin-bottom:4px;
 body.studio.float #slot-master{position:fixed;bottom:0;left:0;right:0;z-index:2700;background:var(--surf);border-top:1px solid var(--bdr);}
 body.studio.float .slot-title{cursor:move;user-select:none;}
 .fw-hidden{display:none !important;}
+.fw-collapsed{height:auto !important;max-height:36px;overflow:hidden !important;resize:none !important;}
 #float-dock{position:fixed;bottom:52px;left:10px;display:flex;gap:6px;z-index:3200;flex-wrap:wrap;}
 .fw-chip{padding:5px 12px;border-radius:14px;border:1px solid var(--teal);background:var(--surf2);color:var(--teal);font-size:10px;font-weight:800;cursor:pointer;}
 .fw-min{margin-left:auto;width:18px;height:16px;border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);border-radius:4px;font-size:9px;line-height:1;cursor:pointer;}
@@ -1853,14 +1854,14 @@ function initFX() {
   fxChain.delayFB = ctx.createGain();
   fxChain.delayFB.gain.value = 0.4;
   fxChain.delayMix = ctx.createGain();
-  fxChain.delayMix.gain.value = 0.3;
+  fxChain.delayMix.gain.value = 0; // OFF until the DELAY pedal is enabled (was 0.3 → always-on echo)
   fxChain.delayDry = ctx.createGain();
   fxChain.delayDry.gain.value = 1;
 
   // Reverb
   fxChain.reverbConv = ctx.createConvolver();
   fxChain.reverbMix = ctx.createGain();
-  fxChain.reverbMix.gain.value = 0.3;
+  fxChain.reverbMix.gain.value = 0; // OFF until the REVERB pedal is enabled (was 0.3 → always-on reverb)
   fxChain.reverbDry = ctx.createGain();
   fxChain.reverbDry.gain.value = 1;
   updateReverb(2, 2);
@@ -3276,8 +3277,17 @@ function refreshDrumName(i) {
 function importAudioFile(onLoaded, label) {
   if (!audioReady) initAudio();
 
-  // Use Android native file picker if available
-  if (typeof AndroidFileHandler !== 'undefined') {
+  // Native streaming picker (large-file + WAV safe) when available
+  if (hasNativePathPicker()) {
+    nativePickFileAB('audio/*', async (ab, name) => {
+      try {
+        const buf = await ctx.decodeAudioData(ab);
+        libRegisterImport(name || ('imported-' + Date.now() + '.audio'), buf);
+        onLoaded(buf, name || 'Imported audio');
+        toast((label || 'Sample') + ': ' + (name || 'imported').slice(0, 22));
+      } catch (err) { toast('Import failed — incomplete / incompatible file type'); }
+    });
+  } else if (typeof AndroidFileHandler !== 'undefined') {
     window.__audioImportCallback = async (base64Data) => {
       if (!base64Data) { toast('Import cancelled'); return; }
       try {
@@ -6189,8 +6199,50 @@ async function importZipData(ab, packName) {
   aiLog('ZIP pack imported — ' + ok + ' sounds auto-organized into ' + cats.size + ' tabs' +
         (bad ? ' · ' + bad + ' incompatible skipped' : ''), bad ? 'warn' : 'good');
 }
+// Read a file:// path into an ArrayBuffer (XHR handles file:// where fetch may
+// not in the WebView). Used by the streaming native picker below.
+function xhrArrayBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', url, true); x.responseType = 'arraybuffer';
+    x.onload = () => (x.status === 0 || x.status === 200) ? resolve(x.response) : reject(new Error('HTTP ' + x.status));
+    x.onerror = () => reject(new Error('read error'));
+    x.send();
+  });
+}
+// True when the native layer supports the crash-proof streaming picker.
+function hasNativePathPicker() {
+  return typeof AndroidFileHandler !== 'undefined' && typeof AndroidFileHandler.pickFileToPath === 'function';
+}
+// Pick a file natively WITHOUT base64 (streams to a cache file, reads it back
+// as an ArrayBuffer). onData(arrayBuffer, originalName).
+function nativePickFileAB(mime, onData) {
+  window.__pathImportCb = async json => {
+    if (!json) { toast('Import cancelled'); return; }
+    let info; try { info = JSON.parse(json); } catch (e) { toast('Import failed'); return; }
+    try {
+      const ab = await xhrArrayBuffer(info.path);
+      await onData(ab, info.name || 'import');
+    } catch (e) { toast('Import failed — could not read the file (' + (e.message || 'error') + ')'); }
+  };
+  AndroidFileHandler.pickFileToPath(mime, '__pathImportCb');
+}
 function importZipPack() {
-  if (typeof AndroidFileHandler !== 'undefined') {
+  if (hasNativePathPicker()) {
+    // any file type — the picker offers ZIPs and loose audio; we branch on name
+    nativePickFileAB('*/*', async (ab, name) => {
+      const nm = (name || '').toLowerCase();
+      if (nm.endsWith('.zip')) importZipData(ab, name.replace(/\.zip$/i, ''));
+      else {
+        try {
+          const buf = await ctx.decodeAudioData(ab);
+          const { cat, name: sn } = organizeSampleName(name);
+          libAddToCategory(cat, sn, name.replace(/\.[^.]+$/, '') || 'imported', buf, true);
+          buildSoundLib(); toast('⬇ Imported ' + sn);
+        } catch (e) { toast('Import failed — incomplete / incompatible file type'); }
+      }
+    });
+  } else if (typeof AndroidFileHandler !== 'undefined') {
     window.__zipImportCallback = async b64 => {
       if (!b64) { toast('Import cancelled'); return; }
       const bin = atob(b64), bytes = new Uint8Array(bin.length);
@@ -6200,10 +6252,12 @@ function importZipPack() {
     AndroidFileHandler.pickFile('application/zip', '__zipImportCallback');
   } else {
     const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.zip,application/zip';
+    inp.type = 'file'; inp.accept = '.zip,application/zip,audio/*';
     inp.onchange = async e => {
       const f = e.target.files[0]; if (!f) return;
-      importZipData(await f.arrayBuffer(), f.name.replace(/\.zip$/i, ''));
+      const nm = f.name.toLowerCase();
+      if (nm.endsWith('.zip')) importZipData(await f.arrayBuffer(), f.name.replace(/\.zip$/i, ''));
+      else handleDroppedFiles([f]);
     };
     inp.click();
   }
@@ -6683,15 +6737,11 @@ function fwSetup(id, i) {
   el._fw = true;
   const title = el.querySelector('.slot-title'); if (!title) return;
   const min = document.createElement('button');
-  min.className = 'fw-min'; min.textContent = '—'; min.title = 'Minimize to dock';
+  min.className = 'fw-min'; min.textContent = '—'; min.title = 'Minimize / open';
   min.addEventListener('click', ev => {
     ev.stopPropagation();
-    el.classList.add('fw-hidden');
-    const dock = document.getElementById('float-dock');
-    const chip = document.createElement('button');
-    chip.className = 'fw-chip'; chip.textContent = title.firstChild.textContent.trim();
-    chip.addEventListener('click', () => { el.classList.remove('fw-hidden'); chip.remove(); });
-    dock.appendChild(chip);
+    const collapsed = el.classList.toggle('fw-collapsed');
+    min.textContent = collapsed ? '+' : '—';
   });
   title.appendChild(min);
   let drag = null;
@@ -6876,14 +6926,12 @@ function seBuildModules() {
     body.appendChild(src);
     win.appendChild(head); win.appendChild(body);
     host.appendChild(win);
-    // minimize → dock chip
+    // minimize collapses to the title bar IN PLACE; click again to open it back
+    // up (the header stays visible so a tab can never get lost off-screen)
     min.addEventListener('click', e => {
       e.stopPropagation();
-      win.classList.add('min');
-      const dock = document.getElementById('se-dock');
-      const chip = document.createElement('button'); chip.className = 'se-chip'; chip.textContent = m.title;
-      chip.addEventListener('click', () => { win.classList.remove('min'); chip.remove(); });
-      dock.appendChild(chip);
+      const collapsed = win.classList.toggle('min');
+      min.textContent = collapsed ? '+' : '—';
     });
     // drag by header
     let drag = null;
@@ -7197,6 +7245,15 @@ function setRevolve(on) {
 }
 document.getElementById('se-revolve').addEventListener('click', () => setRevolve(!seRevolve));
 
+// The orbital REVOLVE mode is desktop/Windows only — hide it on the Android APK
+// (the AndroidFileHandler bridge only exists inside the app's WebView).
+const IS_APK = typeof AndroidFileHandler !== 'undefined';
+if (IS_APK) {
+  const rv = document.getElementById('se-revolve');
+  if (rv) rv.style.display = 'none';
+  seRevolve = false;
+}
+
 // ---- Hide / show the theme options bar (persisted) ----
 let seThemesHidden = false;
 try { seThemesHidden = localStorage.getItem('skrimpad_themes_hidden') === '1'; } catch (e) {}
@@ -7242,22 +7299,12 @@ document.getElementById('se-root').addEventListener('wheel', e => {
     const t = e.touches[0]; sx = t.clientX; sy = t.clientY; sAng = seOrbitAngle; accum = 0; swiping = true;
   }, { passive: true });
   root.addEventListener('touchmove', e => {
-    if (!swiping || !seOn) return;
-    const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-    if (seRevolve) {
-      // horizontal drag rotates the carousel live — one full width ≈ one full turn
-      seOrbitAngle = sAng + (dx / Math.max(240, innerWidth * 0.5)) * Math.PI * 2;
-      seLayoutRevolve();
-      if (Math.abs(dx) > 8) e.preventDefault();
-    } else {
-      // not in orbit: accumulate and step themes every ~90px of vertical/horizontal swipe
-      const d = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-      if (Math.abs(d - accum) > 90) {
-        const ids = Object.keys(SE_THEMES), i = ids.indexOf(seThemeId);
-        switchTheme(ids[(i + (d < accum ? 1 : ids.length - 1)) % ids.length]);
-        accum = d;
-      }
-    }
+    if (!swiping || !seOn || !seRevolve) return; // ONLY spins the orbit — never changes themes
+    const t = e.touches[0], dx = t.clientX - sx;
+    // horizontal drag rotates the carousel live — one full width ≈ one full turn
+    seOrbitAngle = sAng + (dx / Math.max(240, innerWidth * 0.5)) * Math.PI * 2;
+    seLayoutRevolve();
+    if (Math.abs(dx) > 8) e.preventDefault();
   }, { passive: false });
   root.addEventListener('touchend', () => { swiping = false; }, { passive: true });
 }
