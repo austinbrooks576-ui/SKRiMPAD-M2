@@ -2527,7 +2527,7 @@ function seqGetBeatSec() { return 60 / parseInt(document.getElementById('bpm').v
 // Each slot is null or { midi, sustain } (sustain holds until the next placed note)
 const KEY_LANES = 5;
 const LANE_COLORS = ['var(--teal)','var(--orange)','var(--purple)','var(--green)','var(--pink)'];
-const keyLanes = Array(KEY_LANES).fill(null).map(() => ({ steps: new Array(SEQ_STEPS).fill(null), voice: 'main', sampleBuf: null, sampleRoot: 60, mute: false, locked: false }));
+const keyLanes = Array(KEY_LANES).fill(null).map(() => ({ steps: new Array(SEQ_STEPS).fill(null), voice: 'main', sampleBuf: null, sampleRoot: 60, mute: false, locked: false, synthLock: null }));
 let curLane = 0;
 let keySeq = keyLanes[0].steps; // the ACTIVE lane's steps — all UI editing goes here
 let keySeqTimers = [];
@@ -2556,12 +2556,42 @@ function scheduleLaneStep(s, when) {
   });
 }
 
+// ---- LANE VOICE LOCK ----------------------------------------------------
+// Freeze the CURRENT synthesizer voice (osc/filter/LFO/wave-shape) into a
+// snapshot so a locked lane keeps its own sound and is never re-coloured by
+// later changes to the shared synth, filters, or other channels.
+const SYNTH_SNAP_KEYS = ['osc1Type','osc2Type','o1Oct','o1Semi','o1Det','o1Lev','o2Oct','o2Semi','o2Det','o2Lev',
+  'filtType','filtCut','filtRes','filtEnv','attack','decay','sustain','release',
+  'lfoShape','lfoTarget','lfoRate','lfoDepth','keyMode','glide','vibrato','brightness','keySampleBuf','keySampleRoot'];
+function synthSnapshot() {
+  const p = {};
+  SYNTH_SNAP_KEYS.forEach(k => p[k] = synth[k]);
+  p.waves = OSC_WAVES.map(w => ({ useCustom: w.useCustom, custom: w.custom, samples: w.samples.slice(), dirty: w.dirty }));
+  return p;
+}
+// Run fn() with the global synth PARAMS temporarily replaced by a snapshot.
+// activeNotes is deliberately NOT swapped so noteOff() still finds the voice.
+function withSynthSnapshot(snap, fn) {
+  const saved = {};
+  SYNTH_SNAP_KEYS.forEach(k => { saved[k] = synth[k]; synth[k] = snap[k]; });
+  const savedW = OSC_WAVES.map(w => ({ useCustom: w.useCustom, custom: w.custom, samples: w.samples, dirty: w.dirty }));
+  snap.waves.forEach((w, i) => { if (!OSC_WAVES[i]) return; OSC_WAVES[i].useCustom = w.useCustom; OSC_WAVES[i].custom = w.custom; OSC_WAVES[i].samples = w.samples; OSC_WAVES[i].dirty = w.dirty; });
+  try { fn(); }
+  finally {
+    SYNTH_SNAP_KEYS.forEach(k => { synth[k] = saved[k]; });
+    savedW.forEach((w, i) => { if (!OSC_WAVES[i]) return; OSC_WAVES[i].useCustom = w.useCustom; OSC_WAVES[i].custom = w.custom; OSC_WAVES[i].samples = w.samples; OSC_WAVES[i].dirty = w.dirty; });
+  }
+}
+
 // Per-lane sound banks — standalone mini-voices so 5 lanes can layer freely
 function playLaneNote(lane, midi, gateMs) {
   if (!audioReady) initAudio();
   const v = lane.voice;
   if (v === 'main') {
-    noteOn(midi);
+    // A locked lane plays through its frozen synth snapshot, isolated from the
+    // live synth/filter controls; an unlocked lane tracks the live synth.
+    if (lane.synthLock) withSynthSnapshot(lane.synthLock, () => noteOn(midi));
+    else noteOn(midi);
     keySeqTimers.push(setTimeout(() => noteOff(midi), gateMs));
     return;
   }
@@ -5212,6 +5242,7 @@ async function aiGenerateMelodyLLM() {
     (j.melody || []).forEach(n => {
       const laneIdx = Math.max(0, Math.min(KEY_LANES - 1, (n.lane | 0) === 0 ? curLane : (n.lane | 0)));
       const lane = keyLanes[laneIdx];
+      if (lane.locked) return; // a locked lane keeps its stored pattern + voice
       const stp = Math.max(0, Math.min(15, n.step | 0));
       if (n.midi >= 24 && n.midi <= 108) { lane.steps[stp] = { midi: n.midi | 0, sustain: !!n.sustain }; placed++; }
     });
@@ -5358,14 +5389,29 @@ document.querySelectorAll('.lane-btn').forEach(b => {
 document.querySelectorAll('.lane-lock').forEach(btn => {
   const updateLock = () => {
     const li = parseInt(btn.dataset.lane);
-    keyLanes[li].locked = !keyLanes[li].locked;
-    btn.textContent = keyLanes[li].locked ? '🔒' : '🔓';
-    btn.classList.toggle('locked', keyLanes[li].locked);
-    toast('Lane ' + (li + 1) + (keyLanes[li].locked ? ' locked' : ' unlocked'));
+    const lane = keyLanes[li];
+    lane.locked = !lane.locked;
+    if (lane.locked) {
+      // store this lane's voice + sound so it can't be re-coloured by later
+      // synth/filter/channel changes. 'main' freezes the live synth voice;
+      // other voices are already self-contained but we mark them frozen too.
+      if (lane.voice === 'main') lane.synthLock = synthSnapshot();
+      lane._voiceLock = lane.voice;
+    } else {
+      lane.synthLock = null; lane._voiceLock = null;
+    }
+    btn.textContent = lane.locked ? '🔒' : '🔓';
+    btn.classList.toggle('locked', lane.locked);
+    toast('Lane ' + (li + 1) + (lane.locked ? ' locked — voice frozen' : ' unlocked'));
   };
   btn.addEventListener('click', updateLock);
 });
 document.getElementById('lane-voice').addEventListener('change', e => {
+  if (keyLanes[curLane].locked) {
+    e.target.value = keyLanes[curLane].voice; // frozen — unlock to change the voice
+    toast('Lane ' + (curLane + 1) + ' is locked — unlock 🔒 to change its voice');
+    return;
+  }
   keyLanes[curLane].voice = e.target.value;
   if (e.target.value === 'sample' && !keyLanes[curLane].sampleBuf) toast('Tap 📥 SOUND to load a sample for this lane');
   else toast('Lane ' + (curLane + 1) + ' voice: ' + e.target.value.toUpperCase());
