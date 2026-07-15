@@ -237,6 +237,8 @@ input[type=range]{width:100%;accent-color:var(--teal);height:20px;cursor:pointer
 
 /* WAVE SHAPER arrows */
 .ws-arrow{background:var(--surf3);border:1px solid var(--bdr);color:var(--teal);border-radius:4px;width:22px;height:20px;font-size:11px;cursor:pointer;flex-shrink:0;line-height:1;}
+.pwr-btn{background:var(--surf3);border:1px solid var(--bdr);color:var(--mute);border-radius:5px;padding:2px 8px;font-size:9px;font-weight:800;letter-spacing:.5px;cursor:pointer;flex-shrink:0;line-height:1.4;transition:all .12s;}
+.pwr-btn.on{background:rgba(0,230,118,.18);border-color:var(--green);color:var(--green);}
 .ws-arrow:active{background:var(--teal);color:#000;}
 
 /* KEY SEQ sustain marker */
@@ -259,6 +261,7 @@ input[type=range]{width:100%;accent-color:var(--teal);height:20px;cursor:pointer
 .lib-sound:hover{border-color:var(--teal);color:var(--teal);}
 .lib-sound:active{background:var(--teal);color:#000;}
 .lib-sound .lib-sub{font-size:8px;color:var(--mute);font-weight:600;margin-top:2px;}
+.lib-sound .lib-origin{font-size:8px;color:var(--teal);font-weight:700;margin-top:1px;opacity:.85;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .drop-zone{border:2px dashed var(--bdr);border-radius:10px;padding:14px 10px;text-align:center;font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--mute);margin-bottom:10px;cursor:pointer;transition:.15s;background:var(--surf2);}
 .drop-zone:hover{border-color:var(--teal);color:var(--teal);}
 .drop-zone.drag-over{border-color:var(--teal);background:rgba(34,211,197,.12);color:var(--teal);transform:scale(1.01);}
@@ -752,6 +755,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
   <!-- WAVE SHAPER -->
   <div class="synth-section" id="wave-sec">
     <div class="synth-title" style="display:flex;align-items:center;gap:8px">
+      <button class="pwr-btn on" id="synth-power" title="Synth on / off">SYNTH ON</button>
       <button class="ws-arrow" id="wave-prev">◀</button>
       <span id="wave-osc-label">WAVE SHAPER — OSC 1</span>
       <button class="ws-arrow" id="wave-next">▶</button>
@@ -1467,6 +1471,10 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
     <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input id="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
+      <button class="hbtn" id="ai-gen-btn" style="color:var(--purple);border-color:var(--purple)">GENERATE</button>
+    </div>
     <div id="lib-tabs" style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap"></div>
     <div id="lib-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"></div>
   </div>
@@ -1497,6 +1505,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">HARDWARE — MIDI &amp; CONTROLLERS</div>
     <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
       <button class="hbtn" id="midi-enable">🎹 ENABLE MIDI</button>
+      <button class="hbtn" id="midi-bt" title="Pair a Bluetooth LE MIDI controller">📶 BLUETOOTH MIDI</button>
       <button class="hbtn" id="midi-learn">MIDI LEARN: PAD</button>
       <span id="midi-status" style="font-size:9px;color:var(--mute)">MIDI off</span>
     </div>
@@ -1579,6 +1588,7 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
     <button class="se-bar-btn" id="se-ai" title="AI console"></button>
     <button class="se-bar-btn" id="se-lib" title="Sound library"></button>
     <button class="se-bar-btn" id="se-revolve" title="REVOLVE — windows orbit the HUD; scroll wheel spins them"></button>
+    <button class="se-bar-btn" id="se-hidethemes" title="Hide / show the theme options bar" style="font-size:13px">🎨</button>
     <div class="spacer"></div>
     <button class="se-bar-btn" id="se-exit" title="Back to classic studio"></button>
   </div>
@@ -2808,6 +2818,20 @@ function initWaveEditor() {
   document.getElementById('wave-prev').addEventListener('click', () => switchWaveTarget(waveTarget - 1));
   document.getElementById('wave-next').addEventListener('click', () => switchWaveTarget(waveTarget + 1));
 
+  const synthPwr = document.getElementById('synth-power');
+  if (synthPwr) {
+    try { synthEnabled = localStorage.getItem('skrimpad_synth_off') !== '1'; } catch (e) {}
+    const paintPwr = () => { synthPwr.classList.toggle('on', synthEnabled); synthPwr.textContent = synthEnabled ? 'SYNTH ON' : 'SYNTH OFF'; };
+    paintPwr();
+    synthPwr.addEventListener('click', () => {
+      synthEnabled = !synthEnabled;
+      if (!synthEnabled && typeof allNotesOff === 'function') allNotesOff();
+      try { localStorage.setItem('skrimpad_synth_off', synthEnabled ? '0' : '1'); } catch (e) {}
+      paintPwr();
+      toast('🎹 Synth ' + (synthEnabled ? 'ON' : 'OFF'));
+    });
+  }
+
   document.getElementById('wave-reset').addEventListener('click', () => {
     const stockType = waveTarget === 0 ? synth.osc1Type : synth.osc2Type;
     waveFromType(stockType, waveTarget);
@@ -2828,8 +2852,10 @@ function noteFreq(note, octave) {
 
 function freqFromMidi(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
 
+let synthEnabled = true;
 function noteOn(midi) {
   if (!audioReady) initAudio();
+  if (!synthEnabled) return;   // synth power switch — keys go silent when off
   noteOff(midi);
 
   // Special keyboard modes bypass the standard synth engine
@@ -3262,7 +3288,7 @@ function importAudioFile(onLoaded, label) {
         libRegisterImport('imported-' + Date.now() + '.audio', buf);
         onLoaded(buf, 'Imported audio');
         toast((label || 'Sample') + ': imported');
-      } catch (err) { toast('Import failed — unsupported audio'); }
+      } catch (err) { toast('Import failed — incomplete / incompatible file type'); }
     };
     AndroidFileHandler.pickFile('audio/*', '__audioImportCallback');
   } else {
@@ -3277,7 +3303,7 @@ function importAudioFile(onLoaded, label) {
         libRegisterImport(file.name, buf);
         onLoaded(buf, file.name);
         toast((label || 'Sample') + ': ' + file.name.slice(0, 22));
-      } catch (err) { toast('Import failed — unsupported audio'); }
+      } catch (err) { toast('Import failed — incomplete / incompatible file type'); }
     };
     inp.click();
   }
@@ -3304,7 +3330,8 @@ function importAudioSample(onLoaded, label) {
     sounds.forEach(s => {
       const el = document.createElement('div');
       el.className = 'lib-sound';
-      el.innerHTML = `<div>${s.name}</div><div class="lib-sub">${soundMeta(s, s.cat || 'MY SOUNDS')}</div>`;
+      const porigin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
+      el.innerHTML = `<div>${s.name}</div>${porigin}<div class="lib-sub">${soundMeta(s, s.cat || 'MY SOUNDS')}</div>`;
       el.addEventListener('click', () => playSampleBuf(s.buf, ctx.currentTime + 0.01, 1, 0.9)); // tap = preview
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:4px;margin-top:5px;justify-content:center';
@@ -4362,7 +4389,8 @@ function buildSoundLibGrid() {
     (SOUND_LIB[libCategory] || []).forEach(s => {
       const btn = document.createElement('div');
       btn.className = 'lib-sound';
-      btn.innerHTML = `<div>${s.name}</div><div class="lib-sub">${soundMeta(s, libCategory)}</div>`;
+      const origin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
+      btn.innerHTML = `<div>${s.name}</div>${origin}<div class="lib-sub">${soundMeta(s, libCategory)}</div>`;
       btn.addEventListener('click', e => {
         initAudio();
         if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
@@ -4761,6 +4789,121 @@ async function genSound(family) {
   libCategory = 'MY SOUNDS';
   buildSoundLib();
   toast('🎲 ' + name + ' → MY SOUNDS');
+}
+
+// ---- AI: synthesize a sound from a plain-English description ----
+// "deep punchy 808 kick", "bright metallic laser zap", "warm airy pad",
+// "gritty distorted bass", "short snappy snare" … maps words → DSP params.
+async function genSoundFromText(desc) {
+  if (!audioReady) initAudio();
+  const d = (desc || '').toLowerCase().trim();
+  if (!d) { toast('Describe a sound first, e.g. "deep punchy 808 kick"'); return; }
+  // pick a family from the words
+  const famMap = [
+    [/\b(kick|808|boom|thump|bass ?drum)\b/, 'KICK'],
+    [/\b(snare|clap|rimshot|snap)\b/, 'SNARE'],
+    [/\b(hat|hi-?hat|cymbal|shaker|tick|perc)\b/, 'HAT'],
+    [/\b(sub|bassline|reese|wobble|808 ?bass|bass)\b/, 'BASS'],
+    [/\b(lead|pluck|stab|arp|saw ?lead)\b/, 'LEAD'],
+    [/\b(laser|zap|pew|blaster|phaser|beam)\b/, 'LASER'],
+    [/\b(pad|drone|ambient|atmos|texture|choir|wash)\b/, 'AMBIENT'],
+    [/\b(riser|sweep|fx|impact|whoosh|noise|glitch)\b/, 'FX'],
+    [/\b(bell|chime|mallet|pluck|key|synth)\b/, 'LEAD']
+  ];
+  let family = 'LEAD';
+  for (const [re, f] of famMap) { if (re.test(d)) { family = f; break; } }
+  // descriptor modifiers
+  const has = (...w) => w.some(x => d.includes(x));
+  const deep = has('deep', 'low', 'sub', 'boomy', 'fat', 'heavy', '808');
+  const bright = has('bright', 'high', 'crisp', 'airy', 'tinny', 'sharp', 'sparkl');
+  const long = has('long', 'sustain', 'drawn', 'evolv', 'pad', 'drone', 'tail', 'reverb');
+  const shortS = has('short', 'punchy', 'tight', 'snappy', 'staccato', 'pluck', 'clicky');
+  const warm = has('warm', 'soft', 'smooth', 'mellow', 'round', 'analog');
+  const harsh = has('harsh', 'metallic', 'gritty', 'distort', 'dirty', 'aggressive', 'buzzy', 'noisy');
+  const pitchMul = deep ? 0.5 : bright ? 1.9 : 1;
+  let dec = long ? 2.4 : shortS ? 0.16 : 0.9;
+  const sr = 44100, dur = family === 'AMBIENT' || long ? 3.0 : 1.3;
+  const oc = new OfflineAudioContext(1, Math.ceil(sr * dur), sr);
+  const out = oc.createGain(); out.gain.value = 0.9;
+  // optional grit via waveshaper
+  let sink = out;
+  if (harsh) {
+    const ws = oc.createWaveShaper(), n = 44100, c = new Float32Array(n), k = 40;
+    for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+    ws.curve = c; ws.oversample = '4x'; ws.connect(out); sink = ws;
+  }
+  out.connect(oc.destination);
+  const R = (a, b) => a + Math.random() * (b - a);
+  const noiseSrc = (len, curve, filtType, filtFreq) => {
+    const b = oc.createBuffer(1, Math.ceil(sr * len), sr), dd = b.getChannelData(0);
+    for (let i = 0; i < dd.length; i++) dd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / dd.length, curve);
+    const src = oc.createBufferSource(); src.buffer = b;
+    const f = oc.createBiquadFilter(); f.type = filtType || 'highpass'; f.frequency.value = filtFreq || 4000;
+    src.connect(f); return { node: f, src };
+  };
+  if (family === 'KICK') {
+    const o = oc.createOscillator(), g = oc.createGain();
+    const f0 = (deep ? 130 : 165) * (bright ? 1.3 : 1), f1 = deep ? 32 : 46;
+    o.frequency.setValueAtTime(f0, 0); o.frequency.exponentialRampToValueAtTime(f1, dec * 0.6);
+    g.gain.setValueAtTime(1, 0); g.gain.exponentialRampToValueAtTime(0.001, Math.max(0.2, dec));
+    o.connect(g); g.connect(sink); o.start(0); o.stop(dur);
+    if (!warm) { const n = noiseSrc(0.02, 4, 'highpass', 3200); const ng = oc.createGain(); ng.gain.value = harsh ? 0.5 : 0.25; n.node.connect(ng); ng.connect(sink); n.src.start(0); }
+  } else if (family === 'SNARE') {
+    const n = noiseSrc(dec, R(1.5, 3), bright ? 'highpass' : 'bandpass', (bright ? 3500 : 1800));
+    const ng = oc.createGain(); ng.gain.setValueAtTime(1, 0); ng.gain.exponentialRampToValueAtTime(0.001, dec);
+    n.node.connect(ng); ng.connect(sink); n.src.start(0);
+    const o = oc.createOscillator(), og = oc.createGain(); o.frequency.value = deep ? 150 : 220;
+    og.gain.setValueAtTime(warm ? 0.6 : 0.4, 0); og.gain.exponentialRampToValueAtTime(0.001, 0.12);
+    o.connect(og); og.connect(sink); o.start(0); o.stop(0.15);
+  } else if (family === 'HAT') {
+    const n = noiseSrc(dec, R(2, 5), 'highpass', bright ? 9000 : 6500);
+    const ng = oc.createGain(); ng.gain.setValueAtTime(0.7, 0); ng.gain.exponentialRampToValueAtTime(0.001, Math.min(0.3, dec));
+    n.node.connect(ng); ng.connect(sink); n.src.start(0);
+  } else if (family === 'BASS') {
+    const o = oc.createOscillator(), f = oc.createBiquadFilter(), g = oc.createGain();
+    o.type = warm ? 'triangle' : harsh ? 'sawtooth' : 'square'; o.frequency.value = (deep ? 41 : 58) * (bright ? 1.5 : 1);
+    f.type = 'lowpass'; f.frequency.setValueAtTime(harsh ? 2600 : 1200, 0); f.frequency.exponentialRampToValueAtTime(deep ? 90 : 200, dec);
+    g.gain.setValueAtTime(0.9, 0); g.gain.exponentialRampToValueAtTime(0.001, Math.max(0.3, dec));
+    o.connect(f); f.connect(g); g.connect(sink); o.start(0); o.stop(dur);
+  } else if (family === 'LASER') {
+    const o = oc.createOscillator(), g = oc.createGain();
+    o.type = harsh ? 'sawtooth' : 'square';
+    o.frequency.setValueAtTime((bright ? 3500 : 2000) * pitchMul, 0); o.frequency.exponentialRampToValueAtTime(deep ? 60 : 140, dec);
+    g.gain.setValueAtTime(0.7, 0); g.gain.exponentialRampToValueAtTime(0.001, Math.max(0.2, dec));
+    o.connect(g); g.connect(sink); o.start(0); o.stop(dur);
+  } else if (family === 'AMBIENT') {
+    const root = (deep ? 90 : 180) * (bright ? 1.6 : 1);
+    [1, 1.5, 2, 3].forEach((m, i) => {
+      const o = oc.createOscillator(), g = oc.createGain();
+      o.type = warm ? 'sine' : 'triangle'; o.frequency.value = root * m;
+      g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(0.16 / (i + 1), 0.8); g.gain.linearRampToValueAtTime(0.001, dur - 0.1);
+      o.connect(g); g.connect(sink); o.start(0); o.stop(dur);
+    });
+  } else if (family === 'FX') {
+    const o = oc.createOscillator(), g = oc.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(60, 0); o.frequency.exponentialRampToValueAtTime((bright ? 3000 : 1400) * pitchMul, dur * 0.9);
+    g.gain.setValueAtTime(0.5, 0); g.gain.linearRampToValueAtTime(0.001, dur - 0.05);
+    o.connect(g); g.connect(sink); o.start(0); o.stop(dur);
+    const n = noiseSrc(dur, 1.2, 'bandpass', 2000); const ng = oc.createGain(); ng.gain.setValueAtTime(0.3, 0); ng.gain.linearRampToValueAtTime(0.001, dur); n.node.connect(ng); ng.connect(sink); n.src.start(0);
+  } else { // LEAD / pluck / bell
+    const base = (deep ? 165 : 330) * (bright ? 1.5 : 1);
+    const g = oc.createGain(); g.gain.setValueAtTime(0.6, 0); g.gain.exponentialRampToValueAtTime(0.001, Math.max(0.2, dec));
+    [0, harsh ? 8 : 4].forEach(det => {
+      const o = oc.createOscillator(); o.type = warm ? 'triangle' : 'sawtooth';
+      o.frequency.value = base * Math.pow(2, det / 1200); o.connect(g); o.start(0); o.stop(dur);
+    });
+    const f = oc.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = bright ? 9000 : warm ? 1800 : 4000;
+    g.connect(f); f.connect(sink);
+  }
+  const buf = await oc.startRendering();
+  const nm = (desc.replace(/[^a-z0-9 ]/gi, ' ').trim().slice(0, 22) || (family + ' SOUND'));
+  libAddBuffer(nm, 'AI · "' + desc.slice(0, 24) + '"', buf, true);
+  playSampleBuf(buf, ctx.currentTime + 0.01, 1, 0.9);
+  libCategory = 'MY SOUNDS';
+  buildSoundLib();
+  toast('🤖 Generated "' + nm + '" → MY SOUNDS');
+  if (typeof aiLog === 'function') aiLog('AI synthesized a ' + family.toLowerCase() + ' from: "' + desc + '"', 'good');
+  return buf;
 }
 
 // ---- 16 MORE EDM STYLES ----
@@ -5942,9 +6085,21 @@ function organizeSampleName(raw) {
   });
   return { cat, name: segs.join(' - ') || base };
 }
+function libUniqueName(cat, base) {
+  // Guarantee a distinct display name inside a category so packs with repeated
+  // file names ("Kick", "Kick", "Kick") don't collapse into one entry.
+  let nm = (base || 'SOUND').slice(0, 24).toUpperCase();
+  const taken = new Set((SOUND_LIB[cat] || []).map(s => s.name));
+  if (!taken.has(nm)) return nm;
+  for (let n = 2; n < 999; n++) {
+    const cand = (nm.slice(0, 20) + ' ' + n).slice(0, 24);
+    if (!taken.has(cand)) return cand;
+  }
+  return nm + ' ' + Date.now().toString().slice(-4);
+}
 function libAddToCategory(cat, name, sub, buf, persist) {
   if (!SOUND_LIB[cat]) SOUND_LIB[cat] = [];
-  const entry = { name: name.slice(0, 24).toUpperCase(), sub, cat, buf, fn: t => playSampleBuf(buf, t, 1, 0.9) };
+  const entry = { name: libUniqueName(cat, name), sub: sub || '', cat, buf, fn: t => playSampleBuf(buf, t, 1, 0.9) };
   SOUND_LIB[cat].unshift(entry);
   if (persist && buf.duration <= 70) idbSave(entry).catch(() => {});
   return entry;
@@ -5980,26 +6135,59 @@ async function zipInflate(ab, e) {
   if (e.method === 8) return await new Response(new Blob([slice]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
   throw new Error('unsupported compression');
 }
+// Files a browser can't decode by extension but might still by content, plus
+// the ones we treat as universally accepted audio containers.
+const AUDIO_EXT = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|m4b|mp4|aac|weba|webm|wma|caf|amr|3gp|au|snd|voc|w64|mka|ac3)$/i;
+const NON_AUDIO_EXT = /\.(png|jpe?g|gif|bmp|svg|webp|txt|md|pdf|doc?x?|xml|json|html?|css|js|zip|rar|7z|exe|dll|ttf|otf|mid|midi|fxp|fst|nki|adg|als|flp|cfg|ini|db|ds_store)$/i;
 async function importZipData(ab, packName) {
   if (!audioReady) initAudio();
   let entries;
-  try { entries = zipParse(ab); } catch (err) { toast('📦 ' + err.message); return; }
-  const audio = entries.filter(e => /\.(wav|mp3|ogg|flac|aif|aiff|m4a)$/i.test(e.name) && !/__MACOSX|\.DS_Store/.test(e.name));
-  if (!audio.length) { toast('📦 No audio files inside that zip'); return; }
-  toast('📦 Unpacking ' + audio.length + ' sounds…');
-  let ok = 0; const cats = new Set();
-  for (const e of audio.slice(0, 120)) {
+  try { entries = zipParse(ab); }
+  catch (err) { toast('📦 ' + (err && err.message || 'Not a valid ZIP file')); return; }
+  // Universal acceptance: take anything that isn't obviously a non-audio file
+  // or a directory / macOS junk entry, then let the decoder be the final judge.
+  const cand = entries.filter(e =>
+    !/\/$/.test(e.name) && !/__MACOSX|\.DS_Store/.test(e.name) &&
+    (AUDIO_EXT.test(e.name) || !NON_AUDIO_EXT.test(e.name)));
+  if (!cand.length) { toast('📦 No audio files inside that zip'); return; }
+  const origin = packName || 'zip pack';
+  toast('📦 Unpacking ' + cand.length + ' file' + (cand.length > 1 ? 's' : '') + '…');
+  // Stream one entry at a time and yield to the event loop between decodes so a
+  // big pack can't freeze the UI or spike memory — decoded PCM is released as
+  // soon as it's filed, and a running budget stops us before an OOM crash.
+  const MAX_FILES = 400;                 // hard ceiling on entries processed
+  const MEM_BUDGET = 380 * 1024 * 1024;  // ~380MB of decoded PCM, then stop
+  let ok = 0, bad = 0, memUsed = 0, budgetHit = false;
+  const cats = new Set();
+  const list = cand.slice(0, MAX_FILES);
+  for (let idx = 0; idx < list.length; idx++) {
+    const e = list[idx];
+    if (memUsed > MEM_BUDGET) { budgetHit = true; break; }
+    let data = null;
     try {
-      const data = await zipInflate(ab, e);
+      data = await zipInflate(ab, e);
       const buf = await ctx.decodeAudioData(data);
+      memUsed += buf.length * buf.numberOfChannels * 4;
       const { cat, name } = organizeSampleName(e.name);
-      libAddToCategory(cat, name, packName || 'zip pack', buf, true);
+      libAddToCategory(cat, name, origin, buf, true);
       cats.add(cat); ok++;
-    } catch (err) { /* skip unreadable file */ }
+    } catch (err) {
+      // decode failed → the file is an incomplete/incompatible audio type
+      if (AUDIO_EXT.test(e.name)) bad++;
+    } finally { data = null; }
+    // Yield every few files: keeps the WebView responsive + lets GC run.
+    if ((idx & 3) === 3) {
+      if (ok) toast('📦 ' + ok + ' imported…');
+      await new Promise(r => setTimeout(r, 0));
+    }
   }
   buildSoundLib();
-  toast('📦 ' + ok + ' sounds filed under: ' + [...cats].join(', '));
-  aiLog('ZIP pack imported — ' + ok + ' sounds auto-organized into ' + cats.size + ' tabs', 'good');
+  let msg = '📦 ' + ok + ' sound' + (ok === 1 ? '' : 's') + ' filed under: ' + ([...cats].join(', ') || '—');
+  if (bad) msg += ' · ' + bad + ' skipped (incomplete / incompatible file type)';
+  if (budgetHit) msg += ' · stopped early — pack too large for one import, split it up';
+  toast(msg);
+  aiLog('ZIP pack imported — ' + ok + ' sounds auto-organized into ' + cats.size + ' tabs' +
+        (bad ? ' · ' + bad + ' incompatible skipped' : ''), bad ? 'warn' : 'good');
 }
 function importZipPack() {
   if (typeof AndroidFileHandler !== 'undefined') {
@@ -6021,25 +6209,44 @@ function importZipPack() {
   }
 }
 document.querySelectorAll('.zip-import-btn').forEach(b => b.addEventListener('click', importZipPack));
+// AI: generate a sound from a plain-English description (library modal)
+{
+  const gd = document.getElementById('ai-gen-desc'), gb = document.getElementById('ai-gen-btn');
+  const run = async () => {
+    const v = (gd && gd.value || '').trim(); if (!v) { toast('Describe a sound first'); return; }
+    if (gb) { gb.disabled = true; gb.textContent = '…'; }
+    try { await genSoundFromText(v); if (gd) gd.value = ''; }
+    catch (e) { toast('Generation failed'); }
+    if (gb) { gb.disabled = false; gb.textContent = 'GENERATE'; }
+  };
+  if (gb) gb.addEventListener('click', run);
+  if (gd) gd.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+}
 
 // ---- Drag-and-drop import: .zip packs + loose audio files from the OS ----
 async function handleDroppedFiles(files) {
   if (!audioReady) initAudio();
-  let audioCount = 0;
+  let audioCount = 0, badCount = 0;
   for (const f of files) {
     const nm = (f.name || '').toLowerCase();
     if (nm.endsWith('.zip') || f.type === 'application/zip') {
       await importZipData(await f.arrayBuffer(), f.name.replace(/\.zip$/i, ''));
-    } else if (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aif|aiff|m4a)$/i.test(nm)) {
+    } else if (!NON_AUDIO_EXT.test(nm) || f.type.startsWith('audio/') || AUDIO_EXT.test(nm)) {
+      // Universal: try to decode anything that isn't clearly a non-audio file.
       try {
         const buf = await ctx.decodeAudioData(await f.arrayBuffer());
         const { cat, name } = organizeSampleName(f.name);
-        libAddToCategory(cat, name, 'dropped', buf, true);
+        libAddToCategory(cat, name, f.name.replace(/\.[^.]+$/, '') || 'dropped', buf, true);
         audioCount++;
-      } catch (err) { /* skip unreadable */ }
+      } catch (err) { badCount++; }
     }
   }
-  if (audioCount) { buildSoundLib(); toast('⬇ Imported ' + audioCount + ' file' + (audioCount > 1 ? 's' : '')); }
+  if (audioCount) { buildSoundLib(); }
+  if (audioCount || badCount) {
+    let m = audioCount ? '⬇ Imported ' + audioCount + ' file' + (audioCount > 1 ? 's' : '') : '';
+    if (badCount) m += (m ? ' · ' : '⬇ ') + badCount + ' skipped (incomplete / incompatible file type)';
+    toast(m);
+  }
 }
 document.querySelectorAll('.drop-zone').forEach(dz => {
   dz.addEventListener('click', importZipPack); // tap = browse (zip or single via picker)
@@ -6232,6 +6439,12 @@ function aiStyleMimic(ql) {
 }
 async function aiToolCommand(ql) {
   const mentionsSong = /\bfrom\b|song|track|file|mp3|wav|audio|this beat|the beat/.test(ql);
+  // "generate / make me a <description> sound" → synthesize from description
+  if (/(generate|synthes|make|create|design|build|give me|conjure|cook up).*(sound|kick|snare|hat|bass|lead|pad|laser|zap|pluck|stab|808|bell|riser|fx|noise|drone|sub)\b/.test(ql)
+      && !mentionsSong && !/(like|similar to|in the style of)/.test(ql)) {
+    const desc = ql.replace(/^\s*(please\s+)?(can you\s+)?(generate|synthesi[sz]e|make( me)?|create|design|build|give me|conjure|cook up)\s+(a|an|some|me)?\s*/i, '').trim() || ql;
+    await genSoundFromText(desc); return true;
+  }
   // "match the bpm of X" / "detect tempo"
   if (/bpm|tempo/.test(ql) && /match|detect|find|what('| i)?s|sync|same|read/.test(ql) && mentionsSong) { await aiMatchBPM(); return true; }
   // "give me the snares from X" / "extract kicks"
@@ -6297,6 +6510,63 @@ function initMIDI() {
     toast('🎹 MIDI ready — ' + acc.inputs.size + ' device(s) connected');
   }).catch(() => toast('MIDI access denied'));
 }
+// ---- BLUETOOTH LE MIDI — pair a wireless controller via Web Bluetooth ----
+// The standard BLE-MIDI GATT service; we parse the packet stream ourselves and
+// feed it into the same onMIDI() path as USB/Web-MIDI devices.
+const BLE_MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
+const BLE_MIDI_CHAR = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+let bleMidiStatus = 0;
+function parseBLEMIDI(dv) {
+  const bytes = new Uint8Array(dv.buffer);
+  if (bytes.length < 3) return;
+  let i = 1; // skip header byte
+  while (i < bytes.length) {
+    if (bytes[i] & 0x80) i++;                    // timestamp byte
+    if (i >= bytes.length) break;
+    if (bytes[i] & 0x80) { bleMidiStatus = bytes[i]; i++; } // new status (else running status)
+    const type = bleMidiStatus & 0xf0;
+    if (type < 0x80) break;                      // not a channel-voice message
+    const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
+    const d = [bleMidiStatus];
+    for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 0x80); k++) d.push(bytes[i++]);
+    if (d.length >= (len + 1)) onMIDI({ data: d });
+  }
+}
+async function initBluetoothMIDI() {
+  if (!navigator.bluetooth) {
+    // Android WebView has no Web Bluetooth, but Web MIDI still enumerates a
+    // BLE-MIDI controller once it's paired in the phone's Bluetooth settings.
+    if (navigator.requestMIDIAccess) {
+      toast('📶 Pair your MIDI controller in Android Bluetooth settings, then it appears here.');
+      initMIDI();
+    } else {
+      toast('Bluetooth MIDI needs a Bluetooth-capable build / Chrome.');
+    }
+    return;
+  }
+  try {
+    toast('📶 Scanning for Bluetooth MIDI…');
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_MIDI_SERVICE] }], optionalServices: [BLE_MIDI_SERVICE] });
+    const server = await dev.gatt.connect();
+    const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+    const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
+    await ch.startNotifications();
+    ch.addEventListener('characteristicvaluechanged', e => parseBLEMIDI(e.target.value));
+    dev.addEventListener('gattserverdisconnected', () => {
+      const el = document.getElementById('midi-status'); if (el) el.textContent = '📶 BT MIDI disconnected';
+      toast('📶 ' + (dev.name || 'BT MIDI') + ' disconnected');
+    });
+    if (!audioReady) initAudio();
+    const el = document.getElementById('midi-status'); if (el) el.textContent = '🟢 BT: ' + (dev.name || 'MIDI device').slice(0, 32);
+    toast('📶 Connected — ' + (dev.name || 'Bluetooth MIDI'));
+  } catch (err) {
+    if (err && err.name === 'NotFoundError') toast('No Bluetooth MIDI device selected');
+    else toast('Bluetooth MIDI failed: ' + (err && err.message || 'unavailable'));
+  }
+}
+const midiBtBtn = document.getElementById('midi-bt');
+if (midiBtBtn) midiBtBtn.addEventListener('click', initBluetoothMIDI);
+
 const midiEnableBtn = document.getElementById('midi-enable');
 if (midiEnableBtn) {
   midiEnableBtn.addEventListener('click', initMIDI);
@@ -6736,7 +7006,11 @@ let seParticles = [];
 function seInitParticles() {
   const cv = document.getElementById('se-particles'); if (!cv) return;
   cv.width = innerWidth; cv.height = innerHeight;
-  const kind = seLayout.theme.particles, N = kind === 'stars' || kind === 'galaga' ? 140 : 70;
+  // Fewer particles on phones keeps the HUD fluid on the APK.
+  const small = Math.min(innerWidth, innerHeight) < 700 || (innerWidth * innerHeight) < 500000;
+  const kind = seLayout.theme.particles;
+  const base = kind === 'stars' || kind === 'galaga' ? 140 : 70;
+  const N = small ? Math.round(base * 0.5) : base;
   seParticles = [];
   for (let i = 0; i < N; i++) seParticles.push({
     x: Math.random() * cv.width, y: Math.random() * cv.height,
@@ -6784,15 +7058,23 @@ function seParticleFrame() {
   }
   // the New Year's dragon rides the samurai sky
   if (seThemeId === 'champloo') seDrawDragon(g, W, H);
-  // mushroom theme: cycle the RGB accent lines live
+  // mushroom theme: cycle the RGB accent lines. Writing CSS custom properties
+  // forces a full style recalc/repaint, so doing it every frame "overclocks" the
+  // paint pipeline and janks. Throttle to ~12fps and only when the hue actually
+  // steps — smooth colour, stable framerate.
   if (th.rgb) {
-    const hue = (t * 60) % 360;
-    const root = document.getElementById('se-root').style;
-    root.setProperty('--se-line', 'hsl(' + hue + ',90%,62%)');
-    root.setProperty('--se-glow', 'hsl(' + ((hue + 120) % 360) + ',90%,68%)');
-    root.setProperty('--se-line-rgb', '255,90,180'); root.setProperty('--se-glow-rgb', '120,255,150');
+    const hueStep = Math.floor((t * 24) % 360);   // ~0.4s per full rotation-step set
+    if (hueStep !== seLastRgbHue) {
+      seLastRgbHue = hueStep;
+      const hue = hueStep;
+      const root = document.getElementById('se-root').style;
+      root.setProperty('--se-line', 'hsl(' + hue + ',90%,62%)');
+      root.setProperty('--se-glow', 'hsl(' + ((hue + 120) % 360) + ',90%,68%)');
+      root.setProperty('--se-line-rgb', '255,90,180'); root.setProperty('--se-glow-rgb', '120,255,150');
+    }
   }
 }
+let seLastRgbHue = -1;
 
 // ---- Enter / exit / switch themes ----
 function seRenderBarIcons() {
@@ -6844,6 +7126,7 @@ function enterSE(themeId) {
   seApplyTheme(seLayout.theme);
   seRenderBarIcons();
   buildThemeBar();
+  if (typeof applyThemeBarVis === 'function') applyThemeBarVis();
   document.getElementById('se-dock').innerHTML = '';
   seBuildModules();
   seDrawHUD();
@@ -6869,8 +7152,10 @@ document.getElementById('bnr-se').addEventListener('click', toggleSE);
 document.getElementById('se-exit').addEventListener('click', exitSE);
 document.getElementById('se-play').addEventListener('click', () => { seqPlayPause(); seRenderBarIcons(); });
 document.getElementById('se-panic').addEventListener('click', () => panicStopAll());
-document.getElementById('se-lib').addEventListener('click', () => { exitSE(); document.getElementById('bnr-lib').click(); });
-document.getElementById('se-ai').addEventListener('click', () => { exitSE(); document.getElementById('bnr-ai').click(); });
+// Open the library / AI as an overlay ON TOP of the HUD — never drop back to
+// the classic studio (that "revert to the original pages" bug on Library tap).
+document.getElementById('se-lib').addEventListener('click', () => { document.getElementById('bnr-lib').click(); });
+document.getElementById('se-ai').addEventListener('click', () => { document.getElementById('bnr-ai').click(); });
 // ---- REVOLVE MODE — the windows orbit the HUD; the scroll wheel spins them ----
 let seRevolve = false, seOrbitAngle = 0;
 function seLayoutGrid() {
@@ -6912,6 +7197,26 @@ function setRevolve(on) {
 }
 document.getElementById('se-revolve').addEventListener('click', () => setRevolve(!seRevolve));
 
+// ---- Hide / show the theme options bar (persisted) ----
+let seThemesHidden = false;
+try { seThemesHidden = localStorage.getItem('skrimpad_themes_hidden') === '1'; } catch (e) {}
+function applyThemeBarVis() {
+  const bar = document.getElementById('se-themebar');
+  const btn = document.getElementById('se-hidethemes');
+  if (bar) bar.style.display = seThemesHidden ? 'none' : '';
+  if (btn) btn.classList.toggle('on', !seThemesHidden);
+}
+{
+  const htb = document.getElementById('se-hidethemes');
+  if (htb) htb.addEventListener('click', () => {
+    seThemesHidden = !seThemesHidden;
+    try { localStorage.setItem('skrimpad_themes_hidden', seThemesHidden ? '1' : '0'); } catch (e) {}
+    applyThemeBarVis();
+    seToast(seThemesHidden ? 'Theme options hidden' : 'Theme options shown');
+  });
+  applyThemeBarVis();
+}
+
 // scroll wheel: spins the carousel in revolve mode, cycles themes otherwise
 document.getElementById('se-root').addEventListener('wheel', e => {
   if (!seOn) return;
@@ -6925,6 +7230,37 @@ document.getElementById('se-root').addEventListener('wheel', e => {
   const ids = Object.keys(SE_THEMES); const i = ids.indexOf(seThemeId);
   switchTheme(ids[(i + (e.deltaY > 0 ? 1 : ids.length - 1)) % ids.length]);
 }, { passive: false });
+
+// ---- THUMB SWIPE — drag across the backdrop to spin the orbit / cycle themes ----
+// (touch equivalent of the scroll wheel; continuous drag in REVOLVE mode)
+{
+  const root = document.getElementById('se-root');
+  let sx = 0, sy = 0, sAng = 0, swiping = false, accum = 0;
+  const N = () => document.querySelectorAll('.se-mod').length || 7;
+  root.addEventListener('touchstart', e => {
+    if (!seOn || e.target.closest('.se-mod') || e.target.closest('button') || e.target.closest('input')) return;
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY; sAng = seOrbitAngle; accum = 0; swiping = true;
+  }, { passive: true });
+  root.addEventListener('touchmove', e => {
+    if (!swiping || !seOn) return;
+    const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (seRevolve) {
+      // horizontal drag rotates the carousel live — one full width ≈ one full turn
+      seOrbitAngle = sAng + (dx / Math.max(240, innerWidth * 0.5)) * Math.PI * 2;
+      seLayoutRevolve();
+      if (Math.abs(dx) > 8) e.preventDefault();
+    } else {
+      // not in orbit: accumulate and step themes every ~90px of vertical/horizontal swipe
+      const d = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      if (Math.abs(d - accum) > 90) {
+        const ids = Object.keys(SE_THEMES), i = ids.indexOf(seThemeId);
+        switchTheme(ids[(i + (d < accum ? 1 : ids.length - 1)) % ids.length]);
+        accum = d;
+      }
+    }
+  }, { passive: false });
+  root.addEventListener('touchend', () => { swiping = false; }, { passive: true });
+}
 
 // ---- HUD-CENTER AI CONSOLE ----
 const seAiInput = document.getElementById('se-ai-input');
