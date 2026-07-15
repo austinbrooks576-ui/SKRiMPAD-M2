@@ -21,7 +21,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh api --paginate "/repos/$REPO/releases" | jq -c '.[]' | while read -r rel; do
+          set +e   # keep going even if one asset rename fails; don't abort the whole run
+          gh api --paginate "/repos/$REPO/releases" | jq -c '.[]' > /tmp/releases.jsonl
+          while read -r rel; do
             tag=$(jq -r .tag_name <<<"$rel")
             relid=$(jq -r .id <<<"$rel")
             n=${tag##*.}                       # build number from the tag
@@ -32,18 +34,28 @@ jobs:
               v1.0.*)        title="SKRiMPAD M2 — Setup $n";                           pref="SKRiMPAD Setup";    kind=apk;;
               *) echo "skip $tag"; continue;;
             esac
-            jq -c '.assets[]' <<<"$rel" | while read -r a; do
+            jq -c '.assets[]' <<<"$rel" > /tmp/assets.jsonl
+            while read -r a; do
               aid=$(jq -r .id <<<"$a"); aname=$(jq -r .name <<<"$a")
               if [ "$kind" = apk ]; then
                 newname="$pref $n.apk"
               else
+                # Portable is checked FIRST — the new builds put "Setup" in both
+                # filenames, so a Setup-first test would mislabel the portable.
                 case "$aname" in
-                  *Setup*|*Installer*) newname="$pref $n (Installer).exe";;
-                  *)                   newname="$pref $n (Portable).exe";;
+                  *[Pp]ortable*)          newname="$pref $n (Portable).exe";;
+                  *[Ii]nstaller*|*Setup*) newname="$pref $n (Installer).exe";;
+                  *)                      newname="$pref $n (Portable).exe";;
                 esac
               fi
-              gh api -X PATCH "/repos/$REPO/releases/assets/$aid" -f name="$newname" >/dev/null && echo "  $aname -> $newname"
-            done
-            gh api -X PATCH "/repos/$REPO/releases/$relid" -f name="$title" >/dev/null
+              if [ "$aname" = "$newname" ]; then echo "  ok  $aname"; continue; fi
+              if gh api -X PATCH "/repos/$REPO/releases/assets/$aid" -f name="$newname" >/dev/null 2>&1; then
+                echo "  $aname -> $newname"
+              else
+                echo "  SKIP $aname (could not rename to '$newname')"
+              fi
+            done < /tmp/assets.jsonl
+            gh api -X PATCH "/repos/$REPO/releases/$relid" -f name="$title" >/dev/null 2>&1
             echo "$tag -> $title"
-          done
+          done < /tmp/releases.jsonl
+          echo "Done."
