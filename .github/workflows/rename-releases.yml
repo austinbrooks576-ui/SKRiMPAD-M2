@@ -1,0 +1,49 @@
+name: Rename releases to Setup N
+
+# One-off maintenance workflow: renames every EXISTING release's title and its
+# downloadable asset(s) to the "Setup N" scheme (N = the build number already in
+# each tag, e.g. se-v1.0.8 -> "SKRiMPAD SE Setup 8.apk"). Tags are left untouched
+# so existing download links keep working. Safe to re-run.
+# Run it from the Actions tab -> "Rename releases to Setup N" -> "Run workflow".
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rename every release + asset to the Setup N scheme
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api --paginate "/repos/$REPO/releases" | jq -c '.[]' | while read -r rel; do
+            tag=$(jq -r .tag_name <<<"$rel")
+            relid=$(jq -r .id <<<"$rel")
+            n=${tag##*.}                       # build number from the tag
+            case "$tag" in
+              se-win-v1.0.*) title="SKRiMPAD M2 — Special Edition Windows — Setup $n"; pref="SKRiMPAD SE Setup"; kind=win;;
+              se-v1.0.*)     title="SKRiMPAD M2 — Special Edition — Setup $n";         pref="SKRiMPAD SE Setup"; kind=apk;;
+              win-v1.0.*)    title="SKRiMPAD M2 Windows — Setup $n";                   pref="SKRiMPAD Setup";    kind=win;;
+              v1.0.*)        title="SKRiMPAD M2 — Setup $n";                           pref="SKRiMPAD Setup";    kind=apk;;
+              *) echo "skip $tag"; continue;;
+            esac
+            jq -c '.assets[]' <<<"$rel" | while read -r a; do
+              aid=$(jq -r .id <<<"$a"); aname=$(jq -r .name <<<"$a")
+              if [ "$kind" = apk ]; then
+                newname="$pref $n.apk"
+              else
+                case "$aname" in
+                  *Setup*|*Installer*) newname="$pref $n (Installer).exe";;
+                  *)                   newname="$pref $n (Portable).exe";;
+                esac
+              fi
+              gh api -X PATCH "/repos/$REPO/releases/assets/$aid" -f name="$newname" >/dev/null && echo "  $aname -> $newname"
+            done
+            gh api -X PATCH "/repos/$REPO/releases/$relid" -f name="$title" >/dev/null
+            echo "$tag -> $title"
+          done
