@@ -37,20 +37,20 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
-      - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk skrimpad-m2-special-edition.apk
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD SE Setup ${{ github.run_number }}.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skrimpad-m2-special-edition
-          path: skrimpad-m2-special-edition.apk
+          name: skrimpad-se-setup-${{ github.run_number }}
+          path: SKRiMPAD SE Setup ${{ github.run_number }}.apk
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: se-v1.0.${{ github.run_number }}
-          name: SKRiMPAD M2 — Special Edition (Samurai Champloo) v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 — Special Edition — Setup ${{ github.run_number }}
           body: |
             SKRiMPAD M2 — **Special Edition** — SIX switchable themes in one build:
             Samurai Champloo · Space Dust · Cyberpunk · Adeptus Mechanicus ·
@@ -65,9 +65,9 @@ jobs:
             library-first import with trim, 10 FX pedals, overload guard, MIDI +
             controller mapping, 34 genres.
 
-            **Install:** Download `skrimpad-m2-special-edition.apk`, enable "Install unknown
-            apps" in Android settings, then open to install.
-          files: skrimpad-m2-special-edition.apk
+            **Install:** Download `SKRiMPAD SE Setup ${{ github.run_number }}.apk`, enable "Install
+            unknown apps" in Android settings, then open to install.
+          files: SKRiMPAD SE Setup ${{ github.run_number }}.apk
           draft: false
           prerelease: false
         env:

@@ -2,9 +2,10 @@ name: Build APK
 
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main]
     paths:
       - 'android/**'
+      - 'scripts/set-edition.js'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Set consumer edition (hide Special Edition HUD)
+        run: node scripts/set-edition.js android/app/src/main/assets/index.html consumer
+
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
@@ -37,23 +41,25 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD Setup ${{ github.run_number }}.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skrimpad-m2-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: skrimpad-setup-${{ github.run_number }}
+          path: SKRiMPAD Setup ${{ github.run_number }}.apk
 
       - name: Create Release
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: SKRiMPAD M2 v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD M2 Android APK
+            SKRiMPAD M2 — Consumer Edition (Android APK)
 
-            **Install:** Download `app-debug.apk`, enable "Install unknown apps" in Android settings, then open to install.
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+            Download **`SKRiMPAD Setup ${{ github.run_number }}.apk`**, enable "Install unknown apps" in Android settings, then open to install.
+          files: SKRiMPAD Setup ${{ github.run_number }}.apk
           draft: false
           prerelease: false
         env:

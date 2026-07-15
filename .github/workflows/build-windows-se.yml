@@ -41,24 +41,34 @@ jobs:
           cd electron
           npm run build:win
 
+      - name: Name the download files
+        shell: bash
+        run: |
+          cd electron/dist
+          n="${{ github.run_number }}"
+          for f in *.exe; do
+            case "$f" in
+              *Setup*) mv "$f" "SKRiMPAD SE Setup ${n} (Installer).exe";;
+              *)       mv "$f" "SKRiMPAD SE Setup ${n} (Portable).exe";;
+            esac
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: skrimpad-m2-se-windows
-          path: |
-            electron/dist/*.exe
-            electron/dist/*.zip
+          name: skrimpad-se-setup-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: se-win-v1.0.${{ github.run_number }}
-          name: SKRiMPAD M2 — Special Edition Windows v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 — Special Edition Windows — Setup ${{ github.run_number }}
           body: |
             SKRiMPAD M2 — **Special Edition** (Samurai Champloo HUD) for Windows
 
-            - **Installer** (.exe) — installs to Program Files with shortcuts
-            - **Portable** (.exe) — runs from anywhere, no install needed
+            - **`SKRiMPAD SE Setup ${{ github.run_number }} (Installer).exe`** — installs to Program Files with shortcuts
+            - **`SKRiMPAD SE Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere, no install needed
 
             SIX switchable themes in one build: Samurai Champloo, Space Dust, Cyberpunk,
             Adeptus Mechanicus, Mushroom RGB, 80s Wizard Arcade — with the HUD AI console,
