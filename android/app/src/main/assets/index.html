@@ -2821,13 +2821,16 @@ function initWaveEditor() {
 
   const synthPwr = document.getElementById('synth-power');
   if (synthPwr) {
-    try { synthEnabled = localStorage.getItem('skrimpad_synth_off') !== '1'; } catch (e) {}
+    // Synth ALWAYS boots ON — the on/off is a live, session-only control. We do
+    // NOT restore an "off" state from storage: a persisted off silently killed
+    // the whole keyboard on launch. Clear any stale flag from older builds.
+    synthEnabled = true;
+    try { localStorage.removeItem('skrimpad_synth_off'); } catch (e) {}
     const paintPwr = () => { synthPwr.classList.toggle('on', synthEnabled); synthPwr.textContent = synthEnabled ? 'SYNTH ON' : 'SYNTH OFF'; };
     paintPwr();
     synthPwr.addEventListener('click', () => {
       synthEnabled = !synthEnabled;
       if (!synthEnabled && typeof allNotesOff === 'function') allNotesOff();
-      try { localStorage.setItem('skrimpad_synth_off', synthEnabled ? '0' : '1'); } catch (e) {}
       paintPwr();
       toast('🎹 Synth ' + (synthEnabled ? 'ON' : 'OFF'));
     });
