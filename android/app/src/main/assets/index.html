@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1">
 <title>SKRiMPAD M2</title>
+<script>window.SKRIMPAD_EDITION='se';/*BUILD_EDITION*/</script>
 <style>
 :root{
   --bg:#0A0B0F;--surf:#12141A;--surf2:#1A1D25;--surf3:#222630;
@@ -7213,6 +7214,7 @@ function switchTheme(id) {
   seToast(SE_THEMES[id].name + ' — theme engaged');
 }
 function enterSE(themeId) {
+  if (window.SKRIMPAD_EDITION === 'consumer') return; // SE HUD is not part of the consumer edition
   if (!audioReady) initAudio();
   if (themeId) seThemeId = themeId;
   seLayout = { theme: SE_THEMES[seThemeId], modules: SE_MODULES };
@@ -7244,6 +7246,11 @@ function exitSE() {
   toast('Back to classic studio');
 }
 function toggleSE() { if (seOn) exitSE(); else enterSE(); }
+// CONSUMER EDITION: strip the Special Edition entry points — the app is the
+// classic studio only (no ⛩ button, no themed HUD). SE builds leave this as-is.
+if (window.SKRIMPAD_EDITION === 'consumer') {
+  ['bnr-se', 'se-mobile-btn'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+}
 // wire entry + in-skin controls
 document.getElementById('bnr-se').addEventListener('click', toggleSE);
 document.getElementById('se-exit').addEventListener('click', exitSE);

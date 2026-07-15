@@ -6,6 +6,7 @@ on:
     paths:
       - 'electron/**'
       - 'android/app/src/main/assets/index.html'
+      - 'scripts/set-edition.js'
       - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
           mkdir -p electron/app
           cp android/app/src/main/assets/index.html electron/app/index.html
 
+      - name: Set consumer edition (hide Special Edition HUD)
+        run: node scripts/set-edition.js electron/app/index.html consumer
+
       - name: Install dependencies
         run: |
           cd electron
@@ -39,24 +43,34 @@ jobs:
           cd electron
           npm run build:win
 
+      - name: Name the download files
+        shell: bash
+        run: |
+          cd electron/dist
+          n="${{ github.run_number }}"
+          for f in *.exe; do
+            case "$f" in
+              *Setup*) mv "$f" "SKRiMPAD Setup ${n} (Installer).exe";;
+              *)       mv "$f" "SKRiMPAD Setup ${n} (Portable).exe";;
+            esac
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: skrimpad-m2-windows
-          path: |
-            electron/dist/*.exe
-            electron/dist/*.zip
+          name: skrimpad-setup-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: win-v1.0.${{ github.run_number }}
-          name: SKRiMPAD M2 Windows v1.0.${{ github.run_number }}
+          name: SKRiMPAD M2 Windows — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD M2 for Windows
+            SKRiMPAD M2 — Consumer Edition for Windows
 
-            - **Installer** (.exe) — installs to Program Files with shortcuts
-            - **Portable** (.exe) — runs from anywhere, no install needed
+            - **`SKRiMPAD Setup ${{ github.run_number }} (Installer).exe`** — installs to Program Files with shortcuts
+            - **`SKRiMPAD Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere, no install needed
 
             **Requirements:** Windows 10+ (64-bit)
           files: |
