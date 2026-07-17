@@ -709,6 +709,9 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
 #se-enter{cursor:pointer;}
 @media (max-width:760px){
   #se-hud-wrap{width:74vw;height:74vw;top:42%;}
+  /* the drop-shadow filter re-rasterizes the HUD canvas every frame — on a
+     phone GPU that fights the audio pipeline, so the glow comes off */
+  #se-hud{filter:none;}
   .se-arc{display:none;}
   .se-mod{position:relative !important;inset:auto !important;width:auto !important;height:auto !important;margin:8px;resize:none;}
   body.se-active #se-root{overflow-y:auto;}
@@ -2241,8 +2244,11 @@ function startOverloadGuard() {
     let s = 0;
     for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; s += v * v; }
     const rms = Math.sqrt(s / buf.length);
-    hot = rms > 0.62 ? hot + 1 : 0;
-    if (hot >= 10) {
+    // 0.72 for a solid 3s: a genuinely wedged wall of sound, not just a loud
+    // beat — the old 0.62/2.5s tripped during normal heavy playing and kept
+    // killing the output ("no sound / keys keep dying")
+    hot = rms > 0.72 ? hot + 1 : 0;
+    if (hot >= 12) {
       hot = 0;
       panicStopAll();
       toast('🛡 OVERLOAD GUARD — the output was clipping into chaos, so everything was killed. Turn some layers down.');
@@ -2658,8 +2664,22 @@ function playLaneNote(lane, midi, gateMs) {
   }
 }
 
+// RESYNC, never catch up: when the timer falls behind the audio clock (tab
+// minimized / occluded window / main-thread jank), the old while-loop crammed
+// every missed step in at once — thousands of voices in one synchronous burst.
+// That was the PC freeze, the Android speaker popping, and the storm that kept
+// tripping the overload guard into killing all sound. If we're late, we skip
+// the dead air and pick the groove back up from "now".
+function transportResync(nextTime) {
+  const beat = seqGetBeatSec();
+  if (!isFinite(beat) || beat <= 0) return ctx.currentTime + 0.05;  // bad BPM input
+  if (nextTime < ctx.currentTime - 0.2) return ctx.currentTime + 0.05; // fell behind → resync
+  return nextTime;
+}
 function seqSchedule() {
-  while (seqNextTime < ctx.currentTime + 0.1) {
+  seqNextTime = transportResync(seqNextTime);
+  let n = 0;
+  while (seqNextTime < ctx.currentTime + 0.1 && n++ < 64) {
     const s = seqStep;
     seqPatterns.forEach((track, ti) => {
       if (track[s]) playDrum(ti, seqNextTime);
@@ -2704,7 +2724,9 @@ function seqPlayPause() {
 // KEYS-ONLY transport — runs the 5 key lanes with the drums silent
 let keysPlaying = false, keysStep = 0, keysTimer = null, keysNextTime = 0;
 function keysSchedule() {
-  while (keysNextTime < ctx.currentTime + 0.1) {
+  keysNextTime = transportResync(keysNextTime);
+  let n = 0;
+  while (keysNextTime < ctx.currentTime + 0.1 && n++ < 64) {
     scheduleLaneStep(keysStep, keysNextTime);
     highlightSeqStep(keysStep);
     keysStep = (keysStep + 1) % SEQ_STEPS;
@@ -6935,6 +6957,12 @@ const SE_MODULES = [
 let seThemeId = 'champloo';
 let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
 let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
+// Low-power render mode: the APK's WebView and small touch devices share one
+// main thread between canvas work and the audio pipeline — halve the frame
+// rate of the decorative loops there so the sound never crackles.
+const SE_LOWPOWER = (typeof AndroidFileHandler !== 'undefined') ||
+  (matchMedia && matchMedia('(pointer:coarse)').matches) ||
+  Math.min(screen.width, screen.height) < 700;
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
 const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
 
@@ -7037,9 +7065,14 @@ function seDrawHUD() {
   const g = cv.getContext('2d'), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
   let sweep = 0, freq = null;
   if (audioReady && analyser) freq = new Uint8Array(analyser.frequencyBinCount);
-  const loop = () => {
+  let hudLast = 0;
+  const loop = (now) => {
     if (!seOn) return;
     seHudRAF = requestAnimationFrame(loop);
+    // Phones: cap the HUD at 30fps — full-rate canvas work on the main thread
+    // starves the WebView's audio pipeline (that was the constant popping)
+    if (SE_LOWPOWER && now - hudLast < 33) return;
+    hudLast = now || 0;
     // live theme colours (change instantly when the theme is switched)
     const th = seLayout.theme, lineC = hexRGB(th.line), glowC = hexRGB(th.glow), accC = hexRGB(th.accent), inkC = hexRGB(th.ink);
     g.clearRect(0, 0, W, H);
@@ -7143,9 +7176,13 @@ function seInitParticles() {
     hue: Math.random() * 360, ph: Math.random() * Math.PI * 2
   });
 }
-function seParticleFrame() {
+let seParticleLast = 0;
+function seParticleFrame(now) {
   if (!seOn) return;
   seParticleRAF = requestAnimationFrame(seParticleFrame);
+  // decorative only — 24fps on phones keeps the audio thread fed
+  if (SE_LOWPOWER && now - seParticleLast < 41) return;
+  seParticleLast = now || 0;
   const cv = document.getElementById('se-particles'); if (!cv) return;
   const g = cv.getContext('2d'), W = cv.width, H = cv.height, th = seLayout.theme, kind = th.particles;
   g.clearRect(0, 0, W, H);
@@ -7254,7 +7291,8 @@ function enterSE(themeId) {
   seDrawArcs();
   seInitParticles();
   seParticleFrame();
-  if (!seParallaxBound) { window.addEventListener('pointermove', seParallax); seParallaxBound = true; }
+  // parallax is a mouse-hover flourish — on touch devices it just burns frames
+  if (!seParallaxBound && !SE_LOWPOWER) { window.addEventListener('pointermove', seParallax); seParallaxBound = true; }
   seToast(seLayout.theme.name + ' — 🎨 picks your theme · drag the glass panels');
 }
 function exitSE() {
@@ -7525,6 +7563,15 @@ applyWinVis();
   seqPatterns[t][s] = true;
   const el = document.querySelector(`.seq-step[data-track="${t}"][data-step="${s}"]`);
   if (el) { el.classList.add('on'); el.style.background = drumDefs[t].color; }
+});
+
+// Surface crashes instead of freezing silently — a runtime error shows up as a
+// toast so it can be reported, rather than the app just going dead.
+window.addEventListener('error', e => {
+  try { toast('⚠ ' + ((e.error && e.error.message) || e.message || 'script error').slice(0, 90)); } catch (x) {}
+});
+window.addEventListener('unhandledrejection', e => {
+  try { toast('⚠ ' + ((e.reason && e.reason.message) || 'async error').slice(0, 90)); } catch (x) {}
 });
 
 // Browsers create the AudioContext suspended until a user gesture. initAudio()

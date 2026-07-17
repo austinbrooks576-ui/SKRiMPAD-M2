@@ -1,6 +1,11 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
+// Audio must start clean and keep perfect time even when the window is
+// minimized or covered — throttled timers let the sequencer fall behind the
+// audio clock, and the catch-up burst on restore froze the app.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -11,6 +16,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
     title: 'SKRiMPAD',
     backgroundColor: '#0a0a0a',
