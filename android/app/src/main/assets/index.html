@@ -685,14 +685,17 @@ body.se-active .se-mod .lib-tab.on,body.se-active .se-mod .mode-btn.on{backgroun
    modals outside #se-root, so while the SE HUD is live they dress in the
    active theme (glass, ink, gold lines) instead of the consumer dark grey.
    Same engine, standalone Special Edition skin. */
-body.se-active #lib-modal,body.se-active #edit-modal,body.se-active #pick-modal{background:rgba(var(--se-ink-rgb),.62);backdrop-filter:blur(3px);}
+body.se-active #lib-modal,body.se-active #edit-modal,body.se-active #pick-modal,body.se-active #customize-modal.open,body.se-active #hw-map-modal{background:rgba(var(--se-ink-rgb),.62);backdrop-filter:blur(3px);}
+body.se-active #customize-modal>div,body.se-active #hw-map-modal>div,
 body.se-active #lib-card,body.se-active #edit-card,body.se-active #pick-modal>div{
   background:linear-gradient(165deg, rgba(var(--se-ink-rgb),.94), rgba(var(--se-ink-rgb),.80));
   border:1px solid rgba(var(--se-line-rgb),.55);border-radius:14px;color:var(--se-paper);font-family:var(--se-font);
   box-shadow:0 16px 54px rgba(0,0,0,.62), 0 0 34px rgba(var(--se-glow-rgb),.14);backdrop-filter:blur(12px);}
-body.se-active #lib-card .hbtn,body.se-active #edit-card .hbtn,body.se-active #pick-modal .hbtn{
+body.se-active #lib-card .hbtn,body.se-active #edit-card .hbtn,body.se-active #pick-modal .hbtn,
+body.se-active #customize-modal .hbtn,body.se-active #hw-map-modal .hbtn{
   border-color:rgba(var(--se-line-rgb),.55);color:var(--se-glow);background:rgba(var(--se-ink-rgb),.5);}
-body.se-active #lib-card b,body.se-active #edit-card b,body.se-active #pick-modal b{color:var(--se-glow);letter-spacing:.1em;}
+body.se-active #lib-card b,body.se-active #edit-card b,body.se-active #pick-modal b,
+body.se-active #customize-modal b,body.se-active #hw-map-modal b{color:var(--se-glow);letter-spacing:.1em;}
 body.se-active .lib-tab.on{background:var(--se-line);color:var(--se-ink);border-color:var(--se-line);}
 body.se-active .lib-tab{border-color:rgba(var(--se-line-rgb),.4);color:var(--se-paper);background:rgba(var(--se-ink-rgb),.45);}
 body.se-active .lib-sound{background:rgba(var(--se-ink-rgb),.5);border-color:rgba(var(--se-line-rgb),.35);color:var(--se-paper);}
@@ -1555,6 +1558,12 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
       <button class="hbtn" id="hw-map-btn">🎛 PROGRAM KEYS — MIDI / CONTROLLER / KEYBOARD</button>
       <label style="font-size:9px;color:var(--mute);display:flex;align-items:center;gap:4px"><input type="checkbox" id="guard-toggle" checked> 🛡 OVERLOAD GUARD (auto kill-switch)</label>
     </div>
+    <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">SAVED LIBRARY</div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <span id="lib-store-info" style="font-size:9px;color:var(--mute)">…</span>
+      <button class="hbtn" id="lib-clear-btn" style="color:var(--orange);border-color:var(--orange)">🗑 CLEAR SAVED SOUNDS</button>
+      <span style="font-size:9px;color:var(--mute)">Sounds load on demand now, so a huge library can't crash the app — but you can still wipe it here.</span>
+    </div>
   </div>
 </div>
 
@@ -1620,6 +1629,7 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
     <button class="se-bar-btn" id="se-panic" title="Panic — kill all sound"></button>
     <button class="se-bar-btn" id="se-revolve" title="REVOLVE — windows orbit the HUD; scroll wheel spins them"></button>
     <button class="se-bar-btn" id="se-hidethemes" title="Theme options — pick your look" style="font-size:13px">🎨</button>
+    <button class="se-bar-btn" id="se-settings" title="Settings — MIDI, Bluetooth, controller, pad programming, saved library, skins" style="font-size:13px">⚙</button>
     <div class="spacer"></div>
   </div>
   <canvas class="se-arc left" id="se-arc-l"></canvas>
@@ -2593,6 +2603,8 @@ function scheduleLaneStep(s, when) {
     const gateMs = cell.sustain ? laneGateSteps(lane.steps, s) * beat * 1000 * 0.95 : beat * 800;
     keySeqTimers.push(setTimeout(() => playLaneNote(lane, cell.midi, gateMs), dt));
   });
+  // long jams: shed already-fired timer ids so the array can't grow forever
+  if (keySeqTimers.length > 4096) keySeqTimers.splice(0, 2048);
 }
 
 // ---- LANE VOICE LOCK ----------------------------------------------------
@@ -3440,7 +3452,7 @@ function importAudioSample(onLoaded, label) {
   const render = () => {
     grid.innerHTML = '';
     const term = q.value.trim().toLowerCase();
-    const sounds = Object.values(SOUND_LIB).flat().filter(s => s.buf && (!term || s.name.toLowerCase().includes(term))).slice(0, 60);
+    const sounds = Object.values(SOUND_LIB).flat().filter(s => (s.buf || s.idbId) && (!term || s.name.toLowerCase().includes(term))).slice(0, 60);
     if (!sounds.length) {
       grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--mute);font-size:10px;padding:14px">Library is empty — use DEVICE FILE, drop a ZIP pack in the LIB tab, or 🎲 generate sounds.</div>';
       return;
@@ -3450,24 +3462,32 @@ function importAudioSample(onLoaded, label) {
       el.className = 'lib-sound';
       const porigin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
       el.innerHTML = `<div>${s.name}</div>${porigin}<div class="lib-sub">${soundMeta(s, s.cat || 'MY SOUNDS')}</div>`;
-      el.addEventListener('click', () => playSampleBuf(s.buf, ctx.currentTime + 0.01, 1, 0.9)); // tap = preview
+      el.addEventListener('click', async () => { // tap = preview (loads from disk if needed)
+        const b = s.buf || await libEnsureBuf(s);
+        if (b) playSampleBuf(b, ctx.currentTime + 0.01, 1, 0.9);
+      });
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:4px;margin-top:5px;justify-content:center';
       const use = document.createElement('button');
       use.className = 'hbtn'; use.textContent = '✔ USE'; use.style.cssText = 'font-size:9px;color:var(--teal);border-color:var(--teal)';
       use.addEventListener('click', async e => {
         e.stopPropagation();
+        const b = s.buf || await libEnsureBuf(s);
+        if (!b) { toast('Could not load that sound'); return; }
         const nm = await uiPrompt('Name this sound', s.name);
         if (nm == null) return;
-        close(); onLoaded(s.buf, (nm.trim() || s.name));
+        close(); onLoaded(b, (nm.trim() || s.name));
         toast((label || 'Sound') + ': ' + (nm.trim() || s.name));
       });
       const trim = document.createElement('button');
       trim.className = 'hbtn'; trim.textContent = '✂ TRIM'; trim.style.fontSize = '9px';
-      trim.addEventListener('click', e => {
-        e.stopPropagation(); close();
+      trim.addEventListener('click', async e => {
+        e.stopPropagation();
+        const b = s.buf || await libEnsureBuf(s);
+        if (!b) { toast('Could not load that sound'); return; }
+        close();
         window.__pendingApply = (buf2, name2) => { onLoaded(buf2, name2 || s.name); toast((label || 'Sound') + ': trimmed + applied'); };
-        openSampleEditor(s.buf, s.name);
+        openSampleEditor(b, s.name);
         const ub = document.getElementById('edit-use'); if (ub) ub.style.display = '';
       });
       row.appendChild(use); row.appendChild(trim); el.appendChild(row);
@@ -4503,6 +4523,10 @@ function soundMeta(s, cat) {
     const note = freqToNote(detectFreq(s.buf));
     meta = type + ' · ' + (note || 'unpitched') + ' · ' + dur;
     s._meta = meta; // cache — detection is one-time
+  } else if (s.idbId) {
+    // saved-but-not-loaded stub: duration is known without touching the PCM
+    const d = s.durSec;
+    meta = type + ' · ' + (d ? (d < 10 ? d.toFixed(2) + 's' : Math.round(d) + 's') : 'saved') + ' · 💾';
   } else {
     meta = type + ' · synth voice';
   }
@@ -4525,6 +4549,7 @@ function buildSoundLibGrid() {
         s.fn(ctx.currentTime + 0.01);
       });
       const assignPad = () => {
+        if (!s.buf && s.idbId) { libEnsureBuf(s).then(() => assignPad()); return; } // pull from disk first
         const def = drumDefs[lastTouchedPad];
         if (s.buf) { def.sampleBuf = s.buf; }
         else { def.sampleBuf = null; def.fn = s.fn; }
@@ -4532,10 +4557,14 @@ function buildSoundLibGrid() {
       };
       btn.addEventListener('contextmenu', e => { e.preventDefault(); assignPad(); });
       addLongPress(btn, assignPad);
-      if (s.buf) {
+      if (s.buf || s.idbId) {
         const cut = document.createElement('span');
         cut.className = 'lib-cut'; cut.textContent = '✂'; cut.title = 'Open in sample editor';
-        cut.addEventListener('click', e => { e.stopPropagation(); openSampleEditor(s.buf, s.name); });
+        cut.addEventListener('click', async e => {
+          e.stopPropagation();
+          const b = s.buf || await libEnsureBuf(s);
+          if (b) openSampleEditor(b, s.name);
+        });
         btn.appendChild(cut);
         if (libCategory === 'MY SOUNDS') {
           const x = document.createElement('span');
@@ -4622,7 +4651,37 @@ document.querySelectorAll('.pedal').forEach(p => {
 // =============================================
 document.getElementById('help-btn').addEventListener('click', () => document.getElementById('help-modal').classList.add('open'));
 document.getElementById('help-close').addEventListener('click', () => document.getElementById('help-modal').classList.remove('open'));
-document.getElementById('customize-btn').addEventListener('click', () => document.getElementById('customize-modal').classList.add('open'));
+function openSettings() {
+  document.getElementById('customize-modal').classList.add('open');
+  // saved-library size readout (count + rough MB from stored PCM lengths)
+  (async () => {
+    const el = document.getElementById('lib-store-info'); if (!el) return;
+    try {
+      const db = await idbOpen();
+      let n = 0, bytes = 0;
+      await new Promise((res, rej) => {
+        const rq = db.transaction('sounds', 'readonly').objectStore('sounds').openCursor();
+        rq.onsuccess = () => {
+          const c = rq.result;
+          if (!c) { res(); return; }
+          n++; const r = c.value; if (r.len && r.ch) bytes += r.len * r.ch.length * 4;
+          c.continue();
+        };
+        rq.onerror = () => rej(rq.error);
+      });
+      el.textContent = n + ' saved sound' + (n === 1 ? '' : 's') + ' · ~' + Math.max(1, Math.round(bytes / 1048576)) + ' MB on device';
+    } catch (e) { el.textContent = 'library size unavailable'; }
+  })();
+}
+document.getElementById('customize-btn').addEventListener('click', openSettings);
+{
+  const sb = document.getElementById('se-settings');
+  if (sb) sb.addEventListener('click', openSettings);
+  const cb = document.getElementById('lib-clear-btn');
+  if (cb) cb.addEventListener('click', () => {
+    if (confirm('Delete ALL saved sounds from this device? Imports in this session stay loaded.')) libClearPersisted().then(() => openSettings());
+  });
+}
 document.getElementById('customize-close').addEventListener('click', () => document.getElementById('customize-modal').classList.remove('open'));
 ['help-modal','customize-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.remove('open'); });
@@ -4806,30 +4865,92 @@ async function idbDelete(id) {
     db.transaction('sounds', 'readwrite').objectStore('sounds').delete(id);
   } catch (e) {}
 }
+// ---- LAZY LIBRARY -----------------------------------------------------
+// The old loader getAll()'d EVERY saved sound's raw PCM into memory at boot.
+// A healthy pack collection is gigabytes of PCM, so ~45 seconds into a
+// session the renderer ran out of memory and the whole app froze/crashed —
+// on both editions, since they share the same saved library. Now boot only
+// builds lightweight stubs (name/category/duration); a sound's audio is
+// pulled from disk the moment it's actually played, previewed, or assigned,
+// and a 200MB LRU keeps the hoard from ever piling up in memory again.
+const LIB_CACHE = { bytes: 0, order: [], MAX: 200 * 1024 * 1024 };
+function libStubFn(entry) {
+  return () => { libEnsureBuf(entry).then(b => { if (b) playSampleBuf(b, ctx.currentTime + 0.01, 1, 0.9); }); };
+}
+async function libEnsureBuf(entry) {
+  if (entry.buf) return entry.buf;
+  if (!entry.idbId) return null;
+  try {
+    if (!audioReady) initAudio();
+    const db = await idbOpen();
+    const r = await new Promise((res, rej) => {
+      const rq = db.transaction('sounds', 'readonly').objectStore('sounds').get(entry.idbId);
+      rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+    });
+    if (!r || !r.ch) return null;
+    const buf = ctx.createBuffer(r.ch.length, r.len, r.sr);
+    r.ch.forEach((ab, c) => buf.getChannelData(c).set(new Float32Array(ab)));
+    entry.buf = buf;
+    entry.fn = t => playSampleBuf(buf, t, 1, 0.9);
+    entry._meta = null; // meta upgrades now that key detection is possible
+    entry._bytes = r.len * r.ch.length * 4;
+    LIB_CACHE.bytes += entry._bytes; LIB_CACHE.order.push(entry);
+    while (LIB_CACHE.bytes > LIB_CACHE.MAX && LIB_CACHE.order.length > 1) {
+      const old = LIB_CACHE.order.shift();
+      if (old !== entry && old.buf && old.idbId) {
+        LIB_CACHE.bytes -= old._bytes || 0;
+        old.buf = null; old._meta = null; old.fn = libStubFn(old); // reloads on demand
+      }
+    }
+    return buf;
+  } catch (e) { return null; }
+}
 async function libLoadPersisted() {
   try {
     const db = await idbOpen();
-    const rows = await new Promise((res, rej) => {
-      const rq = db.transaction('sounds', 'readonly').objectStore('sounds').getAll();
-      rq.onsuccess = () => res(rq.result || []);
+    let count = 0;
+    await new Promise((res, rej) => {
+      // cursor walk: one row in memory at a time, and only the STUB survives —
+      // the row's PCM is dropped immediately, so boot memory stays flat no
+      // matter how many gigabytes the saved library has grown to
+      const rq = db.transaction('sounds', 'readonly').objectStore('sounds').openCursor();
+      rq.onsuccess = () => {
+        const cur = rq.result;
+        if (!cur) { res(); return; }
+        const r = cur.value;
+        const cat = r.cat || 'MY SOUNDS';
+        if (!SOUND_LIB[cat]) SOUND_LIB[cat] = [];
+        const entry = { name: r.name, sub: r.sub, cat, buf: null, idbId: r.id,
+          durSec: (r.len && r.sr) ? r.len / r.sr : null };
+        entry.fn = libStubFn(entry);
+        SOUND_LIB[cat].unshift(entry); // ascending cursor + unshift = newest first
+        count++;
+        cur.continue();
+      };
       rq.onerror = () => rej(rq.error);
     });
-    rows.reverse().forEach(r => {
-      const buf = ctx.createBuffer(r.ch.length, r.len, r.sr);
-      r.ch.forEach((ab, c) => buf.getChannelData(c).set(new Float32Array(ab)));
-      const cat = r.cat || 'MY SOUNDS';
-      if (!SOUND_LIB[cat]) SOUND_LIB[cat] = [];
-      const entry = { name: r.name, sub: r.sub, cat, buf, fn: t => playSampleBuf(buf, t, 1, 0.9), idbId: r.id };
-      SOUND_LIB[cat].push(entry);
-    });
     relinkModeSounds();
-    if (rows.length) {
-      toast('📚 ' + rows.length + ' saved sound' + (rows.length > 1 ? 's' : '') + ' loaded from your library');
+    if (count) {
+      toast('📚 ' + count + ' saved sound' + (count > 1 ? 's' : '') + ' in your library (loaded on demand)');
       buildSoundLib();
     }
   } catch (e) {}
 }
+async function libClearPersisted() {
+  try {
+    const db = await idbOpen();
+    await new Promise((res, rej) => {
+      const rq = db.transaction('sounds', 'readwrite').objectStore('sounds').clear();
+      rq.onsuccess = res; rq.onerror = () => rej(rq.error);
+    });
+    Object.keys(SOUND_LIB).forEach(cat => { SOUND_LIB[cat] = SOUND_LIB[cat].filter(s => !s.idbId); });
+    LIB_CACHE.bytes = 0; LIB_CACHE.order = [];
+    buildSoundLib();
+    toast('🗑 Saved library cleared — imports are fresh from here');
+  } catch (e) { toast('Could not clear the saved library'); }
+}
 function libAssignToKeys(s) {
+  if (!s.buf && s.idbId) { libEnsureBuf(s).then(b => { if (b) libAssignToKeys(s); }); return; }
   if (!s.buf) { toast('Only imported/generated sounds can ride the keys — use 🎲 or 📥'); return; }
   keyLanes[curLane].sampleBuf = s.buf; keyLanes[curLane].sampleRoot = 60; keyLanes[curLane].voice = 'sample';
   const lv = document.getElementById('lane-voice'); if (lv) lv.value = 'sample';
@@ -6176,8 +6297,12 @@ function relinkModeSounds() {
   try { saved = JSON.parse(localStorage.getItem('skrimpad_modesounds') || '{}'); } catch (e) { return; }
   const all = Object.values(SOUND_LIB).flat();
   Object.entries(saved).forEach(([m, s]) => {
-    const hit = all.find(e => e.buf && e.name === s.name);
-    if (hit) modeSounds[m] = { buf: hit.buf, root: s.root || 60, name: hit.name };
+    const hit = all.find(e => (e.buf || e.idbId) && e.name === s.name);
+    if (!hit) return;
+    if (hit.buf) modeSounds[m] = { buf: hit.buf, root: s.root || 60, name: hit.name };
+    else libEnsureBuf(hit).then(b => { // lazily restore the saved mode sound
+      if (b) { modeSounds[m] = { buf: b, root: s.root || 60, name: hit.name }; renderModeButtons(); if (synth.keyMode === m) applyKeyMode(m); }
+    });
   });
   if (Object.keys(modeSounds).length) renderModeButtons();
 }
