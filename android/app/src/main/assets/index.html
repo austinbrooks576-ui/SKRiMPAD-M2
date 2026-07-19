@@ -712,6 +712,11 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
   /* the drop-shadow filter re-rasterizes the HUD canvas every frame — on a
      phone GPU that fights the audio pipeline, so the glow comes off */
   #se-hud{filter:none;}
+  /* live backdrop blur behind 7 windows is the most expensive paint on a
+     phone — swap to a solid ink glass; looks the same, costs nothing */
+  .se-mod{backdrop-filter:none;-webkit-backdrop-filter:none;
+    background:linear-gradient(170deg, rgba(var(--se-ink-rgb),.92), rgba(var(--se-ink-rgb),.84)) !important;}
+  #se-bar,.se-pill{backdrop-filter:none;-webkit-backdrop-filter:none;}
   .se-arc{display:none;}
   .se-mod{position:relative !important;inset:auto !important;width:auto !important;height:auto !important;margin:8px;resize:none;}
   body.se-active #se-root{overflow-y:auto;}
@@ -2232,6 +2237,13 @@ function rebuildClipCurve() {
 // ---- OVERLOAD GUARD — auto kill-switch for overstacked cacophony.
 // Watches the master analyser; if the output stays slammed near clipping
 // for ~2.5s straight, it flips the PANIC switch before your ears do.
+// Low-power render mode: the APK's WebView and small touch devices share one
+// main thread between canvas work and the audio pipeline — halve the frame
+// rate of every decorative loop there so the sound never crackles.
+const SE_LOWPOWER = (typeof AndroidFileHandler !== 'undefined') ||
+  (window.matchMedia && matchMedia('(pointer:coarse)').matches) ||
+  Math.min(screen.width, screen.height) < 700;
+
 let guardEnabled = localStorage.getItem('skrimpad_guard') !== '0';
 let guardTimer = null;
 function startOverloadGuard() {
@@ -2755,11 +2767,19 @@ function keysStop() {
 }
 function keysPlayPause() { if (keysPlaying) keysStop(); else keysPlayStart(); }
 
+// Remember the lit cells instead of sweeping the whole document for `.cur`
+// every step — this runs up to ~20×/sec while the transport plays.
+let _curStepEls = [];
 function highlightSeqStep(s) {
-  document.querySelectorAll('.seq-step.cur,.kseq-step.cur').forEach(el => el.classList.remove('cur'));
-  document.querySelectorAll(`.seq-step[data-step="${s}"],.kseq-step[data-step="${s}"]`).forEach(el => el.classList.add('cur'));
+  for (const el of _curStepEls) el.classList.remove('cur');
+  _curStepEls = [...document.querySelectorAll(`.seq-step[data-step="${s}"],.kseq-step[data-step="${s}"]`)];
+  for (const el of _curStepEls) el.classList.add('cur');
 }
-function clearSeqHighlight() { document.querySelectorAll('.seq-step.cur,.kseq-step.cur').forEach(el => el.classList.remove('cur')); }
+function clearSeqHighlight() {
+  for (const el of _curStepEls) el.classList.remove('cur');
+  _curStepEls = [];
+  document.querySelectorAll('.seq-step.cur,.kseq-step.cur').forEach(el => el.classList.remove('cur'));
+}
 
 // =============================================
 // SYNTHESIZER
@@ -3157,12 +3177,21 @@ function startScope() {
   if (!canvas) return;
   const c = canvas.getContext('2d');
   const buf = new Uint8Array(analyser.fftSize);
-  function draw() {
+  // Setting canvas.width tears down and reallocates the bitmap, and reading
+  // offsetWidth forces layout — doing BOTH every frame was a constant tax on
+  // every platform. Resize only when the element actually changed size, cache
+  // the theme colour briefly, and run 30fps on low-power devices.
+  let lastW = 0, accent = '#00e676', accentAt = 0, scopeLast = 0;
+  function draw(now) {
     requestAnimationFrame(draw);
+    if (SE_LOWPOWER && now - scopeLast < 33) return;
+    scopeLast = now || 0;
+    const w = canvas.offsetWidth || 640;
+    if (w !== lastW) { lastW = w; canvas.width = w; }
+    if (!accentAt || now - accentAt > 800) { accent = waveAccent(); accentAt = now || 1; }
     analyser.getByteTimeDomainData(buf);
-    canvas.width = canvas.offsetWidth || 640;
     c.fillStyle = '#04120b'; c.fillRect(0, 0, canvas.width, canvas.height);
-    c.strokeStyle = waveAccent(); c.lineWidth = 1.5; c.beginPath();
+    c.strokeStyle = accent; c.lineWidth = 1.5; c.beginPath();
     const step = buf.length / canvas.width;
     for (let x = 0; x < canvas.width; x++) {
       const y = (buf[Math.floor(x * step)] / 255) * canvas.height;
@@ -3170,7 +3199,7 @@ function startScope() {
     }
     c.stroke();
   }
-  draw();
+  draw(0);
 }
 
 function startVis() {
@@ -3178,8 +3207,11 @@ function startVis() {
   const canvas = document.getElementById('vis-canvas');
   const c = canvas.getContext('2d');
   const buf = new Uint8Array(analyser.frequencyBinCount);
-  function draw() {
+  let visLast = 0;
+  function draw(now) {
     requestAnimationFrame(draw);
+    if (SE_LOWPOWER && now - visLast < 33) return; // 30fps is plenty for a meter
+    visLast = now || 0;
     analyser.getByteFrequencyData(buf);
     c.clearRect(0, 0, canvas.width, canvas.height);
     c.fillStyle = '#12141A';
@@ -3469,6 +3501,16 @@ function openPadMenu(i, x, y) {
   if (def.sampleBuf) items.push({ label: '✂ EDIT SAMPLE (SPLICE/SNIP)', act: () => openSampleEditor(def.sampleBuf, def.name) });
   if (def.sampleBuf) items.push({ label: 'REMOVE SAMPLE', act: () => { def.sampleBuf = null; toast(def.name + ' back to synth'); } });
   if (def.sampleBuf2) items.push({ label: 'REMOVE LAYER', act: () => { def.sampleBuf2 = null; toast(def.name + ': layer removed'); } });
+  items.push({ label: '⌨🎮 BIND ANY BUTTON → THIS PAD', act: () => {
+    padBindArm = i;
+    toast('Press ANY keyboard key, MIDI note, or controller button — it becomes ' + def.name + ' (ESC cancels)');
+  } });
+  {
+    const boundKey = Object.keys(kbMap).find(k => kbMap[k] === i);
+    if (boundKey) items.push({ label: '✕ UNBIND KEY "' + boundKey.toUpperCase() + '"', act: () => {
+      delete kbMap[boundKey]; saveKbMap(); toast(def.name + ': key unbound');
+    } });
+  }
   items.push({ divider: true });
   SEQ_PRESETS.forEach(p => items.push({ label: p.label, act: () => {
     for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(i, s, !!p.fill(s));
@@ -6016,13 +6058,43 @@ document.getElementById('ai-modal').addEventListener('click', e => { if (e.targe
 // ---- KEYBOARD MACROS — arrows, numbers, piano keys ----
 const PIANO_KEYMAP = { a:0, w:1, s:2, e:3, d:4, f:5, t:6, g:7, y:8, h:9, u:10, j:11, k:12 };
 const heldKeys = new Set();
+// ---- UNIVERSAL PAD BINDING — program ANY pad with ANY button. No fixed
+// drum-pad lock: bind a keyboard key, a MIDI note, or a gamepad button to any
+// pad from the pad's long-press menu ("BIND ANY BUTTON"). Persisted.
+let kbMap = {};
+try { kbMap = JSON.parse(localStorage.getItem('skrimpad_kbmap') || '{}'); } catch (e) {}
+function saveKbMap() { try { localStorage.setItem('skrimpad_kbmap', JSON.stringify(kbMap)); } catch (e) {} }
+let padBindArm = null; // pad index waiting for its next key/note/button
+function firePad(idx) {
+  if (!audioReady) initAudio();
+  playDrum(idx, ctx.currentTime + 0.005);
+  lastTouchedPad = idx;
+  const padEl = document.querySelector('.pad[data-idx="' + idx + '"]');
+  if (padEl) { padEl.classList.add('hit'); setTimeout(() => padEl.classList.remove('hit'), 120); }
+}
 document.addEventListener('keydown', e => {
   const tag = (document.activeElement && document.activeElement.tagName) || '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (e.repeat) return;
   const bpmEl = document.getElementById('bpm');
+  if (e.key === 'Escape') {
+    if (padBindArm != null) { padBindArm = null; toast('Bind cancelled'); return; }
+    panicStopAll(); return;
+  }
+  // learn mode: the next key pressed becomes this pad's trigger
+  if (padBindArm != null) {
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    Object.keys(kbMap).forEach(x => { if (kbMap[x] === padBindArm) delete kbMap[x]; });
+    kbMap[k] = padBindArm; saveKbMap();
+    toast('⌨ "' + (e.key === ' ' ? 'SPACE' : e.key.toUpperCase()) + '" → ' + drumDefs[padBindArm].name);
+    padBindArm = null;
+    return;
+  }
+  // custom key → pad bindings take priority over every stock shortcut
+  const bound = kbMap[e.key.toLowerCase()];
+  if (bound != null && drumDefs[bound]) { e.preventDefault(); firePad(bound); return; }
   if (e.code === 'Space') { e.preventDefault(); if (e.shiftKey) keysPlayPause(); else seqPlayPause(); return; }
-  if (e.key === 'Escape') { panicStopAll(); return; }
   if (e.key === 'ArrowRight') { bpmEl.value = Math.min(300, parseInt(bpmEl.value) + (e.shiftKey ? 5 : 1)); bpmEl.dispatchEvent(new Event('input')); return; }
   if (e.key === 'ArrowLeft') { bpmEl.value = Math.max(40, parseInt(bpmEl.value) - (e.shiftKey ? 5 : 1)); bpmEl.dispatchEvent(new Event('input')); return; }
   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -6626,6 +6698,12 @@ function onMIDI(e) {
   const [st, d1, d2] = e.data, cmd = st & 0xf0;
   if (!audioReady) initAudio();
   if (cmd === 0x90 && d2 > 0) {
+    if (padBindArm != null) { // universal bind: this MIDI note becomes the armed pad's trigger
+      Object.keys(midiMap.notes).forEach(k => { if (midiMap.notes[k] === padBindArm) delete midiMap.notes[k]; });
+      midiMap.notes['n' + d1] = padBindArm; saveMidi();
+      toast('🎹 MIDI note ' + d1 + ' → ' + drumDefs[padBindArm].name);
+      padBindArm = null; return;
+    }
     if (midiLearnArm) {
       midiMap.notes['n' + d1] = lastTouchedPad;
       saveMidi(); midiLearnArm = false;
@@ -6792,6 +6870,12 @@ function gpLoop() {
     gp.buttons.forEach((b, i) => {
       const was = gpPrev[i]; gpPrev[i] = b.pressed;
       if (!b.pressed || was) return;
+      if (padBindArm != null) { // universal bind: this controller button → armed pad
+        Object.keys(gpMap).forEach(k => { if (gpMap[k] === padBindArm) delete gpMap[k]; });
+        gpMap['b' + i] = padBindArm; saveGpMap();
+        toast('🎮 Button ' + i + ' → ' + drumDefs[padBindArm].name);
+        padBindArm = null; return;
+      }
       if (i === 9) { seqPlayPause(); return; }        // Start
       if (i === 8) { panicStopAll(); return; }        // Back/Select
       const padIdx = gpMap['b' + i]; // remappable via the 🎛 MAP menu
@@ -6942,8 +7026,70 @@ const SE_THEMES = {
     c1: '#000004', c2: '#000008', c3: '#000004', line: '#ff2828', glow: '#ffe23c', accent: '#3ca0ff',
     ink: '#000006', paper: '#ffffff', font: "'Courier New',monospace",
     titles: { pads: '▶ DRUMS', seq: '▶ SEQUENCE', keys: '▶ KEYS', mixer: '▶ MIXER', synth: '▶ SYNTH', fx: '▶ FX', lib: '▶ LIBRARY' }
+  },
+  // ---- ANIME / AESTHETIC / FANTASY LINE — each with a living character motif ----
+  ghostshell: {
+    name: 'Ghost Shell', sub: '⚠ SECTION-9 THERMOPTIC NET', glyph: '▲ ⚠ ▲', particles: 'rain', motif: 'hazard',
+    c1: '#02100f', c2: '#04201d', c3: '#010a09', line: '#00d9c0', glow: '#7dfff0', accent: '#ff7a1a',
+    ink: '#02100e', paper: '#c8fff6', font: "'Courier New',monospace",
+    titles: { pads: '⚠ DRUMS', seq: '⚠ SEQ_NET', keys: '⚠ KEYS', mixer: '⚠ MIXER', synth: '⚠ SYNTH', fx: '⚠ FX', lib: '⚠ ARCHIVE' }
+  },
+  kitsune: {
+    name: 'Kitsune Shrine', sub: '狐 NINE-TAIL FREQUENCY', glyph: '狐 ⛩ 狐', particles: 'petals', motif: 'kitsune',
+    c1: '#1c0508', c2: '#33080e', c3: '#12030a', line: '#ff9d9d', glow: '#ffe3c8', accent: '#ff3838',
+    ink: '#160406', paper: '#ffeede', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '狐 DRUMS', seq: '狐 SEQUENCERS', keys: '狐 KEYS', mixer: '狐 MIXER', synth: '狐 SYNTH', fx: '狐 FX', lib: '狐 LIBRARY' }
+  },
+  mecha: {
+    name: 'Neon Mecha', sub: '⬡ UNIT-07 COCKPIT', glyph: '⬡ ▣ ⬡', particles: 'galaga', motif: 'mecha',
+    c1: '#0a0d1c', c2: '#101a33', c3: '#060810', line: '#5ad1ff', glow: '#e8f6ff', accent: '#ff3c5a',
+    ink: '#070a14', paper: '#e5f3ff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '⬡ DRUMS', seq: '⬡ SEQUENCERS', keys: '⬡ KEYS', mixer: '⬡ MIXER', synth: '⬡ SYNTH', fx: '⬡ FX', lib: '⬡ HANGAR' }
+  },
+  mahou: {
+    name: 'Starlight Mage', sub: '☆ HENSHIN READY', glyph: '☆ ♡ ☆', particles: 'stars', motif: 'magiccircle',
+    c1: '#1c0a24', c2: '#2e1140', c3: '#120618', line: '#ff9de2', glow: '#ffe9a8', accent: '#b06cff',
+    ink: '#140718', paper: '#ffeaf8', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '☆ DRUMS', seq: '☆ SEQUENCERS', keys: '☆ KEYS', mixer: '☆ MIXER', synth: '☆ SYNTH', fx: '☆ CHARMS', lib: '☆ GRIMOIRE' }
+  },
+  onmyoji: {
+    name: 'Spirit Gate', sub: '呪 TALISMAN CIRCUIT', glyph: '呪 ⛩ 呪', particles: 'spores', motif: 'talisman',
+    c1: '#0c0a1e', c2: '#161033', c3: '#070512', line: '#8f7dff', glow: '#d7ccff', accent: '#ff4d4d',
+    ink: '#0a0816', paper: '#e9e4ff', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '呪 DRUMS', seq: '呪 RITUALS', keys: '呪 KEYS', mixer: '呪 MIXER', synth: '呪 SYNTH', fx: '呪 SEALS', lib: '呪 SCROLLS' }
+  },
+  valkyrie: {
+    name: 'Valkyrie Saga', sub: 'ᚹ WINGS OF THE NORTH', glyph: 'ᚹ ᛟ ᚹ', particles: 'stars', motif: 'wings',
+    c1: '#0a1420', c2: '#122438', c3: '#050b12', line: '#9fd4ff', glow: '#ffe9b0', accent: '#d9a441',
+    ink: '#070e16', paper: '#eaf4ff', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: 'ᚹ DRUMS', seq: 'ᚹ SAGAS', keys: 'ᚹ KEYS', mixer: 'ᚹ MIXER', synth: 'ᚹ SYNTH', fx: 'ᚹ RUNES', lib: 'ᚹ VAULT' }
+  },
+  voidwitch: {
+    name: 'Void Witch', sub: '☾ COVEN BROADCAST', glyph: '☾ ✧ ☾', particles: 'spores', motif: 'witch',
+    c1: '#120820', c2: '#1e0d33', c3: '#0a0414', line: '#b96bff', glow: '#8cffb0', accent: '#ff6bd8',
+    ink: '#0d0616', paper: '#f0e4ff', font: "'Georgia',serif",
+    titles: { pads: '☾ DRUMS', seq: '☾ HEXES', keys: '☾ KEYS', mixer: '☾ CAULDRON', synth: '☾ SYNTH', fx: '☾ CURSES', lib: '☾ GRIMOIRE' }
+  },
+  nekopop: {
+    name: 'Tokyo Neko Pop', sub: '♪ SHIBUYA BEDROOM MIX', glyph: '♪ ねこ ♪', particles: 'petals', motif: 'neko',
+    c1: '#221226', c2: '#3a1c3f', c3: '#140a18', line: '#ff9ecb', glow: '#9be8ff', accent: '#ffd166',
+    ink: '#180d1c', paper: '#ffeef7', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '♪ DRUMS', seq: '♪ SEQUENCERS', keys: '♪ KEYS', mixer: '♪ MIXER', synth: '♪ SYNTH', fx: '♪ FX', lib: '♪ CRATES' }
+  },
+  dragonheir: {
+    name: 'Dragon Heir', sub: '龍 EMERALD DYNASTY', glyph: '龍 ✦ 龍', particles: 'embers', motif: 'dragon2',
+    c1: '#04180e', c2: '#08301c', c3: '#020c07', line: '#3ddc84', glow: '#c8ffdd', accent: '#ffd700',
+    ink: '#03120b', paper: '#e0ffee', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '龍 DRUMS', seq: '龍 SEQUENCERS', keys: '龍 KEYS', mixer: '龍 MIXER', synth: '龍 SYNTH', fx: '龍 FX', lib: '龍 HOARD' }
+  },
+  moonrealm: {
+    name: 'Moon Realm', sub: '☽ FLOATING SANCTUM', glyph: '☽ ✦ ☽', particles: 'stars', motif: 'moon',
+    c1: '#0b0d26', c2: '#141a40', c3: '#060714', line: '#aab4ff', glow: '#f2f4ff', accent: '#7d8bff',
+    ink: '#080a1c', paper: '#eef0ff', font: "'Georgia',serif",
+    titles: { pads: '☽ DRUMS', seq: '☽ SEQUENCERS', keys: '☽ KEYS', mixer: '☽ MIXER', synth: '☽ SYNTH', fx: '☽ FX', lib: '☽ SANCTUM' }
   }
 };
+SE_THEMES.champloo.motif = 'dragon';
 // Module layout (grid positions) is shared across themes; titles come from the theme.
 const SE_MODULES = [
   { id: 'pads', icon: 'drums', grid_position: { x: 1, y: 2, w: 4, h: 3 } },
@@ -6957,12 +7103,6 @@ const SE_MODULES = [
 let seThemeId = 'champloo';
 let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
 let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
-// Low-power render mode: the APK's WebView and small touch devices share one
-// main thread between canvas work and the audio pipeline — halve the frame
-// rate of the decorative loops there so the sound never crackles.
-const SE_LOWPOWER = (typeof AndroidFileHandler !== 'undefined') ||
-  (matchMedia && matchMedia('(pointer:coarse)').matches) ||
-  Math.min(screen.width, screen.height) < 700;
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
 const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
 
@@ -7129,6 +7269,7 @@ function seDrawHUD() {
 }
 // ---- Flanking arced level meters ----
 function seDrawArcs() {
+  if (SE_LOWPOWER) return; // arcs are display:none on phones — don't render them blind
   ['se-arc-l', 'se-arc-r'].forEach((id, side) => {
     const cv = document.getElementById(id); if (!cv) return;
     const dpr = 1; cv.width = 130; cv.height = Math.min(innerHeight * 0.6, 470);
@@ -7217,8 +7358,8 @@ function seParticleFrame(now) {
       g.beginPath(); g.ellipse(p.x, p.y, p.r + 1.5, p.r * 0.6, p.ph + t, 0, Math.PI * 2); g.fill();
     }
   }
-  // the New Year's dragon rides the samurai sky
-  if (seThemeId === 'champloo') seDrawDragon(g, W, H);
+  // every theme has a living character motif riding its sky
+  if (th.motif && SE_MOTIFS[th.motif]) SE_MOTIFS[th.motif](g, W, H, t, th);
   // mushroom theme: cycle the RGB accent lines. Writing CSS custom properties
   // forces a full style recalc/repaint, so doing it every frame "overclocks" the
   // paint pipeline and janks. Throttle to ~12fps and only when the hue actually
@@ -7471,9 +7612,11 @@ document.getElementById('se-vol-range').addEventListener('input', e => {
   mv.dispatchEvent(new Event('input'));
 });
 
-// ---- NEW YEAR'S DRAGON — serpentine gold/red flyby (samurai theme) ----
+// ---- SERPENTINE DRAGON flyby — colours are themable (samurai gold/red,
+// dragonheir emerald/gold) ----
 let seDragonT = 0;
-function seDrawDragon(g, W, H) {
+function seDrawDragon(g, W, H, cols) {
+  const C = cols || { body: '192,57,43', scale: '217,164,65', fin: '242,205,107', eye: '#120404' };
   seDragonT += 1 / 60;
   const cycle = 22, T = seDragonT % cycle;
   if (T > 11) return; // rests between flights
@@ -7485,17 +7628,17 @@ function seDrawDragon(g, W, H) {
     if (sx < -40 || sx > W + 40) continue;
     const sy = H * 0.26 + Math.sin(seDragonT * 2.2 - s * 0.55) * 48;
     const r = Math.max(3, 14 - s * 0.38);
-    g.fillStyle = s % 4 === 0 ? 'rgba(192,57,43,.85)' : 'rgba(217,164,65,.82)';
+    g.fillStyle = s % 4 === 0 ? 'rgba(' + C.body + ',.85)' : 'rgba(' + C.scale + ',.82)';
     g.beginPath(); g.arc(sx, sy, r, 0, Math.PI * 2); g.fill();
     if (s % 2 === 0 && s > 0) { // dorsal fins
       g.beginPath(); g.moveTo(sx - 4, sy - r); g.lineTo(sx, sy - r - 9); g.lineTo(sx + 4, sy - r); g.closePath();
-      g.fillStyle = 'rgba(242,205,107,.9)'; g.fill();
+      g.fillStyle = 'rgba(' + C.fin + ',.9)'; g.fill();
     }
     if (s === 0) { // head: eye, horns, whiskers
-      g.fillStyle = 'rgba(217,164,65,.95)';
+      g.fillStyle = 'rgba(' + C.scale + ',.95)';
       g.beginPath(); g.ellipse(sx + 10, sy, 17, 11, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#120404'; g.beginPath(); g.arc(sx + 16, sy - 3, 2.3, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = 'rgba(242,205,107,.95)'; g.lineWidth = 2;
+      g.fillStyle = C.eye; g.beginPath(); g.arc(sx + 16, sy - 3, 2.3, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(' + C.fin + ',.95)'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(sx + 4, sy - 10); g.lineTo(sx - 5, sy - 21); g.stroke();
       g.beginPath(); g.moveTo(sx + 11, sy - 10); g.lineTo(sx + 7, sy - 22); g.stroke();
       g.beginPath(); g.moveTo(sx + 25, sy + 1); g.quadraticCurveTo(sx + 42, sy + 5, sx + 48, sy - 3); g.stroke();
@@ -7503,6 +7646,189 @@ function seDrawDragon(g, W, H) {
     }
   }
 }
+
+// ---- THEME CHARACTER MOTIFS — each theme's living mascot/emblem, drawn on
+// the particle canvas every frame (cheap vector paths, low alpha) ----
+const SE_MOTIFS = {
+  dragon:  (g, W, H) => seDrawDragon(g, W, H),
+  dragon2: (g, W, H) => seDrawDragon(g, W, H, { body: '20,120,70', scale: '61,220,132', fin: '255,215,0', eye: '#03120b' }),
+
+  // GHOST SHELL — floating hazard triangles + glitch sweep
+  hazard: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), A = hexRGB(th.accent);
+    for (let i = 0; i < 5; i++) {
+      const px = W * (0.12 + i * 0.19) + Math.sin(t * 0.7 + i * 2.1) * 18;
+      const py = H * 0.22 + Math.sin(t * 0.9 + i * 1.4) * 26 + i * H * 0.09;
+      const s = 26 + (i % 3) * 10;
+      const glitch = Math.sin(t * 13 + i * 5) > 0.96 ? (Math.random() * 8 - 4) : 0;
+      g.save(); g.translate(px + glitch, py);
+      g.strokeStyle = 'rgba(' + (i % 2 ? A : L) + ',.75)'; g.lineWidth = 2.5; g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(0, -s); g.lineTo(s * 0.87, s * 0.5); g.lineTo(-s * 0.87, s * 0.5); g.closePath(); g.stroke();
+      g.fillStyle = 'rgba(' + (i % 2 ? A : L) + ',.9)'; g.font = 'bold ' + (s * 0.9) + 'px monospace'; g.textAlign = 'center';
+      g.fillText('!', 0, s * 0.38);
+      g.restore();
+    }
+    // horizontal glitch bar sweeping down
+    const by = ((t * 60) % (H + 80)) - 40;
+    g.fillStyle = 'rgba(' + L + ',.07)'; g.fillRect(0, by, W, 16);
+    g.fillStyle = 'rgba(' + A + ',.05)'; g.fillRect(0, by + 22, W, 4);
+  },
+
+  // KITSUNE — nine-tailed fox spirit, tails fanning and swaying
+  kitsune: (g, W, H, t, th) => {
+    const L = hexRGB(th.glow), A = hexRGB(th.accent);
+    const bx = W * 0.82, by = H * 0.72, sway = Math.sin(t * 0.8);
+    for (let i = 0; i < 9; i++) { // tails
+      const a = -Math.PI / 2 + (i - 4) * 0.3 + sway * 0.08;
+      const len = 90 + (i % 3) * 18;
+      g.strokeStyle = 'rgba(' + L + ',' + (0.28 + (i % 2) * 0.12) + ')'; g.lineWidth = 13 - (i % 3) * 3; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(bx, by);
+      g.quadraticCurveTo(bx + Math.cos(a) * len * 0.6 + sway * 14, by + Math.sin(a) * len * 0.6,
+        bx + Math.cos(a) * len + sway * 22, by + Math.sin(a) * len);
+      g.stroke();
+    }
+    g.fillStyle = 'rgba(' + L + ',.55)';
+    g.beginPath(); g.ellipse(bx, by + 12, 26, 20, 0, 0, Math.PI * 2); g.fill();     // body
+    g.beginPath(); g.arc(bx - 4, by - 16, 13, 0, Math.PI * 2); g.fill();            // head
+    g.beginPath(); g.moveTo(bx - 14, by - 24); g.lineTo(bx - 18, by - 42); g.lineTo(bx - 5, by - 30); g.closePath(); g.fill(); // ear
+    g.beginPath(); g.moveTo(bx + 2, by - 26); g.lineTo(bx + 8, by - 43); g.lineTo(bx + 12, by - 27); g.closePath(); g.fill(); // ear
+    g.fillStyle = 'rgba(' + A + ',.9)'; g.beginPath(); g.arc(bx - 7, by - 17, 2, 0, Math.PI * 2); g.fill(); // eye
+  },
+
+  // NEON MECHA — mech head rising from the bottom, visor pulse, V-fin
+  mecha: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), A = hexRGB(th.accent);
+    const cx = W * 0.5, top = H - 120 + Math.sin(t * 0.5) * 6;
+    g.strokeStyle = 'rgba(' + L + ',.5)'; g.lineWidth = 3; g.lineJoin = 'round';
+    g.beginPath(); // helm
+    g.moveTo(cx - 70, H); g.lineTo(cx - 58, top + 34); g.lineTo(cx - 26, top); g.lineTo(cx + 26, top);
+    g.lineTo(cx + 58, top + 34); g.lineTo(cx + 70, H); g.stroke();
+    g.beginPath(); g.moveTo(cx - 8, top); g.lineTo(cx - 26, top - 44); g.moveTo(cx + 8, top); g.lineTo(cx + 26, top - 44); g.stroke(); // V-fin
+    const pulse = 0.45 + 0.4 * (0.5 + Math.sin(t * 2.4) / 2);
+    g.fillStyle = 'rgba(' + A + ',' + pulse + ')';
+    g.fillRect(cx - 34, top + 26, 68, 7); // visor
+    g.strokeStyle = 'rgba(' + L + ',.3)';
+    for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(cx - 16 + i * 16, top + 52); g.lineTo(cx - 16 + i * 16, top + 74); g.stroke(); } // chin vents
+  },
+
+  // STARLIGHT MAGE — rotating transformation circle + pentagram
+  magiccircle: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), G = hexRGB(th.glow);
+    const cx = W * 0.5, cy = H * 0.78, R = 95;
+    g.save(); g.translate(cx, cy); g.scale(1, 0.42); g.rotate(t * 0.4);
+    g.strokeStyle = 'rgba(' + L + ',.5)'; g.lineWidth = 2.5;
+    g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(0, 0, R * 0.72, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); // pentagram
+    for (let i = 0; i <= 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 4 / 5; const x = Math.cos(a) * R, y = Math.sin(a) * R; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.strokeStyle = 'rgba(' + G + ',.6)'; g.stroke();
+    g.setLineDash([4, 9]); g.beginPath(); g.arc(0, 0, R * 0.86, 0, Math.PI * 2); g.strokeStyle = 'rgba(' + G + ',.4)'; g.stroke(); g.setLineDash([]);
+    g.restore();
+    for (let i = 0; i < 4; i++) { // rising sparkles
+      const sx = cx + Math.sin(t * 0.9 + i * 1.9) * 70, sy = cy - 20 - ((t * 26 + i * 43) % 130);
+      g.fillStyle = 'rgba(' + G + ',.8)'; g.font = '11px sans-serif'; g.fillText('✦', sx, sy);
+    }
+  },
+
+  // SPIRIT GATE — drifting talisman cards + torii silhouette
+  talisman: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), A = hexRGB(th.accent), P = hexRGB(th.paper);
+    for (let i = 0; i < 4; i++) {
+      const px = W * (0.18 + i * 0.2) + Math.sin(t * 0.6 + i * 2) * 24;
+      const py = H * 0.3 + Math.sin(t * 0.8 + i * 1.3) * 34 + i * 14;
+      g.save(); g.translate(px, py); g.rotate(Math.sin(t * 0.7 + i) * 0.22);
+      g.fillStyle = 'rgba(' + P + ',.22)'; g.fillRect(-13, -34, 26, 68);
+      g.strokeStyle = 'rgba(' + A + ',.55)'; g.lineWidth = 2; g.strokeRect(-13, -34, 26, 68);
+      g.beginPath(); g.moveTo(0, -24); g.lineTo(0, 20); g.moveTo(-6, -12); g.lineTo(6, -12); g.moveTo(-5, 6); g.lineTo(5, 6); g.stroke();
+      g.restore();
+    }
+    const tx = W * 0.84, ty = H * 0.86; // torii
+    g.strokeStyle = 'rgba(' + L + ',.45)'; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(tx - 34, ty); g.lineTo(tx - 28, ty - 58); g.moveTo(tx + 34, ty); g.lineTo(tx + 28, ty - 58);
+    g.moveTo(tx - 44, ty - 56); g.quadraticCurveTo(tx, ty - 68, tx + 44, ty - 56);
+    g.moveTo(tx - 34, ty - 42); g.lineTo(tx + 34, ty - 42); g.stroke();
+  },
+
+  // VALKYRIE — spread wings + northern-light ribbons
+  wings: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), G = hexRGB(th.glow);
+    for (let b = 0; b < 3; b++) { // aurora bands
+      g.beginPath();
+      for (let x = 0; x <= W; x += 24) g.lineTo(x, H * 0.14 + b * 26 + Math.sin(x / 140 + t * (0.5 + b * 0.2)) * 18);
+      g.strokeStyle = 'rgba(' + (b % 2 ? G : L) + ',' + (0.16 - b * 0.04 + 0.1) + ')'; g.lineWidth = 12; g.stroke();
+    }
+    const cx = W * 0.5, cy = H * 0.88, flap = Math.sin(t * 1.1) * 0.12;
+    [-1, 1].forEach(sgn => { // wings
+      for (let f = 0; f < 5; f++) {
+        const a = sgn * (0.45 + f * 0.17 + flap), len = 150 - f * 18;
+        g.strokeStyle = 'rgba(' + G + ',' + (0.4 - f * 0.05) + ')'; g.lineWidth = 7 - f; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(cx + sgn * 12, cy);
+        g.quadraticCurveTo(cx + sgn * len * 0.5, cy - len * 0.75, cx + Math.sin(a) * len * sgn * 1.1, cy - Math.cos(a) * len);
+        g.stroke();
+      }
+    });
+  },
+
+  // VOID WITCH — hat, crescent, orbiting runes
+  witch: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), G = hexRGB(th.glow);
+    const mx = W * 0.84, my = H * 0.18; // crescent
+    g.fillStyle = 'rgba(' + G + ',.5)';
+    g.beginPath(); g.arc(mx, my, 34, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(' + hexRGB(th.c2) + ',1)';
+    g.beginPath(); g.arc(mx + 14, my - 6, 30, 0, Math.PI * 2); g.fill();
+    const hx = W * 0.2, hy = H * 0.6 + Math.sin(t * 0.7) * 14; // floating hat
+    g.fillStyle = 'rgba(' + L + ',.5)';
+    g.beginPath(); g.ellipse(hx, hy, 52, 12, -0.06, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(hx - 26, hy - 4); g.quadraticCurveTo(hx - 6, hy - 66, hx + 20, hy - 78);
+    g.quadraticCurveTo(hx + 6, hy - 46, hx + 24, hy - 6); g.closePath(); g.fill();
+    for (let i = 0; i < 3; i++) { // orbiting runes
+      const a = t * 0.9 + i * Math.PI * 2 / 3;
+      g.fillStyle = 'rgba(' + G + ',.85)'; g.font = '13px serif'; g.textAlign = 'center';
+      g.fillText(['ᛞ', '✧', 'ᚱ'][i], hx + Math.cos(a) * 78, hy - 30 + Math.sin(a) * 26);
+    }
+  },
+
+  // TOKYO NEKO POP — headphone cat bobbing with floating notes
+  neko: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), G = hexRGB(th.glow), A = hexRGB(th.accent);
+    const cx = W * 0.85, cy = H * 0.78 + Math.sin(t * 2.1) * 5; // head-bob on the beat-ish
+    g.fillStyle = 'rgba(' + L + ',.55)';
+    g.beginPath(); g.ellipse(cx, cy + 26, 26, 18, 0, 0, Math.PI * 2); g.fill();    // body
+    g.beginPath(); g.arc(cx, cy - 6, 19, 0, Math.PI * 2); g.fill();                // head
+    g.beginPath(); g.moveTo(cx - 17, cy - 16); g.lineTo(cx - 22, cy - 36); g.lineTo(cx - 6, cy - 24); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(cx + 6, cy - 24); g.lineTo(cx + 21, cy - 36); g.lineTo(cx + 17, cy - 16); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(' + A + ',.9)'; g.lineWidth = 4;                          // headphones
+    g.beginPath(); g.arc(cx, cy - 8, 22, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+    g.fillStyle = 'rgba(' + A + ',.9)';
+    g.beginPath(); g.arc(cx - 20, cy - 5, 6, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(cx + 20, cy - 5, 6, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(' + L + ',.8)'; g.lineWidth = 1.5;                        // tail
+    g.beginPath(); g.moveTo(cx - 24, cy + 34); g.quadraticCurveTo(cx - 46, cy + 26 + Math.sin(t * 1.4) * 10, cx - 42, cy + 6); g.stroke();
+    for (let i = 0; i < 3; i++) { // rising notes
+      const nx = cx - 40 - i * 26 + Math.sin(t + i) * 8, ny = cy - 20 - ((t * 30 + i * 47) % 120);
+      g.fillStyle = 'rgba(' + G + ',.85)'; g.font = '15px sans-serif'; g.fillText(i % 2 ? '♪' : '♫', nx, ny);
+    }
+  },
+
+  // MOON REALM — crescent + floating islands adrift
+  moon: (g, W, H, t, th) => {
+    const L = hexRGB(th.line), G = hexRGB(th.glow);
+    const mx = W * 0.78, my = H * 0.2;
+    g.fillStyle = 'rgba(' + G + ',.6)'; g.beginPath(); g.arc(mx, my, 46, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(' + hexRGB(th.c1) + ',1)'; g.beginPath(); g.arc(mx + 18, my - 8, 40, 0, Math.PI * 2); g.fill();
+    for (let i = 0; i < 3; i++) { // floating islands
+      const ix = W * (0.18 + i * 0.24) + Math.sin(t * 0.3 + i * 2) * 12;
+      const iy = H * (0.5 + i * 0.13) + Math.sin(t * 0.5 + i) * 8;
+      const s = 46 - i * 8;
+      g.fillStyle = 'rgba(' + L + ',.4)';
+      g.beginPath(); g.ellipse(ix, iy, s, s * 0.24, 0, 0, Math.PI * 2); g.fill();   // isle top
+      g.beginPath(); g.moveTo(ix - s * 0.7, iy + 2); g.lineTo(ix, iy + s * 0.85); g.lineTo(ix + s * 0.7, iy + 2); g.closePath(); g.fill(); // rock
+      g.strokeStyle = 'rgba(' + G + ',.5)'; g.lineWidth = 1.5;                       // hanging vines
+      g.beginPath(); g.moveTo(ix - s * 0.3, iy + s * 0.3); g.lineTo(ix - s * 0.3, iy + s * 0.62); g.stroke();
+    }
+  }
+};
 window.addEventListener('resize', () => {
   if (!seOn) return;
   // reposition glass windows to the new viewport without re-parenting panels
