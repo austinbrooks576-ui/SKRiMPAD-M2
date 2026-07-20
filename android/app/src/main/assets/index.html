@@ -1768,7 +1768,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <canvas id="se-hud" width="440" height="440"></canvas>
     <div id="se-hud-label">
       <div class="kanji" id="se-hud-glyph">音 之 型</div>
-      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'velvet midnight' · 'analyse this track' · 'make a boom-bap beat at 90 in F minor then swing it' · 'make it slap' · 'steal the groove from this song' · 'transcribe my humming' · 'open the studio' · 'switch the theme to cyberpunk' · 'undo that' · 'do it again'">
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'gothic witchy vibes' · 'chop this mp3 into loops and one-shots' · 'analyse this track' · 'make a boom-bap beat at 90 in F dorian then swing it' · 'use a deep kick on the kick, swap the snare' · 'make it slap' · 'steal the groove from this song' · 'hum a melody' · 'add this to the studio' · 'open the mixer' · 'switch the theme to cyberpunk' · 'undo that' · 'do it again'">
       <div class="sub" id="se-ai-status">AI CONSOLE</div>
     </div>
   </div>
@@ -7366,6 +7366,16 @@ const SE_MODULES = [
 let seThemeId = 'champloo';
 let seLayout = { theme: SE_THEMES.champloo, modules: SE_MODULES };
 let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticleRAF = null;
+// z-stack for click-to-front: the AI HUD node sits at 46; a focused window or
+// the tapped AI node rises above everything via this rising counter.
+let seWinZ = 47;
+function seRaise(el) { if (el) el.style.zIndex = ++seWinZ; }
+function seBindHudFront() {
+  const hud = document.getElementById('se-hud-wrap');
+  if (!hud || hud._frontBound) return; hud._frontBound = true;
+  // tapping the AI node (or its console) brings it in front of any window
+  hud.addEventListener('pointerdown', () => { if (!seRevolve) seRaise(hud); }, true);
+}
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
 const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
 
@@ -7440,13 +7450,17 @@ function seBuildModules() {
       const collapsed = win.classList.toggle('min');
       min.textContent = collapsed ? '+' : '—';
     });
+    // tapping anywhere in a window brings it to the FRONT — above the AI node
+    // (z 46) so panels aren't trapped behind it. Revolve mode keeps its own
+    // depth ordering (windows orbit behind the node on purpose).
+    win.addEventListener('pointerdown', () => { if (!seRevolve) seRaise(win); }, true);
     // drag by header
     let drag = null;
     head.addEventListener('pointerdown', e => {
       if (e.target === min) return;
       drag = { dx: e.clientX - win.offsetLeft, dy: e.clientY - win.offsetTop };
       try { head.setPointerCapture(e.pointerId); } catch (err) {}
-      win.style.zIndex = 44; // raised above siblings but still UNDER the HUD (z 46)
+      if (!seRevolve) seRaise(win);
     });
     head.addEventListener('pointermove', e => { if (drag) { win.style.left = Math.max(0, e.clientX - drag.dx) + 'px'; win.style.top = Math.max(44, e.clientY - drag.dy) + 'px'; } });
     ['pointerup', 'pointercancel'].forEach(ev => head.addEventListener(ev, () => drag = null));
@@ -7691,6 +7705,7 @@ function enterSE(themeId) {
   if (typeof applyThemeBarVis === 'function') applyThemeBarVis();
   document.getElementById('se-dock').innerHTML = '';
   seBuildModules();
+  seBindHudFront();
   seDrawHUD();
   seDrawArcs();
   seInitParticles();
@@ -9317,14 +9332,39 @@ const MUSIC_KB = {
   scales: {
     major: [0,2,4,5,7,9,11], minor: [0,2,3,5,7,8,10], dorian: [0,2,3,5,7,9,10],
     phrygian: [0,1,3,5,7,8,10], lydian: [0,2,4,6,7,9,11], mixolydian: [0,2,4,5,7,9,10],
-    harmonic: [0,2,3,5,7,8,11], pentMinor: [0,3,5,7,10], pentMajor: [0,2,4,7,9], blues: [0,3,5,6,7,10]
+    locrian: [0,1,3,5,6,8,10], harmonic: [0,2,3,5,7,8,11], melodic: [0,2,3,5,7,9,11],
+    pentMinor: [0,3,5,7,10], pentMajor: [0,2,4,7,9], blues: [0,3,5,6,7,10],
+    hirajoshi: [0,2,3,7,8], insen: [0,1,5,7,10], egyptian: [0,2,5,7,10],
+    wholetone: [0,2,4,6,8,10], phrygdom: [0,1,4,5,7,8,10], hungarian: [0,2,3,6,7,8,11]
   },
+  // scale name aliases the language engine understands
+  scaleWords: { major:'major', minor:'minor', dorian:'dorian', phrygian:'phrygian', lydian:'lydian', mixolydian:'mixolydian', locrian:'locrian',
+    'harmonic minor':'harmonic', 'melodic minor':'melodic', pentatonic:'pentMinor', 'minor pentatonic':'pentMinor', 'major pentatonic':'pentMajor',
+    blues:'blues', japanese:'hirajoshi', hirajoshi:'hirajoshi', egyptian:'egyptian', 'whole tone':'wholetone', 'spanish':'phrygdom', 'gypsy':'hungarian', 'hungarian':'hungarian' },
   // progressions as scale-degree roots (0-indexed); triads are built from the active scale
-  moodProg: { sad:[0,5,3,4], epic:[0,5,6,4], happy:[0,4,5,3], jazzy:[1,4,0,4], dreamy:[0,3,4,5], dark:[0,6,5,4], hopeful:[3,4,0,5], tense:[0,1,0,6] },
+  moodProg: {
+    sad:[0,5,3,4], epic:[0,5,6,4], happy:[0,4,5,3], jazzy:[1,4,0,4], dreamy:[0,3,4,5], dark:[0,6,5,4],
+    hopeful:[3,4,0,5], tense:[0,1,0,6], triumphant:[0,3,4,0], nostalgic:[5,3,0,4], anthemic:[0,4,5,3],
+    mysterious:[0,1,5,4], romantic:[0,3,1,4], heroic:[0,4,3,4], eerie:[0,6,1,5], uplifting:[3,4,5,0],
+    melancholy:[0,3,5,4], suspense:[0,0,1,6], groovy:[0,3,0,4], cinematic:[0,5,3,6], gospel:[0,3,4,0]
+  },
   progFor(mood, mode) {
     if (this.moodProg[mood]) return this.moodProg[mood];
     return mode === 'major' ? [0,4,5,3] : [0,5,3,4];
   }
+};
+// mood synonyms → a canonical moodProg key, for "give me some <mood> chords"
+const MOOD_WORDS = {
+  sad:/sad|down|blue|sorrow|weep|cry|heartbreak/, dreamy:/dream|hazy|floaty|ethereal|drift|lush/,
+  dark:/dark|evil|sinister|menac|ominous|villain/, happy:/happy|joy|bright|cheer|sunny|glad/,
+  epic:/epic|grand|massive|colossal|titan/, jazzy:/jazz|smooth|swanky|noir|lounge/,
+  hopeful:/hope|optimist|rising|dawn/, tense:/tense|anxious|nervous|edgy|on edge/,
+  triumphant:/triumph|victor|win|glory/, nostalgic:/nostalg|memory|throwback|wistful|yesteryear/,
+  anthemic:/anthem|stadium|festival|hands up/, mysterious:/myster|enigma|cryptic|secret/,
+  romantic:/roman|love|tender|sweetheart|amour/, heroic:/hero|brave|valor|champion/,
+  eerie:/eerie|creepy|haunt|spooky|unsettl/, uplifting:/uplift|inspir|soar|elevate/,
+  melancholy:/melanchol|bittersweet|longing|yearn/, suspense:/suspense|thriller|cliffhang|dread/,
+  groovy:/groovy|funky|bounce|swagger/, cinematic:/cinema|film|score|trailer|movie/, gospel:/gospel|church|choir|soul(ful)?/
 };
 const BRAIN = { profile: null, history: [], lastCmd: null, _noRecord: false };
 
@@ -9500,6 +9540,10 @@ async function brainClause(c) {
   if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
     await brainAnalyzeInteractive(); return true;
   }
+  // ---- AUTO-CHOP a file into loops + one-shots ----
+  if (/\b(chop|slice|dice|cut) (this|that|it|the|my|a|an|up)\b|(chop|slice) (this|that|the)? ?(mp3|wav|track|song|file|beat|sample|loop|audio)|(parse|break|split) (this|that|the|my|a|an|it).*(into|to) (samples|loops|one.?shots|hits|chops|slices)|auto.?(chop|slice)|sample (this|that|the|my)|make (samples|chops|one.?shots|loops) (from|out of)/.test(c)) {
+    return await brainAutoChopInteractive();
+  }
   // ---- HUM INTO THE MIC → notes (no file needed) ----
   if ((/\b(hum(ming|med)?|sing(ing)?|whistl(e|ing))\b/.test(c) && !/\b(this|that|file|track|song|mp3|wav|recording)\b/.test(c)) ||
       /record (my )?(humming|voice|a melody|me)|listen to me\b/.test(c)) {
@@ -9592,8 +9636,18 @@ async function brainClause(c) {
   }
   // ---- CHORDS / PROGRESSION ----
   if (/chords?|progression|harmony|pads?\b/.test(c) && /(add|give|make|write|lay|drop|put|need|want|some)/.test(c)) {
-    const mood = ['sad','epic','happy','jazzy','dreamy','dark','hopeful','tense'].find(w => c.includes(w));
+    let mood = Object.keys(MOOD_WORDS).find(k => MOOD_WORDS[k].test(c));
     return brainChords(mood);
+  }
+  // ---- SCALE / MODE by name (dorian, phrygian, blues, japanese…) ----
+  if (typeof MUSIC_KB !== 'undefined' && /\b(scale|mode|in)\b/.test(c)) {
+    const sw = Object.keys(MUSIC_KB.scaleWords).sort((a, b) => b.length - a.length).find(w => c.includes(w));
+    if (sw) {
+      const target = MUSIC_KB.scaleWords[sw];
+      AI.lastScale = target;
+      AI.lastMode = (target === 'major' || target === 'lydian' || target === 'mixolydian' || target === 'pentMajor' || target === 'wholetone') ? 'major' : 'minor';
+      return '🎼 Scale set to ' + sw + (AI.lastKey != null ? ' (' + PC_NAMES[AI.lastKey] + ')' : '');
+    }
   }
   // ---- AESTHETIC SYNESTHESIA: "pink sand" → glitchy arcade rush ----
   const aest = brainAestheticScan(c);
@@ -9622,7 +9676,8 @@ function brainChords(mood) {
   if (typeof keyLanes === 'undefined' || typeof KEY_LANES === 'undefined') return false;
   const root = (typeof AI !== 'undefined' && AI.lastKey != null) ? AI.lastKey : 0;
   const mode = (typeof AI !== 'undefined' && AI.lastMode) ? AI.lastMode : 'minor';
-  const scale = MUSIC_KB.scales[mode] || MUSIC_KB.scales.minor;
+  const scaleName = (typeof AI !== 'undefined' && AI.lastScale && MUSIC_KB.scales[AI.lastScale]) ? AI.lastScale : mode;
+  const scale = MUSIC_KB.scales[scaleName] || MUSIC_KB.scales.minor;
   const prog = MUSIC_KB.progFor(mood, mode);
   const per = Math.max(1, Math.floor(SEQ_STEPS / prog.length));
   const voices = [0, 2, 4]; // triad: root / third / fifth
@@ -9685,7 +9740,38 @@ const AESTHETIC_KB = [
   [/cosmic|galaxy|nebula|starlight|\blunar\b|deep space/, 1, { bpm: 118, dream: 1, label: 'cosmic' }],
   [/cathedral|\bchurch\b|\bchoir\b|sanctuary/, 1, { bpm: 78, dream: 1, mode: 'minor', label: 'sanctum' }],
   [/sakura|cherry blossom|petals?/, 1, { bpm: 104, mode: 'major', dream: 1, label: 'sakura' }],
-  [/\blava\b|volcan|magma|molten/, 1, { bpm: 96, energy: 2, dark: 1, label: 'molten' }]
+  [/\blava\b|volcan|magma|molten/, 1, { bpm: 96, energy: 2, dark: 1, label: 'molten' }],
+  // ---- expanded aesthetic corpus (grows each iteration) ----
+  [/goth(ic)?|victorian|mourning|graveyard|vampire/, 2, { bpm: 82, style: 'cinematic', mode: 'minor', dark: 2, label: 'gothic' }],
+  [/kawaii|cute ?core|candy|sugar rush|lollipop/, 2, { bpm: 140, style: 'garage', mode: 'major', energy: 1, glitch: 1, label: 'kawaii' }],
+  [/witch ?(y|core)?|occult|tarot|hex|ritual/, 2, { bpm: 96, style: 'cinematic', mode: 'minor', dark: 1, dream: 1, label: 'witchy' }],
+  [/cowboy|western|saloon|desert road|spaghetti/, 2, { bpm: 96, style: 'funk', mode: 'minor', label: 'western' }],
+  [/samurai|feudal|edo|ronin|shogun/, 2, { bpm: 90, style: 'cinematic', mode: 'minor', dark: 1, label: 'samurai' }],
+  [/steampunk|clockwork|brass ?punk|cog/, 2, { bpm: 110, style: 'industrial', mode: 'minor', energy: 1, label: 'steampunk' }],
+  [/solar ?punk|eco ?futur|green city/, 2, { bpm: 112, style: 'house', mode: 'major', label: 'solarpunk' }],
+  [/vhs|retro tv|analog|tape hiss|found footage/, 1, { style: 'lofi', glitch: 1, dark: 1, label: 'vhs' }],
+  [/holograph|iridescent|opal|oil slick/, 1, { dream: 1, energy: 1, label: 'iridescent' }],
+  [/plush|\bfuzzy\b|cozy|blanket|warm bath/, 1, { bpm: 78, mode: 'major', dream: 1, label: 'cozy' }],
+  [/brutalist|concrete|monolith|bunker/, 1, { style: 'industrial', dark: 2, energy: 1, label: 'brutalist' }],
+  [/aquatic|jellyfish|abyssal|deep sea|bioluminescent/, 1, { bpm: 88, dream: 1, dark: 1, label: 'abyssal' }],
+  [/jungle canopy|rainforest|amazon|vines/, 1, { bpm: 116, style: 'tribal', mode: 'minor', label: 'rainforest' }],
+  [/tundra|permafrost|aurora|northern lights/, 1, { bpm: 92, mode: 'minor', dream: 1, label: 'aurora' }],
+  [/volcanic ash|scorched|wasteland|apocalyp/, 1, { style: 'industrial', dark: 2, energy: 1, label: 'wasteland' }],
+  [/mercury|liquid metal|molten silver/, 1, { glitch: 1, dark: 1, label: 'mercury' }],
+  [/bubblegum ?pop|cheer(leader)?|sunny day/, 1, { bpm: 118, mode: 'major', energy: 1, label: 'sunny pop' }],
+  [/noir|smoky bar|detective|rainy alley/, 1, { bpm: 84, style: 'lofi', mode: 'minor', dark: 1, label: 'noir' }],
+  [/tokyo|shibuya|neon tokyo|city pop/, 1, { bpm: 112, style: 'funk', mode: 'major', label: 'city pop' }],
+  [/berlin|warehouse rave|underground/, 1, { bpm: 132, style: 'techno', dark: 1, energy: 2, label: 'warehouse' }],
+  [/miami|palmtree|vice|pastel sunset/, 1, { bpm: 108, style: 'synthwave', mode: 'major', label: 'miami' }],
+  [/temple|zen|incense|monastery|meditat/, 1, { bpm: 70, style: 'ambient', dream: 2, label: 'zen' }],
+  [/carnival|circus|funhouse|carousel/, 1, { bpm: 124, mode: 'major', glitch: 1, energy: 1, label: 'carnival' }],
+  [/haunted|ghost|spectral|poltergeist|cursed/, 1, { bpm: 80, mode: 'minor', dark: 2, dream: 1, label: 'haunted' }],
+  [/radioactive|toxic|hazmat|nuclear/, 1, { style: 'industrial', energy: 2, dark: 1, glitch: 1, label: 'toxic' }],
+  [/diamond|platinum|luxury|opulent|gilded/, 1, { mode: 'major', dream: 1, label: 'luxe' }],
+  [/blizzard|whiteout|avalanche/, 1, { bpm: 150, mode: 'minor', energy: 2, label: 'blizzard' }],
+  [/meadow|wildflower|butterfly|springtime/, 1, { bpm: 100, mode: 'major', dream: 1, label: 'meadow' }],
+  [/thunderdome|mad ?max|dieselpunk|war rig/, 1, { bpm: 155, style: 'hardcore', dark: 1, energy: 2, label: 'dieselpunk' }],
+  [/euphoria|bliss|rapture|transcend/, 1, { bpm: 138, style: 'trance', mode: 'major', energy: 2, dream: 1, label: 'euphoria' }]
 ];
 function brainAestheticScan(text) {
   const hits = []; let score = 0;
@@ -10068,6 +10154,88 @@ async function brainHumCapture() {
     aiLog('Microphone unavailable (' + e.message + ') — check the app has mic permission in your device settings.', 'tip');
     return true;
   }
+}
+// ---- AUTO-CHOP — import an mp3 and parse it into loops + one-shots -----
+function brainSliceBuf(src, startSec, lenSec, fadeMs) {
+  const sr = src.sampleRate, s0 = Math.floor(startSec * sr), n = Math.min(Math.floor(lenSec * sr), src.length - s0);
+  if (n <= 0) return null;
+  const ch = Math.min(2, src.numberOfChannels), out = ctx.createBuffer(ch, n, sr);
+  const fade = Math.min(Math.floor((fadeMs || 6) / 1000 * sr), Math.floor(n / 2));
+  for (let c = 0; c < ch; c++) {
+    const sd = src.getChannelData(Math.min(c, src.numberOfChannels - 1)), od = out.getChannelData(c);
+    for (let i = 0; i < n; i++) {
+      let g = 1;
+      if (i < fade) g = i / fade; else if (i > n - fade) g = (n - i) / fade;
+      od[i] = sd[s0 + i] * g;
+    }
+  }
+  return out;
+}
+async function brainAutoChop(buf, name) {
+  const base = String(name || 'CHOP').replace(/\.[^.]+$/, '').slice(0, 10).toUpperCase();
+  const bpm = (typeof detectBPM === 'function') ? detectBPM(buf) : null;
+  let loops = 0, shots = 0;
+  // ---- LOOPS: bar-aligned slices (1-bar + 2-bar) from the busiest region ----
+  if (bpm) {
+    const barSec = (60 / bpm) * 4;
+    const nBars = Math.floor(buf.duration / barSec);
+    if (nBars >= 1) {
+      const mono = brainDownmix(buf, 8000, buf.duration);
+      let bestBar = 0, bestE = -1;
+      for (let bIdx = 0; bIdx + 1 <= nBars; bIdx++) {
+        const s0 = Math.floor(bIdx * barSec * 8000), s1 = Math.floor((bIdx + 1) * barSec * 8000);
+        let e = 0; for (let i = s0; i < s1 && i < mono.length; i++) e += mono[i] * mono[i];
+        if (e > bestE) { bestE = e; bestBar = bIdx; }
+      }
+      const oneBar = brainSliceBuf(buf, bestBar * barSec, barSec, 8);
+      if (oneBar) { libAddToCategory('LOOPS', base + ' LOOP 1BAR ' + bpm, 'auto-chopped loop', oneBar, false); loops++; }
+      if (nBars >= 2) {
+        const s2 = Math.min(bestBar, nBars - 2);
+        const twoBar = brainSliceBuf(buf, s2 * barSec, barSec * 2, 8);
+        if (twoBar) { libAddToCategory('LOOPS', base + ' LOOP 2BAR ' + bpm, 'auto-chopped loop', twoBar, false); loops++; }
+      }
+    }
+  }
+  // ---- ONE-SHOTS: transient onsets → classified slices ----
+  const mono = brainDownmix(buf, 22050, 45), sr = 22050;
+  const hop = Math.floor(sr / 200), frames = Math.floor(mono.length / hop), env = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) { let s = 0; const o = i * hop; for (let j = 0; j < hop; j++) s += Math.abs(mono[o + j]); env[i] = s / hop; }
+  let mean = 0; for (let i = 0; i < frames; i++) mean += env[i]; mean /= frames || 1;
+  const gap = Math.floor(0.12 * 200), peaks = [];
+  for (let i = 2; i < frames - 1; i++)
+    if (env[i] > mean * 2.2 && env[i] >= env[i - 1] && env[i] >= env[i + 1] && (!peaks.length || i - peaks[peaks.length - 1].i > gap)) peaks.push({ i, v: env[i] });
+  peaks.sort((a, b) => b.v - a.v);
+  const counts = { kick: 0, snare: 0, hat: 0 };
+  for (const pk of peaks.slice(0, 20)) {
+    const startSec = pk.i * hop / sr;
+    // classify by zero-crossing rate around the transient
+    const s0 = pk.i * hop, len = Math.min(Math.floor(0.09 * sr), mono.length - s0);
+    if (len < sr * 0.02) continue;
+    let zc = 0; for (let j = s0 + 1; j < s0 + len; j++) if ((mono[j] >= 0) !== (mono[j - 1] >= 0)) zc++;
+    const zcr = zc / len * sr / 1000;
+    const cls = zcr < 2.2 ? 'kick' : zcr < 8 ? 'snare' : 'hat';
+    if (counts[cls] >= 5) continue;
+    const slice = brainSliceBuf(buf, Math.max(0, startSec - 0.005), 0.42, 10);
+    if (!slice) continue;
+    const cat = cls === 'kick' ? 'KICKS' : cls === 'hat' ? 'HATS & PERC' : 'SNARES';
+    libAddToCategory(cat, base + ' ' + cls.toUpperCase() + ' ' + (counts[cls] + 1), 'auto-chopped one-shot', slice, false);
+    counts[cls]++; shots++;
+  }
+  if (typeof buildSoundLib === 'function') buildSoundLib();
+  const parts = [];
+  if (loops) parts.push(loops + ' loop' + (loops > 1 ? 's' : '') + (bpm ? ' @ ' + bpm + ' BPM' : ''));
+  if (shots) parts.push(shots + ' one-shot' + (shots > 1 ? 's' : '') + ' (' + counts.kick + ' kick / ' + counts.snare + ' snare / ' + counts.hat + ' hat)');
+  if (!parts.length) { aiLog('Couldn’t find clean slices in that file — try a track with a clearer beat.', 'tip'); return true; }
+  aiLog('🔪 Chopped "' + String(name).slice(0, 22) + '" into ' + parts.join(' + ') + ' → library. Right-click any to drop it on a pad.', 'good');
+  if (typeof toast === 'function') toast('🔪 ' + (loops + shots) + ' samples chopped → library');
+  return true;
+}
+async function brainAutoChopInteractive() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🔪 Slicing it into samples…');
+  await new Promise(r => setTimeout(r, 20));
+  try { return await brainAutoChop(song.buf, song.name); } catch (e) { aiLog('Chop failed (' + e.message + ')', 'tip'); return true; }
 }
 // ---- MATCH A REFERENCE — analyse a file, then build an original in sync --
 function brainStyleFromProfile(p) {
