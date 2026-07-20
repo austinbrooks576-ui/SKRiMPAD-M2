@@ -9400,7 +9400,7 @@ function brainSnapshot() {
   if (typeof AI !== 'undefined') { s.style = AI.style; s.key = AI.lastKey; s.mode = AI.lastMode; }
   if (typeof seqPatterns !== 'undefined') s.seq = seqPatterns.map(r => r.slice());
   if (typeof keyLanes !== 'undefined') s.lanes = keyLanes.map(l => l.steps.slice());
-  if (typeof drumDefs !== 'undefined') s.drums = drumDefs.map(d => ({ vol: d.vol, pan: d.pan, muted: d.muted, solo: d.solo }));
+  if (typeof drumDefs !== 'undefined') s.drums = drumDefs.map(d => ({ vol: d.vol, pan: d.pan, muted: d.muted, solo: d.solo, sampleBuf: d.sampleBuf, sampleBuf2: d.sampleBuf2, fn: d.fn }));
   return s;
 }
 function brainRestore(s) {
@@ -9448,6 +9448,9 @@ async function brainClause(c) {
   if (/(steal|copy|extract|grab|take|borrow) (the )?(groove|swing|feel|timing|bounce)|(groove|swing|feel) (of|from) (this|that|the|my)/.test(c)) {
     return await brainGrooveSteal();
   }
+  // ---- LIBRARY: pick / swap / shuffle / preview samples ----
+  const smp = await brainSampleOps(c);
+  if (smp) return smp;
   // ---- TEMPO ----
   let m = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\bat\s+(\d{2,3})\b/) || c.match(/tempo (?:of |to )?(\d{2,3})/);
   if (m) { const b = parseInt(m[1]); if (b >= 40 && b <= 300) return brainSetBPM(b); }
@@ -9674,6 +9677,110 @@ function brainAutoMix(kind) {
     warm: '🔥 Warmed it up — highs softened, low end forward',
     wide: '↔️ Widened the stereo — hats & percussion panned out to the sides',
     loud: '📢 Everything pushed hot + master up' }[kind];
+}
+// ---- LIBRARY HANDS — the brain picks and changes samples itself -------
+function brainLibAll() {
+  const out = [];
+  if (typeof SOUND_LIB === 'undefined') return out;
+  Object.entries(SOUND_LIB).forEach(([cat, arr]) => (Array.isArray(arr) ? arr : []).forEach(s => { if (s && s.name) out.push({ cat, s }); }));
+  return out;
+}
+function brainLibFind(q) {
+  q = (q || '').trim().toLowerCase(); if (!q) return null;
+  let best = null, bestScore = 0;
+  for (const it of brainLibAll()) {
+    const nm = String(it.s.name).toLowerCase();
+    let sc = 0;
+    if (nm === q) sc = 100;
+    else if (nm.includes(q)) sc = 60 + q.length;
+    else { let hit = 0; q.split(/\s+/).forEach(w => { if (w.length > 2 && nm.includes(w)) hit++; }); sc = hit * 20; }
+    if (String(it.cat).toLowerCase().includes(q)) sc += 15;
+    if (sc > bestScore) { bestScore = sc; best = it; }
+  }
+  return bestScore >= 20 ? best : null;
+}
+async function brainLibBuf(it) {
+  if (it.s.buf) return it.s.buf;
+  if (it.s.idbId && typeof libEnsureBuf === 'function') { try { return await libEnsureBuf(it.s); } catch (e) {} }
+  return null;
+}
+// wire a library entry onto a pad — sample buffer or built-in synth voice
+async function brainPadApply(def, it) {
+  const b = await brainLibBuf(it);
+  if (b) { def.sampleBuf = b; return true; }
+  if (it.s.fn) { def.sampleBuf = null; def.fn = it.s.fn; return true; }
+  return false;
+}
+function brainCatReFor(defName) {
+  const n = defName.toLowerCase();
+  if (n.includes('kick')) return /kick/i;
+  if (n.includes('snare') || n.includes('clap') || n.includes('snap') || n.includes('rim')) return /snare|clap/i;
+  if (n.includes('hat') || n.includes('shaker') || n.includes('ride') || n.includes('crash')) return /hat|perc|cymbal/i;
+  if (n.includes('808') || n.includes('bass') || n.includes('sub')) return /bass|808/i;
+  return null;
+}
+async function brainSampleOps(c) {
+  if (typeof drumDefs === 'undefined') return false;
+  // "use/put/load <name> on <pad 3 | the kick | lane 2 | the keys>"
+  let m = c.match(/\b(put|use|load|assign|throw|drop|slap)\s+(.+?)\s+on(?:to)?\s+(?:the\s+)?(.+)$/);
+  if (m) {
+    const it = brainLibFind(m[2].replace(/\b(the|a|an|sound|sample)\b/g, ' ').replace(/\s+/g, ' ').trim());
+    if (it) {
+      const target = m[3].trim();
+      const padM = target.match(/pad\s*(\d{1,2})/), laneM = target.match(/lane\s*(\d)/);
+      if (laneM || /\bkeys\b|keyboard|piano/.test(target)) {
+        const b = await brainLibBuf(it);
+        if (b && typeof keyLanes !== 'undefined') {
+          const li = laneM ? Math.max(0, Math.min(KEY_LANES - 1, parseInt(laneM[1]) - 1)) : curLane;
+          if (keyLanes[li].locked) return '🔒 Lane ' + (li + 1) + ' is locked — unlock it first';
+          keyLanes[li].sampleBuf = b; keyLanes[li].sampleRoot = 60; keyLanes[li].voice = 'sample';
+          return '🎹 "' + it.s.name + '" loaded onto keys lane ' + (li + 1);
+        }
+      }
+      const di = padM ? parseInt(padM[1]) - 1 : brainFindDrum(target);
+      if (di >= 0 && di < drumDefs.length && await brainPadApply(drumDefs[di], it))
+        return '🥁 ' + drumDefs[di].name + ' now plays "' + it.s.name + '" (' + it.cat + ')';
+    }
+  }
+  // "swap the kick" / "different snare" / "change the hat sound"
+  if (/(different|another|new|fresh|swap|switch|change)/.test(c)
+      && !/\b(bpm|tempo|key|theme|skin|mode|volume|vol|level|pan|loud|quiet|beat|melody|track|song|riff|groove|pattern)\b/.test(c)) {
+    const di = brainFindDrum(c);
+    if (di >= 0) {
+      const d = drumDefs[di], catRe = brainCatReFor(d.name);
+      const cands = brainLibAll().filter(it => !catRe || catRe.test(it.cat) || catRe.test(String(it.s.name)));
+      if (!cands.length) return '📚 No matching samples in the library yet — import a pack or say "generate a ' + d.name.toLowerCase() + ' sound"';
+      for (let tries = 0; tries < 8; tries++) {
+        const pick = cands[Math.floor(Math.random() * cands.length)];
+        const before = d.sampleBuf;
+        if (await brainPadApply(d, pick) && (d.sampleBuf !== before || cands.length === 1))
+          return '🔄 ' + d.name + ' swapped to "' + pick.s.name + '" (' + pick.cat + ')';
+      }
+    }
+  }
+  // "shuffle the kit" — fresh random samples on kick/snare/hats
+  if (/(shuffle|randomi[sz]e|freshen) (the |up )?(kit|samples|sounds|drums)/.test(c)) {
+    let n = 0;
+    for (const word of ['kick', 'snare', 'hats']) {
+      const di = brainFindDrum(word); if (di < 0) continue;
+      const catRe = brainCatReFor(drumDefs[di].name);
+      const cands = brainLibAll().filter(it => !catRe || catRe.test(it.cat) || catRe.test(String(it.s.name)));
+      if (cands.length && await brainPadApply(drumDefs[di], cands[Math.floor(Math.random() * cands.length)])) n++;
+    }
+    return n ? '🎲 Shuffled the kit — ' + n + ' pads got fresh sounds from the library' : '📚 Library is empty — import a pack first';
+  }
+  // "reset the kick sound" / "kick back to synth"
+  if (/(remove|clear|reset|strip) .*\b(sample|sound)\b|back to synth/.test(c)) {
+    const di = brainFindDrum(c);
+    if (di >= 0) { drumDefs[di].sampleBuf = null; drumDefs[di].sampleBuf2 = null; return '🧽 ' + drumDefs[di].name + ' back to its built-in voice'; }
+  }
+  // "preview/audition <name>"
+  m = c.match(/\b(preview|audition|let me hear)\s+(.+)$/);
+  if (m) {
+    const it = brainLibFind(m[2].replace(/\b(the|a|sound|sample)\b/g, ' ').trim());
+    if (it) { const b = await brainLibBuf(it); if (b && typeof playSampleBuf === 'function') { playSampleBuf(b, ctx.currentTime + 0.02, 1, 0.9); return '🔊 Previewing "' + it.s.name + '" (' + it.cat + ')'; } }
+  }
+  return false;
 }
 // ---- GROOVE THEFT — copy the timing FEEL of a reference (never audio) --
 function brainGrooveFromBuffer(buf) {
