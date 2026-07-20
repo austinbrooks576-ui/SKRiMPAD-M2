@@ -1768,7 +1768,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <canvas id="se-hud" width="440" height="440"></canvas>
     <div id="se-hud-label">
       <div class="kanji" id="se-hud-glyph">音 之 型</div>
-      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'gothic witchy vibes' · 'give me a dembow at one forty' · 'lay an amen break' · 'chop this mp3 into loops and one-shots' · 'analyse this track' · 'make a boom-bap beat in F dorian then swing it' · 'swap the snare, make it slap' · 'steal the groove from this song' · 'hum a melody' · 'add this to the studio' · 'switch the theme to cyberpunk' · 'undo that'">
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'make me a full house track' · 'what notes are in C minor?' · 'what bpm is drill?' · 'give me a dembow at one forty' · 'arrange an 8 bar intro then a 16 bar drop' · 'make the synth warmer' · 'pink sand' · 'chop this mp3 into loops and one-shots' · 'analyse this track' · 'swap the snare, make it slap' · 'hum a melody' · 'add this to the studio' · 'undo that'">
       <div class="sub" id="se-ai-status">AI CONSOLE</div>
     </div>
   </div>
@@ -9436,6 +9436,84 @@ function brainFuzzy(text, candidates, maxDist) {
   });
   return best;
 }
+// ===== RUN 1 — TIMBRE → live synth tone shaping =======================
+function brainSynthTone(c) {
+  if (typeof synth === 'undefined') return false;
+  const set = [];
+  if (/\bwarm(er)?\b|mellow|smooth(er)?|round(er)?|soft(er)? (tone|sound|synth)/.test(c)) { synth.filtCut = Math.max(400, synth.filtCut * 0.65); set.push('warmer'); }
+  if (/\bbright(er)?\b|crisp(er)?|sharp(er)?|airy|open it up|more treble/.test(c)) { synth.filtCut = Math.min(12000, synth.filtCut * 1.6); set.push('brighter'); }
+  if (/\bharsh(er)?\b|gritt(y|ier)|dirt(y|ier)|aggressive|nasty|growl|rasp/.test(c)) { synth.filtRes = Math.min(18, (synth.filtRes || 1) + 4); synth.osc2Type = 'square'; set.push('grittier'); }
+  if (/\bfat(ter)?\b|thick(er)?|beef(y|ier)|huge|wide(r)?|phat/.test(c)) { synth.o2Lev = Math.min(1, (synth.o2Lev || 0.4) + 0.3); synth.o2Det = (synth.o2Det || 0) + 8; set.push('fatter'); }
+  if (/\bthin(ner)?\b|small(er)?|weak(er)?|hollow|nasal/.test(c)) { synth.o2Lev = Math.max(0, (synth.o2Lev || 0.4) - 0.3); synth.o2Det = 0; set.push('thinner'); }
+  if (/\bpluck(y|ier)?\b|snapp(y|ier)|stabby|tight(er)? (synth|tone)|short(er)? (synth|tone)/.test(c)) { synth.decay = 0.12; synth.sustain = 0.2; synth.release = 0.12; set.push('pluckier'); }
+  if (/\b(pad|paddy|lush|dreamy|ambient|evolving) (synth|tone|sound|out)?\b|long release|more sustain/.test(c)) { synth.attack = 0.3; synth.release = 1.2; synth.sustain = 0.85; set.push('a lush pad'); }
+  if (!set.length) return false;
+  return '🎛 Synth tone → ' + set.join(', ');
+}
+// ===== RUN 2 — ARRANGEMENT grammar ====================================
+const SECTION_BARS = { intro: 8, verse: 16, prechorus: 4, chorus: 8, hook: 8, drop: 16, build: 8, breakdown: 8, bridge: 8, outro: 8, fill: 1, interlude: 8 };
+function brainParseArrangement(text) {
+  const parts = (text || '').toLowerCase().split(/\bthen\b|,|\binto\b|\bfollowed by\b|→/).map(s => s.trim()).filter(Boolean);
+  const out = [];
+  parts.forEach(p => {
+    const sm = p.match(/intro|verse|pre.?chorus|chorus|hook|drop|build.?up|build|breakdown|bridge|outro|fill|interlude/);
+    if (!sm) return;
+    let name = sm[0].replace(/[\s.]/g, ''); if (name === 'buildup') name = 'build';
+    const nm = p.match(/(\d{1,3})/);
+    const bars = nm ? Math.max(1, Math.min(64, parseInt(nm[1]))) : (SECTION_BARS[name] || 8);
+    out.push({ name, bars });
+  });
+  return out;
+}
+function brainArrange(c) {
+  const arr = brainParseArrangement(c);
+  if (arr.length < 1) return false;
+  const total = arr.reduce((a, s) => a + s.bars, 0);
+  if (typeof DAW !== 'undefined') { DAW.bars = Math.max(DAW.bars || 8, total); if (DAW.open && typeof dawRenderTimeline === 'function') dawRenderTimeline(); }
+  return '🗺 Song map: ' + arr.map(s => s.bars + '-bar ' + s.name).join(' → ') + ' (' + total + ' bars). Open 🎚 STUDIO to build it out.';
+}
+// ===== RUN 3 — FULL TRACK builder =====================================
+function brainFullTrack(c) {
+  const gm = brainGrooveMatch(c);
+  if (gm) {
+    if (gm.g.style && AI_STYLES[gm.g.style]) { AI.style = gm.g.style; if (typeof buildStyleUI === 'function') buildStyleUI(); }
+    if (gm.g.bpm && !/\d{2,3}\s*bpm/.test(c)) brainSetBPM(gm.g.bpm, gm.name);
+    brainLayGroove(gm.g);
+  } else {
+    if (typeof GENRE_HINTS !== 'undefined') for (const [re, style, b] of GENRE_HINTS) if (re.test(c)) { if (AI_STYLES[style]) { AI.style = style; if (typeof buildStyleUI === 'function') buildStyleUI(); } if (b) brainSetBPM(b, style); break; }
+    if (typeof aiSuggestDrumsLocal === 'function') { aiSuggestDrumsLocal(); if (typeof aiApplyDrums === 'function') aiApplyDrums(); }
+  }
+  if (AI.lastKey == null) AI.lastKey = Math.floor(Math.random() * 12);
+  if (typeof brainChords === 'function') brainChords();
+  if (typeof aiGenerateMelodyLocal === 'function') aiGenerateMelodyLocal();
+  return '🎼 Built a FULL track — drums, chords, bassline + a lead in ' + PC_NAMES[AI.lastKey] + ' ' + (AI.lastMode || 'minor') + ' @ ' + brainCurBPM() + ' BPM. Hit ▶ to play it all.';
+}
+// ===== RUN 4 — MUSIC-THEORY Q&A =======================================
+function brainAnswer(c) {
+  if (!/\bwhat('| i|s| are|'?re)?\b|how (fast|slow|many)|which|tell me|explain/.test(c)) return false;
+  const noteAt = re => { const nm = c.match(re); if (!nm) return null; let pc = { a: 9, b: 11, c: 0, d: 2, e: 4, f: 5, g: 7 }[nm[1]]; if (nm[2] === '#' || nm[2] === 'sharp') pc = (pc + 1) % 12; if (nm[2] === 'b' || nm[2] === 'flat') pc = (pc + 11) % 12; return { pc, scale: nm[3] }; };
+  // BPM of a genre / groove
+  if (/bpm|tempo|fast|slow/.test(c)) {
+    for (const name in GROOVE_KB) { const g = GROOVE_KB[name]; if (c.includes(name) || g.aliases.test(c)) return 'ℹ️ ' + name + ' sits around ' + g.bpm + ' BPM.'; }
+    for (const id in AI_STYLES) { const st = AI_STYLES[id]; const lab = (st.label || id).toLowerCase(); if (c.includes(id) || c.includes(lab)) { const r = st.bpmRange || []; return 'ℹ️ ' + (st.label || id) + ' usually runs ' + (r[0] || '?') + '–' + (r[1] || '?') + ' BPM.'; } }
+    if (typeof GENRE_HINTS !== 'undefined') for (const g of GENRE_HINTS) if (g[0].test(c) && g[2]) return 'ℹ️ That style runs around ' + g[2] + ' BPM.';
+  }
+  // notes in a scale — "what notes are in C minor" / "in F# dorian"
+  if (/note|scale/.test(c)) {
+    const hit = noteAt(/\b(?:in|of|key of)\s+([a-g])\s*(sharp|flat|#|b)?\s*(major|minor|dorian|phrygian|lydian|mixolydian|locrian|harmonic|melodic|blues|penta\w*)?/) || noteAt(/\b([a-g])\s*(sharp|flat|#|b)?\s+(major|minor|dorian|phrygian|lydian|mixolydian|locrian|harmonic|melodic|blues|penta\w*)\b/);
+    if (hit) { let sn = hit.scale ? (/penta/.test(hit.scale) ? 'pentMinor' : (MUSIC_KB.scaleWords[hit.scale] || hit.scale)) : (AI.lastMode || 'major'); const scale = MUSIC_KB.scales[sn] || MUSIC_KB.scales.major; return 'ℹ️ ' + PC_NAMES[hit.pc] + ' ' + (hit.scale || sn) + ': ' + scale.map(iv => PC_NAMES[(hit.pc + iv) % 12]).join('  '); }
+  }
+  // chords in a key
+  if (/chord|progression|goes with|go with/.test(c)) {
+    const hit = noteAt(/\b(?:in|of|for|with)\s+([a-g])\s*(sharp|flat|#|b)?\s*(major|minor)?/) || { pc: (AI.lastKey != null ? AI.lastKey : 0), scale: (AI.lastMode || 'major') };
+    const mode = hit.scale === 'minor' ? 'minor' : hit.scale === 'major' ? 'major' : (AI.lastMode || 'major');
+    const scale = MUSIC_KB.scales[mode] || MUSIC_KB.scales.major;
+    const deg = [0, 3, 4, 5], roman = mode === 'major' ? ['I', 'IV', 'V', 'vi'] : ['i', 'iv', 'v', 'VI'];
+    const names = deg.map((dd, x) => PC_NAMES[(hit.pc + scale[dd]) % 12] + (/[a-z]/.test(roman[x][0]) ? 'm' : ''));
+    return 'ℹ️ In ' + PC_NAMES[hit.pc] + ' ' + mode + ', try ' + names.join(' – ') + '  (' + roman.join(' ') + ').';
+  }
+  return false;
+}
 
 // ---- low-level DSP helpers -------------------------------------------
 function brainDownmix(buf, targetSr, maxSec) {
@@ -9602,9 +9680,23 @@ async function brainClause(c) {
     await brainParse(cmd);
     return '🔁 Ran it back: "' + cmd.slice(0, 40) + '"';
   }
+  // ---- MUSIC-THEORY Q&A (answers, doesn't change the project) ----
+  if (typeof brainAnswer === 'function') { const ans = brainAnswer(c); if (ans) { if (typeof aiLog === 'function') aiLog(ans, 'good'); BRAIN._noRecord = true; return true; } }
   // ---- TOOL OPERATIONS (open/close windows, transport, studio, themes…) ----
   const tool = brainToolOps(c);
   if (tool) return tool;
+  // ---- ARRANGEMENT: "8 bar intro then a 16 bar drop then a breakdown" ----
+  if (/\b(arrange|arrangement|song ?structure|song ?map|build (the )?structure|lay out the song)\b/.test(c) || /\d{1,3}\s*bar\s*(intro|verse|chorus|drop|build|breakdown|bridge|outro|hook)/.test(c)) {
+    const ar = brainArrange(c); if (ar) return ar;
+  }
+  // ---- FULL TRACK: "make me a full house track / the whole song" ----
+  if (/(make|build|write|cook|give)\b.*(full|whole|complete|entire).*(track|song|beat|thing|production)|(full|whole) (track|song|production) (of|in)|everything (in|for) (a|an|the)/.test(c)) {
+    return brainFullTrack(c);
+  }
+  // ---- SYNTH TONE shaping (before the whole-mix auto-EQ) ----
+  if (/\b(synth|keys|lead|pad|tone|the sound|osc|oscillator)\b/.test(c) && /warm|bright|harsh|gritt|dirt|fat|thick|thin|hollow|pluck|snapp|lush|dreamy|beef|phat|mellow|nasal|crisp|sharp/.test(c)) {
+    const st = brainSynthTone(c); if (st) return st;
+  }
   // ---- ANALYSE a file ----
   if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
     await brainAnalyzeInteractive(); return true;
