@@ -9391,6 +9391,15 @@ async function brainClause(c) {
   if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
     await brainAnalyzeInteractive(); return true;
   }
+  // ---- TRANSCRIBE a melody from a file (humming/whistling/solo line) ----
+  if (/transcrib|hum(med|ming)?\b.*(note|melod|midi)|(turn|convert).*(into|to) (notes|midi)|notes? from (this|the|my)|play (this|that|the) (melody|tune) on/.test(c)) {
+    return await brainTranscribe();
+  }
+  // ---- MATCH a reference track (tempo+key+style, original composition) ----
+  if (!/bpm|tempo\b/.test(c) &&
+      /match (this|that|the) (track|song|file|one|vibe)|(build|work) (on|from) (this|the) (track|song|file)|remix (this|that|the)|(make|write|cook) (something|a beat|a track) (like|from) (this|that|the) (track|song|file)|sync (up )?(to|with) (this|the)/.test(c)) {
+    return await brainMatchTrack();
+  }
   // ---- TEMPO ----
   let m = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\bat\s+(\d{2,3})\b/) || c.match(/tempo (?:of |to )?(\d{2,3})/);
   if (m) { const b = parseInt(m[1]); if (b >= 40 && b <= 300) return brainSetBPM(b); }
@@ -9498,6 +9507,138 @@ function brainChords(mood) {
   if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
   return '🎹 Laid a ' + (mood ? mood + ' ' : '') + prog.length + '-chord progression in ' + (typeof PC_NAMES !== 'undefined' ? PC_NAMES[root] : root) + ' ' + mode + ' across lanes 3-5 — hit ▶ KEYS';
 }
+// ---- MELODY TRANSCRIPTION — hear a tune (hummed/played) and write notes --
+// autocorrelation pitch tracking per frame → segmented notes → melody lane
+function brainPitchTrack(buf) {
+  const sr = 8000, mono = brainDownmix(buf, sr, 16);
+  const N = 1024, hop = 256;
+  const minLag = Math.floor(sr / 1000), maxLag = Math.floor(sr / 55);
+  const frames = [];
+  for (let off = 0; off + N <= mono.length; off += hop) {
+    let e = 0; for (let i = 0; i < N; i++) e += mono[off + i] * mono[off + i];
+    const rms = Math.sqrt(e / N);
+    if (rms < 0.01) { frames.push(null); continue; }
+    const norms = new Float32Array(maxLag + 1);
+    let best = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let s = 0, n1 = 0, n2 = 0;
+      for (let i = 0; i < N - lag; i++) { const a = mono[off + i], b = mono[off + i + lag]; s += a * b; n1 += a * a; n2 += b * b; }
+      norms[lag] = s / (Math.sqrt(n1 * n2) || 1);
+      if (norms[lag] > best) best = norms[lag];
+    }
+    // subharmonics of the true period also correlate strongly — take the
+    // SHORTEST lag that is a local peak near the maximum (octave-error fix)
+    let bestLag = 0;
+    const thr = Math.max(0.5, best * 0.88);
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      if (norms[lag] >= thr && norms[lag] >= (norms[lag - 1] || 0) && norms[lag] >= (norms[lag + 1] || 0)) { bestLag = lag; break; }
+    }
+    frames.push(best > 0.5 && bestLag ? 69 + 12 * Math.log2((sr / bestLag) / 440) : null);
+  }
+  // median-of-3 smoothing to kill octave blips
+  const sm = frames.map((v, i) => {
+    const w = [frames[i - 1], v, frames[i + 1]].filter(x => x != null).sort((a, b) => a - b);
+    return v == null ? null : w[Math.floor(w.length / 2)];
+  });
+  // segment into notes (≥3 frames ≈ 96ms, pitch within ±0.6 semitone)
+  const notes = [];
+  let cur = null;
+  sm.forEach((v, i) => {
+    if (v == null) { if (cur && cur.n >= 3) notes.push(cur); cur = null; return; }
+    if (cur && Math.abs(v - cur.sum / cur.n) < 0.6) { cur.sum += v; cur.n++; }
+    else { if (cur && cur.n >= 3) notes.push(cur); cur = { start: i, sum: v, n: 1 }; }
+  });
+  if (cur && cur.n >= 3) notes.push(cur);
+  const spf = hop / sr;
+  return notes.map(nt => ({ t: nt.start * spf, dur: nt.n * spf, midi: Math.round(nt.sum / nt.n) }));
+}
+async function brainTranscribe() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🎼 Transcribing the melody…');
+  await new Promise(r => setTimeout(r, 20));
+  const notes = brainPitchTrack(song.buf);
+  if (!notes.length) { aiLog('Could not hear a clear single-note melody in that file — works best on humming, whistling or a solo instrument.', 'tip'); return true; }
+  // map onsets across the sung span onto the 16-step grid
+  const t0 = notes[0].t, t1 = notes[notes.length - 1].t + notes[notes.length - 1].dur;
+  const span = Math.max(0.5, t1 - t0);
+  const lane = keyLanes[curLane]; if (lane.locked) { aiLog('Lane ' + (curLane + 1) + ' is locked — unlock it or switch lanes first.', 'tip'); return true; }
+  lane.steps.fill(null);
+  let placed = 0;
+  notes.forEach(nt => {
+    const stp = Math.min(15, Math.round((nt.t - t0) / span * 15));
+    const midi = Math.max(36, Math.min(96, nt.midi));
+    if (!lane.steps[stp]) { lane.steps[stp] = { midi, sustain: nt.dur > span / 16 }; placed++; }
+  });
+  for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
+  const chroma = new Array(12).fill(0); notes.forEach(nt => chroma[((nt.midi % 12) + 12) % 12] += nt.dur);
+  const { key, mode } = aiDetectKey(chroma); AI.lastKey = key; AI.lastMode = mode;
+  aiLog('🎼 Transcribed ' + placed + ' notes from "' + song.name.slice(0, 22) + '" onto lane ' + (curLane + 1) + ' (sounds like ' + PC_NAMES[key] + ' ' + mode + ') — hit ▶ KEYS. Works best on a solo melody.', 'good');
+  return true;
+}
+// ---- MATCH A REFERENCE — analyse a file, then build an original in sync --
+function brainStyleFromProfile(p) {
+  if (typeof AI_STYLES === 'undefined') return null;
+  const cands = [];
+  const push = (id, score) => { if (AI_STYLES[id]) cands.push([id, score]); };
+  const b = p.bpm || 100;
+  push('lofi', 10 - Math.abs(b - 82) / 6 + (p.brightness < 0.4 ? 2 : 0));
+  push('boombap', 10 - Math.abs(b - 92) / 6);
+  push('trap', 10 - Math.abs(b - 140) / 6 + (p.bands.low > 0.6 ? 2 : 0));
+  push('drill', 9 - Math.abs(b - 142) / 6);
+  push('house', 10 - Math.abs(b - 124) / 6 + (p.brightness > 0.55 ? 2 : 0));
+  push('techno', 9 - Math.abs(b - 130) / 6);
+  push('jungle', 9 - Math.abs(b - 165) / 8);
+  push('dub', 9 - Math.abs(b - 75) / 6 + (p.bands.low > 0.65 ? 2 : 0));
+  push('synthwave', 9 - Math.abs(b - 108) / 6);
+  cands.sort((x, y) => y[1] - x[1]);
+  return cands.length ? cands[0][0] : null;
+}
+async function brainMatchTrack() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🎧 Studying the reference…');
+  await new Promise(r => setTimeout(r, 20));
+  let p; try { p = brainAnalyze(song.buf, song.name); } catch (e) { aiLog('Could not analyse that file (' + e.message + ')', 'tip'); return true; }
+  BRAIN.profile = p; AI.lastKey = p.key; AI.lastMode = p.mode;
+  const out = [];
+  if (p.bpm) out.push(brainSetBPM(p.bpm, 'matched'));
+  out.push('🎼 Key locked to ' + p.keyName);
+  const style = brainStyleFromProfile(p);
+  if (style) { AI.style = style; if (typeof buildStyleUI === 'function') buildStyleUI(); out.push('🎚 Closest onboard style: ' + style); }
+  if (typeof aiSuggestDrumsLocal === 'function') { aiSuggestDrumsLocal(); if (typeof aiApplyDrums === 'function') aiApplyDrums(); }
+  if (typeof aiGenerateMelodyLocal === 'function') aiGenerateMelodyLocal();
+  out.push('✨ Composed an ORIGINAL groove in sync with it — same tempo, same key, kindred energy. (I analyse the reference, never copy it.)');
+  aiLog(out.join('\n'), 'good');
+  return true;
+}
+// ---- VOICE INPUT — talk to the console -------------------------------
+function brainVoiceInit() {
+  const input = document.getElementById('se-ai-input');
+  const SRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!input || !SRec || document.getElementById('se-ai-mic')) return;
+  const mic = document.createElement('button');
+  mic.id = 'se-ai-mic'; mic.textContent = '🎤'; mic.title = 'Talk to the AI — tap, speak, it does it';
+  mic.style.cssText = 'margin-left:6px;padding:6px 10px;border-radius:16px;border:1px solid var(--se-line,#666);background:rgba(0,0,0,.35);color:inherit;cursor:pointer;font-size:13px;';
+  input.insertAdjacentElement('afterend', mic);
+  let rec = null, listening = false;
+  mic.addEventListener('pointerdown', e => e.stopPropagation());
+  mic.addEventListener('click', () => {
+    if (listening) { try { rec.stop(); } catch (e) {} return; }
+    rec = new SRec(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+    listening = true; mic.textContent = '🔴'; if (typeof toast === 'function') toast('🎤 Listening… say what you want');
+    rec.onresult = ev => {
+      const said = ev.results[0][0].transcript;
+      input.value = '';
+      if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info');
+      aiSearch(said);
+    };
+    rec.onend = () => { listening = false; mic.textContent = '🎤'; };
+    rec.onerror = () => { listening = false; mic.textContent = '🎤'; if (typeof toast === 'function') toast('🎤 Mic unavailable — type instead'); };
+    try { rec.start(); } catch (e) { listening = false; mic.textContent = '🎤'; }
+  });
+}
+setTimeout(brainVoiceInit, 800);
 console.log('Music Brain ready');
 
 </script>
