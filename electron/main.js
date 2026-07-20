@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 // Audio must start clean and keep perfect time even when the window is
@@ -42,7 +42,14 @@ function createWindow() {
   win.loadFile(htmlPath);
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // the AI console's voice input + hum-to-notes need the microphone —
+  // grant media requests so getUserMedia works from the packaged page
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'microphone' || permission === 'audioCapture');
+  });
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

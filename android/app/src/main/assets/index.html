@@ -9435,6 +9435,11 @@ async function brainClause(c) {
   if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
     await brainAnalyzeInteractive(); return true;
   }
+  // ---- HUM INTO THE MIC → notes (no file needed) ----
+  if ((/\b(hum(ming|med)?|sing(ing)?|whistl(e|ing))\b/.test(c) && !/\b(this|that|file|track|song|mp3|wav|recording)\b/.test(c)) ||
+      /record (my )?(humming|voice|a melody|me)|listen to me\b/.test(c)) {
+    return await brainHumCapture();
+  }
   // ---- TRANSCRIBE a melody from a file (humming/whistling/solo line) ----
   if (/transcrib|hum(med|ming)?\b.*(note|melod|midi)|(turn|convert).*(into|to) (notes|midi)|notes? from (this|the|my)|play (this|that|the) (melody|tune) on/.test(c)) {
     return await brainTranscribe();
@@ -9915,14 +9920,8 @@ function brainPitchTrack(buf) {
   const spf = hop / sr;
   return notes.map(nt => ({ t: nt.start * spf, dur: nt.n * spf, midi: Math.round(nt.sum / nt.n) }));
 }
-async function brainTranscribe() {
-  if (typeof aiPickSong !== 'function') return false;
-  const song = await aiPickSong(); if (!song) return true;
-  if (typeof toast === 'function') toast('🎼 Transcribing the melody…');
-  await new Promise(r => setTimeout(r, 20));
-  const notes = brainPitchTrack(song.buf);
-  if (!notes.length) { aiLog('Could not hear a clear single-note melody in that file — works best on humming, whistling or a solo instrument.', 'tip'); return true; }
-  // map onsets across the sung span onto the 16-step grid
+// map pitch-tracked notes across the sung span onto the current melody lane
+function brainPlaceNotes(notes, srcLabel) {
   const t0 = notes[0].t, t1 = notes[notes.length - 1].t + notes[notes.length - 1].dur;
   const span = Math.max(0.5, t1 - t0);
   const lane = keyLanes[curLane]; if (lane.locked) { aiLog('Lane ' + (curLane + 1) + ' is locked — unlock it or switch lanes first.', 'tip'); return true; }
@@ -9936,8 +9935,65 @@ async function brainTranscribe() {
   for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
   const chroma = new Array(12).fill(0); notes.forEach(nt => chroma[((nt.midi % 12) + 12) % 12] += nt.dur);
   const { key, mode } = aiDetectKey(chroma); AI.lastKey = key; AI.lastMode = mode;
-  aiLog('🎼 Transcribed ' + placed + ' notes from "' + song.name.slice(0, 22) + '" onto lane ' + (curLane + 1) + ' (sounds like ' + PC_NAMES[key] + ' ' + mode + ') — hit ▶ KEYS. Works best on a solo melody.', 'good');
+  aiLog('🎼 Transcribed ' + placed + ' notes from ' + srcLabel + ' onto lane ' + (curLane + 1) + ' (sounds like ' + PC_NAMES[key] + ' ' + mode + ') — hit ▶ KEYS.', 'good');
   return true;
+}
+async function brainTranscribe() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🎼 Transcribing the melody…');
+  await new Promise(r => setTimeout(r, 20));
+  const notes = brainPitchTrack(song.buf);
+  if (!notes.length) { aiLog('Could not hear a clear single-note melody in that file — works best on humming, whistling or a solo instrument.', 'tip'); return true; }
+  return brainPlaceNotes(notes, '"' + song.name.slice(0, 22) + '"');
+}
+// ---- MICROPHONE — permission priming, live capture, hum-to-notes ------
+function brainMicPrime() {
+  // surfaces the platform's microphone permission prompt up front so the
+  // first real voice/hum use is instant (Android grants via the app dialog)
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
+  } catch (e) {}
+}
+async function brainMicRecord(seconds) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no microphone API');
+  if (!audioReady) initAudio();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+  return new Promise((resolve, reject) => {
+    try {
+      const src = ctx.createMediaStreamSource(stream);
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      const mute = ctx.createGain(); mute.gain.value = 0;
+      const chunks = [];
+      proc.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+      setTimeout(() => {
+        try { proc.disconnect(); src.disconnect(); mute.disconnect(); } catch (e2) {}
+        stream.getTracks().forEach(t => t.stop());
+        const len = chunks.reduce((a, c) => a + c.length, 0);
+        if (!len) { reject(new Error('no audio captured')); return; }
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = buf.getChannelData(0); let o = 0;
+        chunks.forEach(c => { d.set(c, o); o += c.length; });
+        resolve(buf);
+      }, seconds * 1000);
+    } catch (e) { stream.getTracks().forEach(t => t.stop()); reject(e); }
+  });
+}
+async function brainHumCapture() {
+  try {
+    if (typeof toast === 'function') toast('🎤 Hum your melody now — recording 5 seconds…');
+    const buf = await brainMicRecord(5);
+    if (typeof toast === 'function') toast('🎼 Transcribing…');
+    await new Promise(r => setTimeout(r, 20));
+    const notes = brainPitchTrack(buf);
+    if (!notes.length) { aiLog('Could not hear a clear melody — hum louder and closer to the mic, one note at a time.', 'tip'); return true; }
+    return brainPlaceNotes(notes, 'your humming');
+  } catch (e) {
+    aiLog('Microphone unavailable (' + e.message + ') — check the app has mic permission in your device settings.', 'tip');
+    return true;
+  }
 }
 // ---- MATCH A REFERENCE — analyse a file, then build an original in sync --
 function brainStyleFromProfile(p) {
@@ -9978,27 +10034,46 @@ async function brainMatchTrack() {
 // ---- VOICE INPUT — talk to the console -------------------------------
 function brainVoiceInit() {
   const input = document.getElementById('se-ai-input');
+  if (!input || document.getElementById('se-ai-mic')) return;
+  // three engines, best-first: native Android recognizer → Web Speech API →
+  // plain mic capture (hum-to-notes) as the universal fallback
+  let native = false;
+  try { native = !!(window.AndroidVoice && AndroidVoice.available()); } catch (e) {}
   const SRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!input || !SRec || document.getElementById('se-ai-mic')) return;
+  const canHum = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  if (!native && !SRec && !canHum) return;
   const mic = document.createElement('button');
-  mic.id = 'se-ai-mic'; mic.textContent = '🎤'; mic.title = 'Talk to the AI — tap, speak, it does it';
+  mic.id = 'se-ai-mic'; mic.textContent = '🎤';
+  mic.title = native || SRec ? 'Talk to the AI — tap, speak, it does it' : 'Hum a melody — tap and hum, it becomes notes';
   mic.style.cssText = 'margin-left:6px;padding:6px 10px;border-radius:16px;border:1px solid var(--se-line,#666);background:rgba(0,0,0,.35);color:inherit;cursor:pointer;font-size:13px;';
   input.insertAdjacentElement('afterend', mic);
   let rec = null, listening = false;
+  const done = () => { listening = false; mic.textContent = '🎤'; };
+  // native bridge callbacks (also reused by the Web Speech path)
+  window.brainVoiceResult = said => { done(); if (said) { input.value = ''; if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info'); aiSearch(said); } };
+  window.brainVoiceError = e => { done(); if (typeof toast === 'function') toast('🎤 ' + (String(e) === 'permission' ? 'Allow microphone access so you can talk to the AI' : 'Didn’t catch that — try again')); };
   mic.addEventListener('pointerdown', e => e.stopPropagation());
   mic.addEventListener('click', () => {
-    if (listening) { try { rec.stop(); } catch (e) {} return; }
-    rec = new SRec(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
-    listening = true; mic.textContent = '🔴'; if (typeof toast === 'function') toast('🎤 Listening… say what you want');
-    rec.onresult = ev => {
-      const said = ev.results[0][0].transcript;
-      input.value = '';
-      if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info');
-      aiSearch(said);
-    };
-    rec.onend = () => { listening = false; mic.textContent = '🎤'; };
-    rec.onerror = () => { listening = false; mic.textContent = '🎤'; if (typeof toast === 'function') toast('🎤 Mic unavailable — type instead'); };
-    try { rec.start(); } catch (e) { listening = false; mic.textContent = '🎤'; }
+    if (!audioReady) initAudio();
+    if (listening) { try { if (native) AndroidVoice.stopListening(); else if (rec) rec.stop(); } catch (e) {} done(); return; }
+    brainMicPrime(); // surface the permission prompt on first use
+    listening = true; mic.textContent = '🔴';
+    if (native) {
+      if (typeof toast === 'function') toast('🎤 Listening… say what you want');
+      try { AndroidVoice.startListening(); } catch (e) { brainVoiceError('bridge'); }
+      return;
+    }
+    if (SRec) {
+      rec = new SRec(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+      if (typeof toast === 'function') toast('🎤 Listening… say what you want');
+      rec.onresult = ev => brainVoiceResult(ev.results[0][0].transcript);
+      rec.onend = done;
+      rec.onerror = () => brainVoiceError('speech');
+      try { rec.start(); } catch (e) { done(); }
+      return;
+    }
+    // no speech engine on this platform — capture a hum instead
+    brainHumCapture().then(done, done);
   });
 }
 setTimeout(brainVoiceInit, 800);
