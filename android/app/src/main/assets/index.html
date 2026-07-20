@@ -829,6 +829,8 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
 .daw-rack-sec{border:1px solid #262b38;border-radius:8px;padding:9px;margin-bottom:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
 .daw-rack-sec>b{width:100%;font-size:9px;letter-spacing:.1em;color:#8792ab;}
 .daw-rack-sec select,.daw-rack-sec input[type=number]{background:#12141a;border:1px solid #333a48;color:#cfe;border-radius:4px;padding:3px 5px;font-size:10px;}
+/* touch: sliders must own the gesture, or dragging them scrolls the rack */
+#daw-rack input[type=range],.daw-vol,.daw-pan{touch-action:none;}
 .daw-ins{border:1px solid #2b3140;border-radius:6px;padding:6px;margin-top:6px;width:100%;}
 .daw-ins-top{display:flex;align-items:center;gap:5px;font-size:10px;}
 .daw-knob{display:flex;flex-direction:column;font-size:8px;color:#8792ab;gap:2px;width:100%;margin-top:4px;}
@@ -8545,6 +8547,7 @@ function dawInjectDOM() {
         '<button class="daw-btn" id="daw-cap-drums">＋ CAPTURE BEAT</button>' +
         '<button class="daw-btn" id="daw-cap-mel">＋ CAPTURE MELODY</button>' +
         '<button class="daw-btn" id="daw-add-audio">＋ AUDIO CLIP</button>' +
+        '<button class="daw-btn" id="daw-add-lib">＋ LIBRARY CLIP</button>' +
         '<button class="daw-btn" id="daw-add-track">＋ TRACK</button>' +
         '<div style="flex:1"></div>' +
         '<button class="daw-btn" id="daw-bounce">⭳ BOUNCE WAV</button>' +
@@ -8565,6 +8568,7 @@ function dawInjectDOM() {
   document.getElementById('daw-cap-drums').addEventListener('click', dawCaptureDrums);
   document.getElementById('daw-cap-mel').addEventListener('click', dawCaptureMelody);
   document.getElementById('daw-add-audio').addEventListener('click', dawAddAudioClip);
+  document.getElementById('daw-add-lib').addEventListener('click', dawAddLibraryClip);
   document.getElementById('daw-add-track').addEventListener('click', () => { dawAddTrack({}); dawRenderTimeline(); });
   document.getElementById('daw-bounce').addEventListener('click', dawBounce);
 }
@@ -8572,6 +8576,11 @@ function dawOpenUI() {
   if (!audioReady) initAudio();
   dawInjectDOM();
   if (!DAW.tracks.length) { try { const s = JSON.parse(localStorage.getItem('skrimpad_daw') || 'null'); if (s) dawDeserialize(s); } catch (e) {} }
+  if (!DAW.tracks.length) {
+    // never open onto an empty shell — a starter track makes the 🎛 rack discoverable
+    dawAddTrack({ name: 'TRACK 1' });
+    toast('🎛 Tap 🎛 on a track head to open its instrument + FX rack');
+  }
   DAW.open = true;
   document.getElementById('daw-modal').classList.add('open');
   document.getElementById('daw-bpm').value = DAW.bpm;
@@ -8588,6 +8597,55 @@ function dawAddAudioClip() {
     tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf, rate: 1, libRef: name });
     dawRenderTimeline();
   }, 'AUDIO CLIP');
+}
+// ---- LIBRARY → STUDIO — pick any library sound straight into the DAW --
+function dawLibPicker(onPick) {
+  const old = document.getElementById('daw-libpick'); if (old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'daw-libpick';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:6200;background:rgba(5,6,10,.82);display:flex;align-items:center;justify-content:center;';
+  const card = document.createElement('div');
+  card.style.cssText = 'width:min(420px,94vw);max-height:80vh;display:flex;flex-direction:column;background:#12141c;border:1px solid #333a48;border-radius:12px;padding:12px;gap:8px;';
+  card.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><b style="font-size:12px;letter-spacing:.06em;color:#8be9ff">📚 PICK FROM LIBRARY</b><div style="flex:1"></div><button class="daw-btn" id="daw-libpick-x">✕</button></div>' +
+    '<input id="daw-libpick-q" placeholder="search sounds…" style="background:#0c0e14;border:1px solid #333a48;color:#cfe;border-radius:6px;padding:7px 9px;font-size:12px">' +
+    '<div id="daw-libpick-list" style="overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>';
+  ov.appendChild(card); document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const list = card.querySelector('#daw-libpick-list');
+  const render = q => {
+    q = (q || '').toLowerCase();
+    list.innerHTML = '';
+    let n = 0;
+    (typeof brainLibAll === 'function' ? brainLibAll() : []).forEach(it => {
+      if (n >= 80) return;
+      if (q && !(String(it.s.name).toLowerCase().includes(q) || String(it.cat).toLowerCase().includes(q))) return;
+      n++;
+      const row = document.createElement('button');
+      row.className = 'daw-btn';
+      row.style.cssText = 'text-align:left;display:flex;gap:8px;align-items:center;';
+      row.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis">' + it.s.name + '</span><span style="color:#8792ab;font-size:9px">' + it.cat + '</span>';
+      row.addEventListener('click', async () => {
+        const b = it.s.buf || (it.s.idbId && typeof libEnsureBuf === 'function' ? await libEnsureBuf(it.s) : null);
+        if (!b && !it.s.fn) { toast('That entry has no audio yet'); return; }
+        ov.remove();
+        onPick({ name: it.s.name, cat: it.cat, buf: b, fn: it.s.fn || null });
+      });
+      list.appendChild(row);
+    });
+    if (!n) list.innerHTML = '<div style="color:#8792ab;font-size:11px;padding:8px">Nothing matches — import a pack or ask the AI to generate sounds.</div>';
+  };
+  render('');
+  card.querySelector('#daw-libpick-q').addEventListener('input', e => render(e.target.value));
+  card.querySelector('#daw-libpick-x').addEventListener('click', () => ov.remove());
+}
+function dawAddLibraryClip() {
+  dawLibPicker(pick => {
+    if (!pick.buf) { toast('That one is a synth voice — pick a sampled sound for a clip'); return; }
+    const tr = dawAddTrack({ name: pick.name.slice(0, 14), instrument: { type: 'sampler', root: 60, buf: pick.buf, libRef: pick.name } });
+    const beats = Math.max(1, Math.round(pick.buf.duration / dawBeatSec()));
+    tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf: pick.buf, rate: 1, libRef: pick.name });
+    dawRenderTimeline();
+    toast('📚 "' + pick.name + '" → new track + clip');
+  });
 }
 
 function dawRenderTimeline() {
@@ -8676,6 +8734,7 @@ function dawOpenRack(tr) {
     ['synth', 'sampler', 'drum'].map(t => '<option value="' + t + '"' + (inst.type === t ? ' selected' : '') + '>' + t.toUpperCase() + '</option>').join('') + '</select>';
   if (inst.type === 'sampler') {
     html += '<button class="daw-btn" id="daw-inst-load">' + (inst.buf ? 'REPLACE SOUND' : 'LOAD SOUND') + '</button>' +
+      '<button class="daw-btn" id="daw-inst-lib">📚 FROM LIBRARY</button>' +
       '<label class="daw-lab">ROOT <input id="daw-inst-root" type="number" min="24" max="96" value="' + (inst.root || 60) + '"></label>';
   } else if (inst.type === 'synth') {
     html += '<label class="daw-lab">WAVE <select id="daw-inst-wave">' + ['sawtooth', 'square', 'triangle', 'sine'].map(w => '<option' + (inst.wave === w ? ' selected' : '') + '>' + w + '</option>').join('') + '</select></label>' +
@@ -8691,6 +8750,12 @@ function dawOpenRack(tr) {
   document.getElementById('daw-inst-type').addEventListener('change', e => { inst.type = e.target.value; dawOpenRack(tr); dawRenderTimeline(); });
   if (inst.type === 'sampler') {
     document.getElementById('daw-inst-load').addEventListener('click', () => importAudioSample((buf, name) => { inst.buf = buf; inst.libRef = name; toast(tr.name + ': instrument = ' + name); }, tr.name + ' instrument'));
+    document.getElementById('daw-inst-lib').addEventListener('click', () => dawLibPicker(pick => {
+      if (!pick.buf) { toast('That one is a synth voice — pick a sampled sound'); return; }
+      inst.buf = pick.buf; inst.libRef = pick.name;
+      toast(tr.name + ': instrument = ' + pick.name);
+      dawOpenRack(tr);
+    }));
     document.getElementById('daw-inst-root').addEventListener('change', e => inst.root = parseInt(e.target.value) || 60);
   } else if (inst.type === 'synth') {
     document.getElementById('daw-inst-wave').addEventListener('change', e => inst.wave = e.target.value);
@@ -9727,11 +9792,20 @@ function brainCatReFor(defName) {
 async function brainSampleOps(c) {
   if (typeof drumDefs === 'undefined') return false;
   // "use/put/load <name> on <pad 3 | the kick | lane 2 | the keys>"
-  let m = c.match(/\b(put|use|load|assign|throw|drop|slap)\s+(.+?)\s+on(?:to)?\s+(?:the\s+)?(.+)$/);
+  let m = c.match(/\b(put|use|load|assign|throw|drop|slap|add)\s+(.+?)\s+(?:on(?:to)?|in(?:to)?|to)\s+(?:the\s+)?(.+)$/);
   if (m) {
     const it = brainLibFind(m[2].replace(/\b(the|a|an|sound|sample)\b/g, ' ').replace(/\s+/g, ' ').trim());
     if (it) {
       const target = m[3].trim();
+      if (/\b(studio|daw|timeline)\b/.test(target) && typeof dawAddTrack === 'function') {
+        const b = await brainLibBuf(it);
+        if (b) {
+          const tr2 = dawAddTrack({ name: it.s.name.slice(0, 14), instrument: { type: 'sampler', root: 60, buf: b, libRef: it.s.name } });
+          tr2.clips.push({ start: typeof dawFreeSlot === 'function' ? dawFreeSlot(tr2) : 0, len: Math.max(1, Math.round(b.duration / dawBeatSec())), kind: 'audio', buf: b, rate: 1, libRef: it.s.name });
+          if (typeof dawRenderTimeline === 'function') dawRenderTimeline();
+          return '🎚 "' + it.s.name + '" dropped into the studio as a new track + clip';
+        }
+      }
       const padM = target.match(/pad\s*(\d{1,2})/), laneM = target.match(/lane\s*(\d)/);
       if (laneM || /\bkeys\b|keyboard|piano/.test(target)) {
         const b = await brainLibBuf(it);
