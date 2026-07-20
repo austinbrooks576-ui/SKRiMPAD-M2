@@ -1,0 +1,87 @@
+name: Build Windows (VGA)
+
+on:
+  push:
+    branches: [claude/skrimpad-vga]
+    paths:
+      - 'electron/**'
+      - 'android/app/src/main/assets/index.html'
+      - 'scripts/set-edition.js'
+      - '.github/workflows/build-windows-vga.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Copy app to electron
+        shell: bash
+        run: |
+          mkdir -p electron/app
+          cp android/app/src/main/assets/index.html electron/app/index.html
+          cp android/app/src/main/assets/layout.json electron/app/layout.json
+
+      - name: Set VGA edition
+        run: node scripts/set-edition.js electron/app/index.html vga
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          npm install
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+
+      - name: Name the download files
+        shell: bash
+        run: |
+          cd electron/dist
+          n="${{ github.run_number }}"
+          for f in *.exe; do
+            case "$f" in
+              *Setup*) mv "$f" "SKRiMPAD VGA Setup ${n} (Installer).exe";;
+              *)       mv "$f" "SKRiMPAD VGA Setup ${n} (Portable).exe";;
+            esac
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-vga-setup-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: vga-win-v1.0.${{ github.run_number }}
+          name: SKRiMPAD VGA Windows — Setup ${{ github.run_number }}
+          body: |
+            SKRiMPAD VGA — **Video Game Audio edition** for Windows
+
+            - **`SKRiMPAD VGA Setup ${{ github.run_number }} (Installer).exe`** — installs with shortcuts
+            - **`SKRiMPAD VGA Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere
+
+            Original GB/GBC/GBA-style chiptune soundbytes in the library + a world
+            of 40+ original named pixel characters that wander, dance and cheer to
+            your music (👾 roster toggles each). Includes the full SKRiMPAD STUDIO
+            DAW + plugin rack.
+
+            **Requirements:** Windows 10+ (64-bit)
+          files: |
+            electron/dist/*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
