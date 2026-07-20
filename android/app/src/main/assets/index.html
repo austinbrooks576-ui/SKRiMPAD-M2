@@ -710,6 +710,22 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
   background:rgba(var(--se-ink-rgb),.85);border:1px solid var(--se-line);color:var(--se-glow);font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;}
 #se-toast.show{opacity:1;}
 #se-enter{cursor:pointer;}
+/* ===== SKRiMPAD VGA (video-game-audio edition) ===== */
+#vga-world{image-rendering:pixelated;}
+body.vga-edition{--vga-bg1:#1a1040;--vga-bg2:#2b1a66;}
+body.vga-edition #app,body.vga-edition{background:linear-gradient(180deg,#2b1a66 0%,#1a1040 60%,#0a0620 100%) fixed;}
+body.vga-edition #slot-banner,body.vga-edition .tabbar{background:linear-gradient(90deg,#ff3c9d,#ffb03c,#3ddc84,#5ad1ff)!important;}
+#vga-roster{display:none;position:fixed;inset:0;z-index:5200;background:rgba(10,6,32,.9);align-items:center;justify-content:center;}
+#vga-roster.open{display:flex;}
+#vga-roster-card{width:min(760px,95vw);max-height:88vh;overflow-y:auto;background:#160c34;border:2px solid #ff3c9d;border-radius:14px;padding:12px;box-shadow:0 0 40px rgba(255,60,157,.4);image-rendering:pixelated;}
+.vga-r-head{display:flex;align-items:center;gap:6px;margin-bottom:10px;color:#8be9ff;font-family:monospace;flex-wrap:wrap;}
+#vga-r-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;}
+.vga-card{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;background:#0e0824;border:2px solid #2b1a66;border-radius:9px;cursor:pointer;color:#cfe;font-family:monospace;transition:.1s;}
+.vga-card.on{border-color:#3ddc84;background:#12203a;box-shadow:0 0 10px rgba(61,220,132,.4);}
+.vga-card:hover{border-color:#ffb03c;}
+.vga-thumb{image-rendering:pixelated;width:56px;height:64px;}
+.vga-nm{font-size:9px;font-weight:800;text-align:center;line-height:1.1;}
+.vga-cl{font-size:7px;color:#8792ab;text-align:center;}
 /* ===== SKRiMPAD STUDIO (DAW) ===== */
 #daw-modal{display:none;position:fixed;inset:0;z-index:5000;background:rgba(6,7,11,.96);}
 #daw-modal.open{display:block;}
@@ -1480,6 +1496,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <button class="bnr-btn" id="bnr-se" title="SPECIAL EDITION — themed HUD (Samurai · Space Dust · Cyberpunk · Warhammer · Mushroom · Arcade)">⛩</button>
     <button class="bnr-btn" id="bnr-float" title="Floating windows — drag, resize, minimize each tile">🪟</button>
     <button class="bnr-btn" id="bnr-studio" title="STUDIO — full-song DAW: timeline, mixer, plugin rack, bounce to WAV">🎚</button>
+    <button class="bnr-btn" id="bnr-vga" title="VGA — chiptune sounds + pixel character roster">👾</button>
     <button class="bnr-btn" id="bnr-analyze" title="Analyze sound">🔍</button>
     <select id="bnr-style" title="Style"></select>
     <button class="bnr-btn" id="bnr-drums" title="Generate + apply drum pattern">🥁</button>
@@ -1684,6 +1701,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <button class="se-bar-btn" id="se-hidethemes" title="Theme options — pick your look" style="font-size:13px">🎨</button>
     <button class="se-bar-btn" id="se-settings" title="Settings — MIDI, Bluetooth, controller, pad programming, saved library, skins" style="font-size:13px">⚙</button>
     <button class="se-bar-btn" id="se-studio" title="STUDIO — full-song DAW: timeline, mixer, plugin rack, bounce to WAV" style="font-size:13px">🎚</button>
+    <button class="se-bar-btn" id="se-vga" title="VGA — chiptune sounds + pixel character roster" style="font-size:13px">👾</button>
     <div class="spacer"></div>
   </div>
   <canvas class="se-arc left" id="se-arc-l"></canvas>
@@ -8669,6 +8687,305 @@ function dawLoadPreset(tr) {
   if (bBtn) bBtn.addEventListener('click', dawToggleUI);
 }
 console.log('DAW UI ready');
+
+
+// ===== VGA MODULE (spliced) =====
+// =====================================================================
+// SKRiMPAD VGA — Video Game Audio edition
+// Original GB/GBC/GBA-STYLE chiptune soundbytes (synthesized from scratch —
+// no ripped game audio) pre-loaded into the library, plus a world of 40+
+// original named pixel characters that wander, dance and cheer to the music.
+// Deliberately "downgraded" (16 kHz, bit-crushed, tiny data-defined sprites)
+// so the retro layer stays feather-light on top of everything else.
+// =====================================================================
+const VGA = { on: false, chars: [], active: {}, sprites: [], raf: null, last: 0, cache: {}, groundOnly: false };
+
+// ---- CHIPTUNE ENGINE (original pulse / wave / noise soundbytes) ------
+function vgaChip(render, dur) {
+  const SR = 16000; // downgraded rate = authentic 8/16-bit crunch + light weight
+  const oc = new OfflineAudioContext(1, Math.ceil(SR * dur), SR);
+  const out = oc.createGain(); out.gain.value = 0.85;
+  // bit-crush the master with a quantize curve
+  const ws = oc.createWaveShaper(), n = 256, c = new Float32Array(n), steps = 15;
+  for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = Math.round(x * steps) / steps; }
+  ws.curve = c; ws.connect(oc.destination); out.connect(ws);
+  render([oc, out], SR);
+  return oc.startRendering();
+}
+function vgaPulse(oc, out, freq, t, len, duty, vol) {
+  // square/pulse via a periodic wave whose duty is set by harmonic phases
+  const o = oc.createOscillator(), g = oc.createGain();
+  const N = 24, real = new Float32Array(N), imag = new Float32Array(N);
+  const d = duty || 0.5;
+  for (let k = 1; k < N; k++) imag[k] = (2 / (k * Math.PI)) * Math.sin(Math.PI * k * d);
+  o.setPeriodicWave(oc.createPeriodicWave(real, imag));
+  o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(vol == null ? 0.5 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+  o.connect(g); g.connect(out); o.start(t); o.stop(t + len + 0.02); return o;
+}
+function vgaSlide(oc, out, f0, f1, t, len, duty, vol) {
+  const o = vgaPulse(oc, out, f0, t, len, duty, vol);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + len);
+}
+function vgaTri(oc, out, freq, t, len, vol) {
+  const o = oc.createOscillator(), g = oc.createGain(); o.type = 'triangle'; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol == null ? 0.5 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+  o.connect(g); g.connect(out); o.start(t); o.stop(t + len + 0.02);
+}
+function vgaNoise(oc, out, t, len, vol, hp) {
+  const b = oc.createBuffer(1, Math.ceil(oc.sampleRate * len), oc.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = oc.createBufferSource(); s.buffer = b;
+  const f = oc.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp || 800;
+  const g = oc.createGain(); g.gain.setValueAtTime(vol == null ? 0.5 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+  s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t + len + 0.02);
+}
+const NT = f => 440 * Math.pow(2, (f - 69) / 12); // midi→hz helper for chip melodies
+const VGA_CHIPS = {
+  'COIN':      d => { vgaPulse(d[0], d[1], NT(83), 0, 0.07, 0.5, .5); vgaPulse(d[0], d[1], NT(88), 0.07, 0.28, 0.5, .5); },
+  'JUMP':      d => vgaSlide(d[0], d[1], NT(60), NT(84), 0, 0.18, 0.5, .5),
+  'STOMP':     d => vgaSlide(d[0], d[1], NT(72), NT(48), 0, 0.16, 0.5, .5),
+  'LASER':     d => vgaSlide(d[0], d[1], NT(96), NT(60), 0, 0.22, 0.25, .45),
+  'POWER UP':  d => [60, 64, 67, 72, 76].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.06, 0.09, 0.5, .45)),
+  'ITEM GET':  d => [72, 74, 76, 79].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.09, 0.14, 0.25, .45)),
+  'LEVEL UP':  d => [60, 67, 72, 76, 79, 84].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.08, 0.16, 0.5, .5)),
+  'HEAL':      d => [76, 79, 83].forEach((m, i) => vgaTri(d[0], d[1], NT(m), i * 0.1, 0.3, .5)),
+  'HURT':      d => { vgaSlide(d[0], d[1], NT(64), NT(52), 0, 0.2, 0.25, .5); vgaNoise(d[0], d[1], 0, 0.12, .3, 1200); },
+  'SELECT':    d => vgaPulse(d[0], d[1], NT(84), 0, 0.06, 0.5, .4),
+  'TEXT BLIP': d => vgaPulse(d[0], d[1], NT(79), 0, 0.04, 0.25, .35),
+  'WARP':      d => vgaSlide(d[0], d[1], NT(48), NT(96), 0, 0.5, 0.5, .4),
+  'EXPLODE':   d => { vgaNoise(d[0], d[1], 0, 0.5, .6, 200); vgaSlide(d[0], d[1], NT(48), NT(28), 0, 0.4, 0.5, .4); },
+  'SPARKLE':   d => [88, 91, 95, 98].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.05, 0.08, 0.12, .3)),
+  'FANFARE':   d => [67, 67, 67, 72, 76, 72, 76].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.12, 0.16, 0.5, .5)),
+  'GAME OVER': d => [72, 71, 69, 67, 64, 60, 55].forEach((m, i) => vgaTri(d[0], d[1], NT(m), i * 0.14, 0.3, .5)),
+  'ARP UP':    d => [60, 64, 67, 72, 64, 67, 72, 76].forEach((m, i) => vgaPulse(d[0], d[1], NT(m), i * 0.06, 0.07, 0.5, .4)),
+  'BASS PLUCK':d => vgaTri(d[0], d[1], NT(36), 0, 0.3, .7),
+  'LEAD STAB': d => { vgaPulse(d[0], d[1], NT(72), 0, 0.18, 0.5, .5); vgaPulse(d[0], d[1], NT(76), 0, 0.18, 0.25, .3); },
+  'CHIP KICK': d => vgaSlide(d[0], d[1], NT(60), NT(30), 0, 0.16, 0.5, .8),
+  'CHIP SNARE':d => vgaNoise(d[0], d[1], 0, 0.14, .6, 900),
+  'CHIP HAT':  d => vgaNoise(d[0], d[1], 0, 0.04, .4, 6000),
+  'BLOCKED':   d => vgaNoise(d[0], d[1], 0, 0.06, .5, 400),
+  'DING':      d => vgaTri(d[0], d[1], NT(96), 0, 0.5, .5)
+};
+async function vgaLoadChips() {
+  if (VGA._chipsLoaded) return; VGA._chipsLoaded = true;
+  if (!audioReady) initAudio();
+  const names = Object.keys(VGA_CHIPS);
+  for (const nm of names) {
+    try {
+      const dur = /EXPLODE|WARP|GAME OVER|FANFARE|LEVEL UP|HEAL|DING|BASS/.test(nm) ? 1.1 : 0.5;
+      const buf = await vgaChip(VGA_CHIPS[nm], dur);
+      if (typeof libAddToCategory === 'function') libAddToCategory('VGA CHIP', nm, 'chiptune', buf, false);
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 0));
+  }
+  if (typeof buildSoundLib === 'function') buildSoundLib();
+  if (typeof toast === 'function') toast('👾 ' + names.length + ' chiptune soundbytes loaded into the library');
+}
+
+console.log('VGA chip engine parsed');
+
+// ---- CHARACTER CATALOGUE — 42 original named pixel characters ---------
+// [name, class, kind, skin, body, accent]  kind: biped|slime|float|critter
+const VGA_CHARS = [
+  ['Pip Sprout','Sprout Knight','biped','#8ef07a','#3aa655','#ffe27a'],
+  ['Sir Cogsly','Clockwork Squire','biped','#cfd6e6','#7a8296','#ffd166'],
+  ['Mizu Tide','Tideling','slime','#7ad4ff','#2b8fd6','#e8fbff'],
+  ['Ember Vex','Cinder Mage','biped','#ffd9b0','#e0518a','#ff7a1a'],
+  ['Bytewing','Data Moth','float','#c9a0ff','#7d4bd6','#8be9ff'],
+  ['Grubbo','Cave Muncher','critter','#d9b382','#8a5a2b','#5ad1ff'],
+  ['Luma Bell','Star Chime','float','#fff3b0','#ffd166','#fff'],
+  ['Thorn Kit','Bramble Ranger','biped','#e7c9a0','#3ea655','#a0522d'],
+  ['Pox Bubble','Swamp Spore','slime','#b8e07a','#6a9a2b','#d9ff8e'],
+  ['Nova Ray','Star Pilot','biped','#ffd9c0','#5ad1ff','#ff3c5a'],
+  ['Glim','Lantern Wisp','float','#fff','#ffd166','#ff9d4d'],
+  ['Rok Tumble','Boulder Kin','critter','#b9a68c','#6b5a44','#e0518a'],
+  ['Vell Nyx','Night Fencer','biped','#c0a8ff','#3a2b66','#8be9ff'],
+  ['Poko','Meadow Pup','critter','#ffe0b0','#d99a55','#ff7a9c'],
+  ['Sage Quill','Ink Scholar','biped','#e7d3ad','#2b5a8f','#ffd166'],
+  ['Zap Coil','Volt Sprite','float','#fff59d','#ffd23c','#5ad1ff'],
+  ['Muck Lord','Bog Baron','slime','#7a8a3a','#4a5a1a','#c8ff6a'],
+  ['Frost Nib','Snow Imp','biped','#d6f0ff','#7ab8e0','#fff'],
+  ['Cinderpaw','Ash Cat','critter','#ffb08a','#c0392b','#ffd166'],
+  ['Drift Sol','Sand Wanderer','biped','#f0d9a0','#c9a24b','#5ad1ff'],
+  ['Beep-7','Field Droid','biped','#cfe8ff','#5a8cff','#ff3c5a'],
+  ['Willow Fen','Marsh Healer','biped','#d9f0c0','#5a9a4a','#ffd9f0'],
+  ['Krak','Reef Snapper','critter','#ff9d7a','#c0392b','#5ad1ff'],
+  ['Nimbus','Cloud Fluff','float','#eaf4ff','#c0d8f0','#fff3b0'],
+  ['Tessa Vault','Relic Hunter','biped','#e7c9a0','#8a5a2b','#3ddc84'],
+  ['Glomp','Gum Blob','slime','#ff9ecb','#e0518a','#fff3b0'],
+  ['Onyx Fang','Shadow Wolf','critter','#9aa0b0','#2b2f3a','#ff3c5a'],
+  ['Lyric','Wandering Bard','biped','#ffd9b0','#b06cff','#ffd166'],
+  ['Sprocket','Repair Bot','biped','#ffd166','#c98a2b','#5ad1ff'],
+  ['Tadpip','Pond Hopper','slime','#8ef0c0','#3aa678','#fff'],
+  ['Ash Vale','Ember Ranger','biped','#e7c9a0','#8a3a2b','#ff7a1a'],
+  ['Prism','Crystal Fae','float','#d6c0ff','#8be9ff','#ff9ecb'],
+  ['Bramblebeak','Thistle Bird','critter','#ffe0a0','#8a9a3a','#ff5a7a'],
+  ['Dune Rex','Desert Whelp','critter','#f0c97a','#c98a2b','#3ddc84'],
+  ['Mochi','Rice Spirit','slime','#fff','#ffd9e0','#ff9ecb'],
+  ['Volt Jr.','Spark Cadet','biped','#fff59d','#5a8cff','#ffd23c'],
+  ['Fernwick','Forest Warden','biped','#c9e0a0','#3a6a2b','#8a5a2b'],
+  ['Sable','Dusk Thief','biped','#c0a8a0','#3a2f2f','#ffd166'],
+  ['Bloop','Deep Jelly','float','#7ad4ff','#2b6fd6','#eaffff'],
+  ['Cobble','Stone Golem Jr.','biped','#b9a68c','#6b5a44','#3ddc84'],
+  ['Sunny Meep','Dawn Chick','critter','#fff3b0','#ffd166','#ff9d4d'],
+  ['Hex Mote','Rune Ember','float','#ffb0d0','#b06cff','#8be9ff']
+];
+VGA.chars = VGA_CHARS.map((c, i) => ({ id: i, name: c[0], cls: c[1], kind: c[2], skin: c[3], body: c[4], accent: c[5] }));
+
+// ---- PIXEL SPRITE DRAWING (cached offscreen per char+pose) -----------
+const VGA_PX = 4; // pixel scale
+function vgaSprite(ch, pose) {
+  const key = ch.id + ':' + pose;
+  if (VGA.cache[key]) return VGA.cache[key];
+  const W = 14, H = 16, cv = document.createElement('canvas');
+  cv.width = W * VGA_PX; cv.height = H * VGA_PX;
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  const P = (x, y, col, w, h) => { g.fillStyle = col; g.fillRect(x * VGA_PX, y * VGA_PX, (w || 1) * VGA_PX, (h || 1) * VGA_PX); };
+  const bob = pose === 'dance0' ? -1 : pose === 'dance1' ? 1 : 0;
+  const step = pose === 'walk1';
+  const oy = 1 + bob;
+  if (ch.kind === 'slime' || ch.kind === 'float') {
+    // blobby body
+    P(3, 6 + oy, ch.body, 8, 6); P(4, 5 + oy, ch.body, 6, 1); P(2, 8 + oy, ch.body, 1, 3); P(11, 8 + oy, ch.body, 1, 3);
+    P(4, 7 + oy, ch.accent, 6, 1);
+    P(5, 8 + oy, '#0a0a12', 1, 2); P(8, 8 + oy, '#0a0a12', 1, 2); // eyes
+    P(6, 11 + oy, '#0a0a12', 2, 1); // mouth
+    if (pose === 'cheer' || pose.indexOf('dance') === 0) { P(6, 10 + oy, '#0a0a12', 2, 1); P(6, 11 + oy, '#fff', 2, 1); } // open smile
+    if (ch.kind === 'float') { P(1, 6 + oy, ch.accent, 1, 3); P(12, 6 + oy, ch.accent, 1, 3); } // wings
+  } else if (ch.kind === 'critter') {
+    P(3, 8 + oy, ch.body, 8, 4); P(2, 9 + oy, ch.body, 1, 2); P(11, 8 + oy, ch.body, 2, 3); // body+head
+    P(11, 7 + oy, ch.skin, 2, 2); P(12, 7 + oy, '#0a0a12', 1, 1); // head + eye
+    P(3, 12 + oy, ch.accent, 1, 2); P(6, 12 + oy, ch.accent, 1, 2); P(9, 12 + oy, ch.accent, 1, 2); // legs
+    P(2, 6 + oy, ch.accent, 1, 2); // ear/spike
+    if (step) { P(4, 12 + oy, ch.accent, 1, 2); }
+  } else { // biped
+    P(5, 1 + oy, ch.skin, 4, 4); // head
+    P(5, 0 + oy, ch.accent, 4, 1); // hat/hair
+    P(6, 2 + oy, '#0a0a12', 1, 1); P(8, 2 + oy, '#0a0a12', 1, 1); // eyes
+    if (pose === 'cheer' || pose.indexOf('dance') === 0) P(6, 3 + oy, '#fff', 3, 1); else P(6, 3 + oy, '#0a0a12', 2, 1);
+    P(4, 5 + oy, ch.body, 6, 5); // torso
+    P(4, 6 + oy, ch.accent, 6, 1); // belt/trim
+    // arms — up when cheering/dancing
+    const armUp = pose === 'cheer' || pose === 'dance0';
+    P(3, armUp ? 3 + oy : 6 + oy, ch.skin, 1, 3); P(10, armUp ? 3 + oy : 6 + oy, ch.skin, 1, 3);
+    // legs
+    P(5, 10 + oy, ch.body, 2, 3); P(7, 10 + oy, ch.body, 2, 3);
+    if (step) { P(5, 12 + oy, ch.accent, 2, 1); } else { P(7, 12 + oy, ch.accent, 2, 1); }
+  }
+  VGA.cache[key] = cv; return cv;
+}
+
+// ---- THE WORLD (autonomous wander / dance / interact) ----------------
+function vgaMusicPlaying() {
+  return (typeof seqPlaying !== 'undefined' && seqPlaying) || (typeof keysPlaying !== 'undefined' && keysPlaying) ||
+    (typeof DAW !== 'undefined' && DAW.playing) || (typeof VGA._forcePlay !== 'undefined' && VGA._forcePlay);
+}
+function vgaSpawn(ci) {
+  return { ci, x: Math.random() * (innerWidth - 60) + 30, y: Math.random() * (innerHeight - 160) + 80,
+    vx: (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5), dir: 1, mode: 'walk',
+    t: Math.random() * 100, frame: 0, emote: null, emoteT: 0 };
+}
+function vgaSyncSprites() {
+  VGA.sprites = VGA.sprites.filter(s => VGA.active[s.ci]);
+  VGA.chars.forEach(c => { if (VGA.active[c.id] && !VGA.sprites.some(s => s.ci === c.id)) VGA.sprites.push(vgaSpawn(c.id)); });
+}
+function vgaWorldFrame(now) {
+  if (!VGA.on) return;
+  VGA.raf = requestAnimationFrame(vgaWorldFrame);
+  if (now - VGA.last < 50) return; // ~20fps — deliberately retro + light
+  const dt = Math.min(3, (now - VGA.last) / 50); VGA.last = now;
+  const cv = document.getElementById('vga-world'); if (!cv) return;
+  if (cv.width !== innerWidth || cv.height !== innerHeight) { cv.width = innerWidth; cv.height = innerHeight; }
+  const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.imageSmoothingEnabled = false;
+  const playing = vgaMusicPlaying();
+  for (const s of VGA.sprites) {
+    const ch = VGA.chars[s.ci];
+    s.t += dt;
+    if (playing) { s.mode = 'dance'; }
+    else if (s.mode === 'dance') { s.mode = 'walk'; }
+    if (s.mode === 'walk') {
+      if (Math.random() < 0.006) s.mode = 'idle', s.idleT = 20 + Math.random() * 40;
+      s.x += s.vx * dt; s.dir = s.vx < 0 ? -1 : 1;
+      if (s.x < 20) { s.x = 20; s.vx = Math.abs(s.vx); } if (s.x > innerWidth - 40) { s.x = innerWidth - 40; s.vx = -Math.abs(s.vx); }
+      s.y += Math.sin(s.t * 0.1) * 0.3;
+      if (s.y < 70) s.y = 70; if (s.y > innerHeight - 90) s.y = innerHeight - 90;
+    } else if (s.mode === 'idle') { if ((s.idleT -= dt) <= 0) { s.mode = 'walk'; if (Math.random() < 0.5) s.vx = -s.vx; } }
+    // interactions: nearby idle pair emote
+    if (!s.emote && Math.random() < 0.01) {
+      const near = VGA.sprites.find(o => o !== s && Math.abs(o.x - s.x) < 46 && Math.abs(o.y - s.y) < 30);
+      if (near) { s.emote = playing ? '♪' : (Math.random() < 0.5 ? '♥' : '!'); s.emoteT = 30; near.emote = s.emote; near.emoteT = 30; s.dir = near.x < s.x ? -1 : 1; }
+    }
+    if (s.emote && (s.emoteT -= dt) <= 0) s.emote = null;
+    // pose
+    let pose;
+    if (playing) pose = (Math.floor(s.t * 0.3) % 2) ? 'dance0' : 'dance1';
+    else if (s.mode === 'walk') pose = (Math.floor(s.t * 0.25) % 2) ? 'walk1' : 'idle';
+    else pose = 'idle';
+    const spr = vgaSprite(ch, pose);
+    const w = spr.width, h = spr.height;
+    g.save(); g.translate(Math.round(s.x), Math.round(s.y));
+    if (s.dir < 0) { g.scale(-1, 1); g.translate(-w, 0); }
+    g.drawImage(spr, 0, 0); g.restore();
+    if (s.emote) { g.fillStyle = '#fff'; g.font = 'bold 16px monospace'; g.fillText(s.emote, Math.round(s.x) + 18, Math.round(s.y) - 4); }
+  }
+}
+function vgaStartWorld() {
+  if (!document.getElementById('vga-world')) {
+    const cv = document.createElement('canvas'); cv.id = 'vga-world';
+    cv.style.cssText = 'position:fixed;inset:0;z-index:2200;pointer-events:none;';
+    document.body.appendChild(cv);
+  }
+  VGA.on = true; vgaSyncSprites();
+  if (!VGA.raf) { VGA.last = performance.now(); vgaWorldFrame(VGA.last); }
+}
+function vgaStopWorld() { VGA.on = false; if (VGA.raf) cancelAnimationFrame(VGA.raf); VGA.raf = null; const cv = document.getElementById('vga-world'); if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); }
+
+// ---- ROSTER (catalogue + per-character on/off) -----------------------
+function vgaLoadActive() {
+  let saved = null; try { saved = JSON.parse(localStorage.getItem('skrimpad_vga_active') || 'null'); } catch (e) {}
+  if (saved) VGA.active = saved;
+  else VGA.chars.slice(0, 12).forEach(c => VGA.active[c.id] = true); // 12 on by default
+}
+function vgaSaveActive() { try { localStorage.setItem('skrimpad_vga_active', JSON.stringify(VGA.active)); } catch (e) {} }
+function vgaOpenRoster() {
+  let m = document.getElementById('vga-roster');
+  if (!m) { m = document.createElement('div'); m.id = 'vga-roster'; document.body.appendChild(m); }
+  const on = VGA.chars.filter(c => VGA.active[c.id]).length;
+  let h = '<div id="vga-roster-card"><div class="vga-r-head"><b>👾 CHARACTER ROSTER — ' + on + '/' + VGA.chars.length + ' on screen</b>' +
+    '<button class="daw-btn" id="vga-all">ALL</button><button class="daw-btn" id="vga-none">NONE</button>' +
+    '<div style="flex:1"></div><button class="daw-btn" id="vga-r-close">✕</button></div><div id="vga-r-grid">';
+  VGA.chars.forEach(c => {
+    h += '<button class="vga-card' + (VGA.active[c.id] ? ' on' : '') + '" data-id="' + c.id + '">' +
+      '<canvas class="vga-thumb" data-thumb="' + c.id + '" width="56" height="64"></canvas>' +
+      '<span class="vga-nm">' + c.name + '</span><span class="vga-cl">' + c.cls + '</span></button>';
+  });
+  h += '</div></div>';
+  m.innerHTML = h; m.classList.add('open');
+  m.querySelectorAll('canvas[data-thumb]').forEach(cn => { const id = +cn.dataset.thumb; const g = cn.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(vgaSprite(VGA.chars[id], 'cheer'), 0, 0); });
+  document.getElementById('vga-r-close').addEventListener('click', () => m.classList.remove('open'));
+  document.getElementById('vga-all').addEventListener('click', () => { VGA.chars.forEach(c => VGA.active[c.id] = true); vgaSaveActive(); vgaSyncSprites(); vgaOpenRoster(); });
+  document.getElementById('vga-none').addEventListener('click', () => { VGA.active = {}; vgaSaveActive(); vgaSyncSprites(); vgaOpenRoster(); });
+  m.querySelectorAll('.vga-card').forEach(b => b.addEventListener('click', () => {
+    const id = +b.dataset.id; VGA.active[id] = !VGA.active[id]; vgaSaveActive(); vgaSyncSprites();
+    b.classList.toggle('on', !!VGA.active[id]);
+    if (VGA.on && !VGA.raf) vgaStartWorld();
+  }));
+}
+
+// ---- EDITION ACTIVATION ---------------------------------------------
+function vgaActivateEdition() {
+  document.body.classList.add('vga-edition');
+  vgaLoadActive();
+  const boot = () => { vgaLoadChips(); vgaStartWorld(); };
+  if (audioReady) boot(); else ['pointerdown', 'touchstart', 'keydown'].forEach(ev => window.addEventListener(ev, function once() { boot(); window.removeEventListener(ev, once); }, { once: true }));
+}
+{
+  const rb = document.getElementById('vga-roster-btn'), rb2 = document.getElementById('se-vga'), rb3 = document.getElementById('bnr-vga');
+  [rb, rb2, rb3].forEach(b => { if (b) b.addEventListener('click', () => { if (!VGA.on) { vgaLoadActive(); vgaStartWorld(); if (window.SKRIMPAD_EDITION !== 'vga') vgaLoadChips(); } vgaOpenRoster(); }); });
+}
+if (window.SKRIMPAD_EDITION === 'vga') setTimeout(vgaActivateEdition, 120);
+console.log('VGA world ready');
 
 </script>
 </body>

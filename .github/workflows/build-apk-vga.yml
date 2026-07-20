@@ -1,0 +1,73 @@
+name: Build APK (VGA)
+
+on:
+  push:
+    branches: [claude/skrimpad-vga]
+    paths:
+      - 'android/**'
+      - 'scripts/set-edition.js'
+      - '.github/workflows/build-apk-vga.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set VGA edition
+        run: node scripts/set-edition.js android/app/src/main/assets/index.html vga
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD VGA Setup ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-vga-setup-${{ github.run_number }}
+          path: SKRiMPAD VGA Setup ${{ github.run_number }}.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: vga-v1.0.${{ github.run_number }}
+          name: SKRiMPAD VGA — Setup ${{ github.run_number }}
+          body: |
+            SKRiMPAD VGA — **Video Game Audio edition** (Android APK)
+
+            A bright retro chiptune studio: original GB/GBC/GBA-style soundbytes
+            pre-loaded into the library, plus a world of 40+ original named pixel
+            characters that wander, dance and cheer to your music. 👾 opens the
+            character roster to toggle each one on/off. Includes the full
+            SKRiMPAD STUDIO DAW + plugin rack.
+
+            Download **`SKRiMPAD VGA Setup ${{ github.run_number }}.apk`**, enable
+            "Install unknown apps" in Android settings, then open to install.
+          files: SKRiMPAD VGA Setup ${{ github.run_number }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
