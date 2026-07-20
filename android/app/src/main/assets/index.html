@@ -710,7 +710,59 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
   background:rgba(var(--se-ink-rgb),.85);border:1px solid var(--se-line);color:var(--se-glow);font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;}
 #se-toast.show{opacity:1;}
 #se-enter{cursor:pointer;}
+/* ===== SKRiMPAD STUDIO (DAW) ===== */
+#daw-modal{display:none;position:fixed;inset:0;z-index:5000;background:rgba(6,7,11,.96);}
+#daw-modal.open{display:block;}
+body.se-active #daw-modal{background:rgba(var(--se-ink-rgb),.96);}
+#daw-shell{position:absolute;inset:0;display:flex;flex-direction:column;color:#dfe6ff;font-family:system-ui,sans-serif;}
+body.se-active #daw-shell{color:var(--se-paper);font-family:var(--se-font);}
+#daw-top{display:flex;gap:6px;align-items:center;padding:8px 10px;background:#0e1018;border-bottom:1px solid #262b38;flex-wrap:wrap;}
+body.se-active #daw-top{background:rgba(var(--se-ink-rgb),.8);border-color:rgba(var(--se-line-rgb),.4);}
+#daw-logo{font-size:13px;letter-spacing:.06em;color:#8be9ff;}
+body.se-active #daw-logo{color:var(--se-glow);}
+.daw-btn{background:#1a1d25;border:1px solid #333a48;color:#cfe;border-radius:6px;padding:5px 9px;font-size:10px;font-weight:700;letter-spacing:.04em;cursor:pointer;white-space:nowrap;}
+.daw-btn:hover{border-color:#5ad1ff;}
+.daw-btn.on{background:rgba(90,209,255,.2);border-color:#5ad1ff;color:#bff;}
+body.se-active .daw-btn{background:rgba(var(--se-ink-rgb),.6);border-color:rgba(var(--se-line-rgb),.45);color:var(--se-glow);}
+.daw-lab{font-size:9px;color:#8792ab;display:flex;align-items:center;gap:4px;}
+.daw-lab input,.daw-lab select{background:#12141a;border:1px solid #333a48;color:#cfe;border-radius:4px;padding:2px 4px;font-size:10px;width:58px;}
+#daw-body{flex:1;display:flex;overflow:hidden;}
+#daw-heads{width:186px;flex-shrink:0;overflow-y:auto;background:#0c0e15;border-right:1px solid #262b38;padding-top:26px;}
+body.se-active #daw-heads{background:rgba(var(--se-ink-rgb),.5);border-color:rgba(var(--se-line-rgb),.35);}
+#daw-tl-wrap{flex:1;overflow:auto;position:relative;}
+#daw-ruler{position:sticky;top:0;height:26px;background:#0c0e15;border-bottom:1px solid #262b38;z-index:3;}
+body.se-active #daw-ruler{background:rgba(var(--se-ink-rgb),.7);}
+.daw-bar{position:absolute;top:0;height:26px;border-left:1px solid #2b3140;color:#5c6784;font-size:9px;padding:2px 3px;}
+#daw-lanes{position:relative;}
+.daw-lane{position:relative;border-bottom:1px solid #1c2030;background:repeating-linear-gradient(90deg,transparent 0,transparent 103px,rgba(255,255,255,.03) 103px,rgba(255,255,255,.03) 104px);}
+.daw-head{border-bottom:1px solid #1c2030;padding:5px 7px;display:flex;flex-direction:column;gap:3px;background:#0e1018;}
+body.se-active .daw-head{background:rgba(var(--se-ink-rgb),.4);}
+.daw-hname{font-size:10px;font-weight:800;letter-spacing:.04em;cursor:text;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.daw-hrow{display:flex;gap:3px;align-items:center;}
+.daw-mini{background:#1a1d25;border:1px solid #333a48;color:#9fb;border-radius:4px;font-size:8px;font-weight:800;padding:2px 5px;cursor:pointer;line-height:1.3;}
+.daw-mini.on{background:rgba(90,209,255,.25);border-color:#5ad1ff;color:#bff;}
+.daw-mini.on-m{background:rgba(255,90,90,.3);border-color:#ff5a5a;color:#fdd;}
+.daw-mini.on-s{background:rgba(255,210,80,.3);border-color:#ffd166;color:#ffe;}
+.daw-vol,.daw-pan{flex:1;height:12px;}
+.daw-clip{position:absolute;top:5px;bottom:5px;border-radius:5px;overflow:hidden;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.25);touch-action:none;}
+.daw-clip.audio{border-style:dashed;}
+.daw-clip-lbl{position:absolute;left:5px;top:3px;font-size:8px;font-weight:800;color:#04121b;text-shadow:0 1px 1px rgba(255,255,255,.3);pointer-events:none;}
+.daw-clip-grip{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;background:rgba(0,0,0,.25);}
+#daw-playhead{position:absolute;top:26px;bottom:0;width:2px;background:#ff3c5a;box-shadow:0 0 6px #ff3c5a;pointer-events:none;z-index:4;left:0;}
+#daw-empty{color:#5c6784;font-size:11px;padding:30px;}
+#daw-rack{display:none;position:absolute;right:0;top:0;bottom:0;width:min(340px,92vw);background:#0e1018;border-left:1px solid #333a48;z-index:6;overflow-y:auto;padding:10px;box-shadow:-8px 0 30px rgba(0,0,0,.5);}
+#daw-rack.open{display:block;}
+body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgba(var(--se-line-rgb),.5);}
+.daw-rack-head{display:flex;align-items:center;gap:6px;margin-bottom:10px;}
+.daw-rack-sec{border:1px solid #262b38;border-radius:8px;padding:9px;margin-bottom:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.daw-rack-sec>b{width:100%;font-size:9px;letter-spacing:.1em;color:#8792ab;}
+.daw-rack-sec select,.daw-rack-sec input[type=number]{background:#12141a;border:1px solid #333a48;color:#cfe;border-radius:4px;padding:3px 5px;font-size:10px;}
+.daw-ins{border:1px solid #2b3140;border-radius:6px;padding:6px;margin-top:6px;width:100%;}
+.daw-ins-top{display:flex;align-items:center;gap:5px;font-size:10px;}
+.daw-knob{display:flex;flex-direction:column;font-size:8px;color:#8792ab;gap:2px;width:100%;margin-top:4px;}
+.daw-knob input{width:100%;}
 @media (max-width:760px){
+  #daw-heads{width:130px;}
   #se-hud-wrap{width:74vw;height:74vw;top:42%;}
   /* the drop-shadow filter re-rasterizes the HUD canvas every frame — on a
      phone GPU that fights the audio pipeline, so the glow comes off */
@@ -1427,6 +1479,7 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
     <button class="bnr-btn" id="bnr-lib" title="Sound library">📚</button>
     <button class="bnr-btn" id="bnr-se" title="SPECIAL EDITION — themed HUD (Samurai · Space Dust · Cyberpunk · Warhammer · Mushroom · Arcade)">⛩</button>
     <button class="bnr-btn" id="bnr-float" title="Floating windows — drag, resize, minimize each tile">🪟</button>
+    <button class="bnr-btn" id="bnr-studio" title="STUDIO — full-song DAW: timeline, mixer, plugin rack, bounce to WAV">🎚</button>
     <button class="bnr-btn" id="bnr-analyze" title="Analyze sound">🔍</button>
     <select id="bnr-style" title="Style"></select>
     <button class="bnr-btn" id="bnr-drums" title="Generate + apply drum pattern">🥁</button>
@@ -1630,6 +1683,7 @@ body.se-active .ai-gen-btn{border-color:rgba(var(--se-line-rgb),.6) !important;c
     <button class="se-bar-btn" id="se-revolve" title="REVOLVE — windows orbit the HUD; scroll wheel spins them"></button>
     <button class="se-bar-btn" id="se-hidethemes" title="Theme options — pick your look" style="font-size:13px">🎨</button>
     <button class="se-bar-btn" id="se-settings" title="Settings — MIDI, Bluetooth, controller, pad programming, saved library, skins" style="font-size:13px">⚙</button>
+    <button class="se-bar-btn" id="se-studio" title="STUDIO — full-song DAW: timeline, mixer, plugin rack, bounce to WAV" style="font-size:13px">🎚</button>
     <div class="spacer"></div>
   </div>
   <canvas class="se-arc left" id="se-arc-l"></canvas>
@@ -8039,6 +8093,582 @@ window.addEventListener('unhandledrejection', e => {
 // Mushroom / 80s Arcade. The consumer edition never sees any of this and
 // lands in the classic studio as always.
 if (window.SKRIMPAD_EDITION !== 'consumer') setTimeout(() => enterSE(), 50);
+
+
+// ===== DAW MODULE (spliced) =====
+// =====================================================================
+// SKRiMPAD STUDIO — in-app DAW: arrangement timeline + mixer + plugin rack
+// Full-song production. Tracks each carry an instrument (sampler / synth /
+// drum-kit) plus an insert-FX chain and a mixer strip; clips are arranged on
+// a bars/beats timeline; the whole song bounces to a WAV.
+// (This is the web-native equivalent of a VST rack — native VST binaries can't
+//  run inside a WebView/Electron sandbox, so the rack is built-in instruments
+//  + effects with the same per-track workflow.)
+// =====================================================================
+const DAW = {
+  open: false, playing: false, loop: false,
+  bpm: 120, bars: 16, beatsPerBar: 4,
+  tracks: [], sel: -1, playhead: 0,
+  pxPerBeat: 26, rowH: 62, _raf: null, _sched: null,
+  _events: null, _idx: 0, _startCtx: 0, _songBeats: 0,
+  _capture: null, _capChunks: null, _capRate: 44100, bouncing: false
+};
+function dawMaster() { return (typeof masterComp !== 'undefined' && masterComp) ? masterComp : getOutput(); }
+function dawBeatSec() { return 60 / DAW.bpm; }
+let dawTrackId = 0;
+
+// ---- INSERT PLUGINS (the effect half of the rack) -------------------
+function dawMakeInsert(type) {
+  const ins = { type, on: true, params: {}, input: ctx.createGain(), output: ctx.createGain() };
+  const wet = ctx.createGain(), dry = ctx.createGain();
+  const def = DAW_FX[type];
+  ins.params = Object.assign({}, def.defaults);
+  const build = () => {
+    try { ins.input.disconnect(); } catch (e) {}
+    try { wet.disconnect(); dry.disconnect(); } catch (e) {}
+    ins._nodes = def.make(ins.params);
+    if (!ins.on || !ins._nodes) { ins.input.connect(ins.output); return; }
+    // wet/dry so bypass is clean; most FX are fully wet except delay/reverb
+    ins.input.connect(ins._nodes.in);
+    ins._nodes.out.connect(ins.output);
+    if (ins._nodes.parallelDry) { ins.input.connect(ins.output); }
+  };
+  ins.rebuild = build; build();
+  ins.setParam = (k, v) => { ins.params[k] = v; build(); };
+  ins.setOn = (on) => { ins.on = on; build(); };
+  return ins;
+}
+const DAW_FX = {
+  eq: { label: 'EQ (3-BAND)', defaults: { low: 0, mid: 0, high: 0 },
+    make: p => {
+      const lo = ctx.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 220; lo.gain.value = p.low;
+      const md = ctx.createBiquadFilter(); md.type = 'peaking'; md.frequency.value = 1200; md.Q.value = 0.8; md.gain.value = p.mid;
+      const hi = ctx.createBiquadFilter(); hi.type = 'highshelf'; hi.frequency.value = 4500; hi.gain.value = p.high;
+      lo.connect(md); md.connect(hi); return { in: lo, out: hi };
+    }, ranges: { low: [-18, 18], mid: [-18, 18], high: [-18, 18] } },
+  filter: { label: 'FILTER', defaults: { cut: 1200, res: 1 },
+    make: p => { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = p.cut; f.Q.value = p.res; return { in: f, out: f }; },
+    ranges: { cut: [80, 12000], res: [0.1, 18] } },
+  comp: { label: 'COMPRESSOR', defaults: { thresh: -20, ratio: 4 },
+    make: p => { const c = ctx.createDynamicsCompressor(); c.threshold.value = p.thresh; c.ratio.value = p.ratio; c.attack.value = 0.005; c.release.value = 0.18; return { in: c, out: c }; },
+    ranges: { thresh: [-60, 0], ratio: [1, 20] } },
+  drive: { label: 'DISTORTION', defaults: { amt: 30 },
+    make: p => {
+      const ws = ctx.createWaveShaper(), n = 2048, c = new Float32Array(n), k = p.amt;
+      for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+      ws.curve = c; ws.oversample = '2x';
+      const g = ctx.createGain(); g.gain.value = 0.7; ws.connect(g); return { in: ws, out: g };
+    }, ranges: { amt: [0, 100] } },
+  delay: { label: 'DELAY', defaults: { time: 0.3, fb: 0.35, mix: 0.3 },
+    make: p => {
+      const inN = ctx.createGain(), out = ctx.createGain();
+      const d = ctx.createDelay(2); d.delayTime.value = p.time;
+      const fb = ctx.createGain(); fb.gain.value = p.fb;
+      const wet = ctx.createGain(); wet.gain.value = p.mix;
+      inN.connect(out); inN.connect(d); d.connect(fb); fb.connect(d); d.connect(wet); wet.connect(out);
+      return { in: inN, out };
+    }, ranges: { time: [0.02, 1], fb: [0, 0.9], mix: [0, 1] } },
+  reverb: { label: 'REVERB', defaults: { size: 2, mix: 0.3 },
+    make: p => {
+      const inN = ctx.createGain(), out = ctx.createGain();
+      const cv = ctx.createConvolver(); cv.buffer = dawImpulse(p.size);
+      const wet = ctx.createGain(); wet.gain.value = p.mix;
+      inN.connect(out); inN.connect(cv); cv.connect(wet); wet.connect(out);
+      return { in: inN, out };
+    }, ranges: { size: [0.2, 6], mix: [0, 1] } }
+};
+function dawImpulse(sec) {
+  const sr = ctx.sampleRate, len = Math.max(1, Math.ceil(sr * sec)), b = ctx.createBuffer(2, len, sr);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  return b;
+}
+
+// ---- TRACKS (instrument + rack + mixer strip) -----------------------
+const DAW_COLORS = ['#e0518a', '#5ad1ff', '#3ddc84', '#ffd166', '#b06cff', '#ff7a1a', '#22d3c5', '#ff5a7a'];
+function dawAddTrack(opts) {
+  opts = opts || {};
+  const tr = {
+    id: ++dawTrackId, name: opts.name || ('TRACK ' + (DAW.tracks.length + 1)),
+    color: opts.color || DAW_COLORS[DAW.tracks.length % DAW_COLORS.length],
+    instrument: opts.instrument || { type: 'synth', root: 60, attack: 0.01, release: 0.3, wave: 'sawtooth', buf: null, libRef: null },
+    inserts: [], vol: 0.85, pan: 0, mute: false, solo: false, clips: []
+  };
+  DAW.tracks.push(tr);
+  return tr;
+}
+function dawTrackNode(tr) {
+  if (tr._in && tr._out && tr._pan) return tr._in;
+  if (!tr._in) tr._in = ctx.createGain();
+  if (!tr._pan) tr._pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+  if (!tr._out) tr._out = ctx.createGain();
+  dawWireTrack(tr);
+  dawApplyMix(tr);
+  return tr._in;
+}
+function dawWireTrack(tr) {
+  if (!tr._in || !tr._pan || !tr._out) return; // nodes not fully built yet — wire on first play
+  try { tr._in.disconnect(); } catch (e) {}
+  try { tr._pan.disconnect(); } catch (e) {}
+  let node = tr._in;
+  if (tr._pan.pan !== undefined) { node.connect(tr._pan); node = tr._pan; }
+  for (const ins of tr.inserts) { node.connect(ins.input); node = ins.output; try { ins.output.disconnect(); } catch (e) {} }
+  node.connect(tr._out);
+  try { tr._out.disconnect(); } catch (e) {}
+  tr._out.connect(dawMaster());
+}
+function dawApplyMix(tr) {
+  if (!tr._in || !tr._out || !tr._pan) return;
+  const anySolo = DAW.tracks.some(t => t.solo);
+  const audible = tr.mute ? 0 : (anySolo && !tr.solo ? 0 : tr.vol);
+  tr._out.gain.value = audible;
+  if (tr._pan.pan !== undefined) tr._pan.pan.value = tr.pan;
+}
+function dawApplyAllMix() { DAW.tracks.forEach(dawApplyMix); }
+
+// ---- INSTRUMENTS (the instrument half of the rack) ------------------
+function dawRenderNote(tr, note, when, durSec) {
+  const node = dawTrackNode(tr), inst = tr.instrument, vel = note.vel != null ? note.vel : 0.9;
+  if (inst.type === 'drum') {
+    const pad = note.pad != null ? note.pad : (inst.pad || 0);
+    if (!drumDefs[pad]) return;
+    const old = routeOverride; routeOverride = node;
+    try { drumDefs[pad].fn(when); } finally { routeOverride = old; }
+    return;
+  }
+  if (inst.type === 'sampler') {
+    if (!inst.buf) return;
+    const rate = Math.pow(2, ((note.midi != null ? note.midi : 60) - (inst.root || 60)) / 12);
+    const r = playSampleBuf(inst.buf, when, rate, vel, node);
+    const rel = inst.release || 0.2;
+    r.g.gain.setValueAtTime(vel, when + Math.max(0.02, durSec));
+    r.g.gain.linearRampToValueAtTime(0.0001, when + Math.max(0.02, durSec) + rel);
+    try { r.src.stop(when + durSec + rel + 0.05); } catch (e) {}
+    return;
+  }
+  // synth voice (2-osc-ish saw/square with ADSR) → track node
+  const freq = freqFromMidi(note.midi != null ? note.midi : 60);
+  const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+  o.type = inst.wave || 'sawtooth'; o2.type = 'square'; o.frequency.value = freq; o2.frequency.value = freq * 1.005;
+  f.type = 'lowpass'; f.frequency.value = inst.cut || 4000; f.Q.value = 0.7;
+  const a = inst.attack || 0.01, rel = inst.release || 0.3, o2g = ctx.createGain(); o2g.gain.value = 0.35;
+  o.connect(f); o2.connect(o2g); o2g.connect(f); f.connect(g); g.connect(node);
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(vel, when + a);
+  g.gain.setValueAtTime(vel, when + Math.max(a, durSec)); g.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(a, durSec) + rel);
+  o.start(when); o2.start(when); o.stop(when + durSec + rel + 0.05); o2.stop(when + durSec + rel + 0.05);
+}
+
+// ---- CLIP CONTENT CAPTURE (reuse the beats/melodies you already make) ----
+function dawCaptureDrums() {
+  const notes = [];
+  for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) if (seqPatterns[t] && seqPatterns[t][s]) notes.push({ beat: s / 4, pad: t, vel: 0.95 });
+  if (!notes.length) { toast('Draw a beat on the pads/sequencer first'); return; }
+  let tr = DAW.tracks.find(t => t.instrument.type === 'drum');
+  if (!tr) tr = dawAddTrack({ name: 'DRUMS', instrument: { type: 'drum' }, color: '#e0518a' });
+  tr.clips.push({ start: dawFreeSlot(tr), len: 4, kind: 'pattern', notes, patLen: 4 });
+  dawRenderTimeline(); toast('🥁 Beat captured to the timeline');
+}
+function dawCaptureMelody() {
+  const lane = keyLanes[curLane]; const notes = [];
+  lane.steps.forEach((c, s) => { if (c) notes.push({ beat: s / 4, midi: c.midi, vel: 0.9, len: c.sustain ? 0.5 : 0.24 }); });
+  if (!notes.length) { toast('Write a melody on the key sequencer first'); return; }
+  const tr = dawAddTrack({ name: 'MELODY ' + (DAW.tracks.length + 1), instrument: { type: 'synth', wave: 'sawtooth', attack: 0.01, release: 0.35, cut: 5000 } });
+  tr.clips.push({ start: dawFreeSlot(tr), len: 4, kind: 'pattern', notes, patLen: 4 });
+  dawRenderTimeline(); toast('🎹 Melody captured to the timeline');
+}
+function dawFreeSlot(tr) { let m = 0; tr.clips.forEach(c => { m = Math.max(m, c.start + c.len); }); return m; }
+
+// ---- BUILD THE PLAYBACK EVENT LIST ----------------------------------
+function dawBuildEvents() {
+  const bs = dawBeatSec(), ev = [];
+  let songBeats = 0;
+  DAW.tracks.forEach(tr => {
+    tr.clips.forEach(clip => {
+      songBeats = Math.max(songBeats, clip.start + clip.len);
+      if (clip.kind === 'audio') {
+        ev.push({ t: clip.start * bs, tr, audio: clip.buf, rate: clip.rate || 1 });
+      } else {
+        const patLen = clip.patLen || 4;
+        // loop the pattern to fill the clip length
+        for (let off = 0; off < clip.len - 1e-6; off += patLen) {
+          clip.notes.forEach(n => {
+            const b = clip.start + off + n.beat;
+            if (b >= clip.start + clip.len - 1e-6) return;
+            ev.push({ t: b * bs, tr, note: n, dur: (n.len || 0.22) * bs });
+          });
+        }
+      }
+    });
+  });
+  ev.sort((a, b) => a.t - b.t);
+  DAW._events = ev; DAW._songBeats = Math.max(songBeats, DAW.bars * DAW.beatsPerBar ? songBeats : 4);
+  DAW._songBeats = songBeats || 4;
+  return ev;
+}
+function dawScheduleEvent(e, when) {
+  if (e.audio) { playSampleBuf(e.audio, when, e.rate || 1, 0.95, dawTrackNode(e.tr)); }
+  else dawRenderNote(e.tr, e.note, when, e.dur);
+}
+
+// ---- TRANSPORT ------------------------------------------------------
+function dawPlay() {
+  if (!audioReady) initAudio();
+  if (ctx.state === 'suspended') ctx.resume();
+  if (DAW.playing) return;
+  DAW.tracks.forEach(dawTrackNode); dawApplyAllMix();
+  dawBuildEvents();
+  DAW.playing = true; DAW._idx = 0;
+  DAW._startCtx = ctx.currentTime + 0.12;
+  dawTick();
+  dawPlayheadLoop();
+  const pb = document.getElementById('daw-play'); if (pb) pb.textContent = '⏸';
+}
+function dawTick() {
+  if (!DAW.playing) return;
+  const bs = dawBeatSec(), songSec = DAW._songBeats * bs;
+  const elapsed = ctx.currentTime - DAW._startCtx;
+  const horizon = elapsed + 0.12;
+  let n = 0;
+  while (DAW._idx < DAW._events.length && DAW._events[DAW._idx].t <= horizon && n++ < 256) {
+    const e = DAW._events[DAW._idx++];
+    dawScheduleEvent(e, DAW._startCtx + e.t);
+  }
+  if (elapsed >= songSec) {
+    if (DAW.loop) { DAW._idx = 0; DAW._startCtx = ctx.currentTime + 0.02; }
+    else if (!DAW.bouncing) { dawStop(); return; }
+    else { dawFinishBounce(); return; }
+  }
+  DAW._sched = setTimeout(dawTick, 25);
+}
+function dawStop() {
+  DAW.playing = false;
+  clearTimeout(DAW._sched);
+  if (DAW._raf) cancelAnimationFrame(DAW._raf);
+  DAW.playhead = 0;
+  const pb = document.getElementById('daw-play'); if (pb) pb.textContent = '▶';
+  dawDrawPlayhead();
+}
+function dawPlayheadLoop() {
+  if (!DAW.playing) return;
+  const bs = dawBeatSec();
+  DAW.playhead = Math.max(0, (ctx.currentTime - DAW._startCtx)) / bs;
+  dawDrawPlayhead();
+  DAW._raf = requestAnimationFrame(dawPlayheadLoop);
+}
+function dawDrawPlayhead() {
+  const ph = document.getElementById('daw-playhead'); if (!ph) return;
+  ph.style.left = (DAW.playhead * DAW.pxPerBeat) + 'px';
+}
+
+// ---- SONG BOUNCE → WAV (real-time capture of the live master) --------
+function dawBounce() {
+  if (!audioReady) initAudio();
+  if (DAW.bouncing) return;
+  if (!DAW.tracks.some(t => t.clips.length)) { toast('Add some clips to the timeline first'); return; }
+  toast('⏺ Bouncing the song in real time — playing it through once…');
+  DAW.bouncing = true; DAW._capChunks = []; DAW._capRate = ctx.sampleRate;
+  const tap = ctx.createScriptProcessor ? ctx.createScriptProcessor(4096, 2, 2) : null;
+  if (!tap) { DAW.bouncing = false; toast('Bounce not supported on this build'); return; }
+  DAW._capture = tap;
+  tap.onaudioprocess = e => {
+    const L = e.inputBuffer.getChannelData(0), R = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : L;
+    DAW._capChunks.push([new Float32Array(L), new Float32Array(R)]);
+    const o0 = e.outputBuffer.getChannelData(0), o1 = e.outputBuffer.getChannelData(1);
+    for (let i = 0; i < o0.length; i++) { o0[i] = 0; o1[i] = 0; } // silent tap — original master still plays
+  };
+  try { dawMaster().connect(tap); tap.connect(ctx.destination); } catch (e) {}
+  dawPlay();
+}
+function dawFinishBounce() {
+  dawStop();
+  try { dawMaster().disconnect(DAW._capture); } catch (e) {}
+  try { DAW._capture.disconnect(); } catch (e) {}
+  DAW._capture.onaudioprocess = null; DAW._capture = null;
+  const chunks = DAW._capChunks || []; DAW._capChunks = null; DAW.bouncing = false;
+  let total = 0; chunks.forEach(c => total += c[0].length);
+  if (!total) { toast('Bounce captured no audio'); return; }
+  const L = new Float32Array(total), R = new Float32Array(total);
+  let o = 0; chunks.forEach(c => { L.set(c[0], o); R.set(c[1], o); o += c[0].length; });
+  const wav = dawEncodeWAV([L, R], DAW._capRate);
+  const name = 'skrimpad-song-' + Date.now() + '.wav';
+  dawSaveBlob(wav, name);
+  toast('✅ Song bounced → ' + name);
+}
+function dawEncodeWAV(chans, sr) {
+  const n = chans[0].length, numCh = chans.length, bytes = n * numCh * 2;
+  const buf = new ArrayBuffer(44 + bytes), v = new DataView(buf);
+  const W = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  W(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); W(8, 'WAVE'); W(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, numCh, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * numCh * 2, true); v.setUint16(32, numCh * 2, true); v.setUint16(34, 16, true);
+  W(36, 'data'); v.setUint32(40, bytes, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < numCh; c++) {
+    let s = Math.max(-1, Math.min(1, chans[c][i])); v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); o += 2;
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+function dawSaveBlob(blob, name) {
+  if (typeof AndroidFileHandler !== 'undefined' && AndroidFileHandler.openDownloadManager) {
+    const rd = new FileReader();
+    rd.onload = () => { try { AndroidFileHandler.openDownloadManager(rd.result.split(',')[1], name); } catch (e) {} };
+    rd.readAsDataURL(blob); return;
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// ---- PERSISTENCE ----------------------------------------------------
+function dawSerialize() {
+  return {
+    bpm: DAW.bpm, bars: DAW.bars,
+    tracks: DAW.tracks.map(tr => ({
+      name: tr.name, color: tr.color, vol: tr.vol, pan: tr.pan, mute: tr.mute, solo: tr.solo,
+      instrument: { type: tr.instrument.type, root: tr.instrument.root, wave: tr.instrument.wave,
+        attack: tr.instrument.attack, release: tr.instrument.release, cut: tr.instrument.cut,
+        pad: tr.instrument.pad, libRef: tr.instrument.libRef },
+      inserts: tr.inserts.map(i => ({ type: i.type, on: i.on, params: i.params })),
+      clips: tr.clips.map(c => ({ start: c.start, len: c.len, kind: c.kind, patLen: c.patLen, notes: c.notes, libRef: c.libRef }))
+    }))
+  };
+}
+async function dawDeserialize(data) {
+  if (!data) return;
+  DAW.bpm = data.bpm || 120; DAW.bars = data.bars || 16; DAW.tracks = []; dawTrackId = 0;
+  for (const t of (data.tracks || [])) {
+    const tr = dawAddTrack({ name: t.name, color: t.color, instrument: Object.assign({ type: 'synth' }, t.instrument) });
+    tr.vol = t.vol != null ? t.vol : 0.85; tr.pan = t.pan || 0; tr.mute = !!t.mute; tr.solo = !!t.solo;
+    (t.inserts || []).forEach(i => { const ins = dawMakeInsert(i.type); Object.assign(ins.params, i.params || {}); ins.on = i.on !== false; ins.rebuild(); tr.inserts.push(ins); });
+    tr.clips = (t.clips || []).map(c => ({ start: c.start, len: c.len, kind: c.kind, patLen: c.patLen, notes: c.notes || [], libRef: c.libRef }));
+    // restore sampler/audio buffers lazily from the library by name
+    if (t.instrument && t.instrument.libRef) { const hit = Object.values(SOUND_LIB).flat().find(s => s.name === t.instrument.libRef); if (hit) libEnsureBuf(hit).then(b => { if (b) tr.instrument.buf = b; }); }
+    for (const c of tr.clips) if (c.kind === 'audio' && c.libRef) { const hit = Object.values(SOUND_LIB).flat().find(s => s.name === c.libRef); if (hit) { const b = await libEnsureBuf(hit); if (b) c.buf = b; } }
+  }
+}
+function dawSaveLocal() { try { localStorage.setItem('skrimpad_daw', JSON.stringify(dawSerialize())); } catch (e) {} }
+
+console.log('DAW module parsed');
+
+// ---- DAW UI (built in JS; themes off body's --se-* vars when SE is live) ----
+function dawInjectDOM() {
+  if (document.getElementById('daw-modal')) return;
+  const m = document.createElement('div'); m.id = 'daw-modal';
+  m.innerHTML =
+    '<div id="daw-shell">' +
+      '<div id="daw-top">' +
+        '<b id="daw-logo">🎚 SKRiMPAD STUDIO</b>' +
+        '<button class="daw-btn" id="daw-play">▶</button>' +
+        '<button class="daw-btn" id="daw-stop">■</button>' +
+        '<button class="daw-btn" id="daw-loop">LOOP</button>' +
+        '<label class="daw-lab">BPM <input id="daw-bpm" type="number" min="40" max="300" value="120"></label>' +
+        '<button class="daw-btn" id="daw-cap-drums">＋ CAPTURE BEAT</button>' +
+        '<button class="daw-btn" id="daw-cap-mel">＋ CAPTURE MELODY</button>' +
+        '<button class="daw-btn" id="daw-add-audio">＋ AUDIO CLIP</button>' +
+        '<button class="daw-btn" id="daw-add-track">＋ TRACK</button>' +
+        '<div style="flex:1"></div>' +
+        '<button class="daw-btn" id="daw-bounce">⭳ BOUNCE WAV</button>' +
+        '<button class="daw-btn" id="daw-close">✕</button>' +
+      '</div>' +
+      '<div id="daw-body">' +
+        '<div id="daw-heads"></div>' +
+        '<div id="daw-tl-wrap"><div id="daw-ruler"></div><div id="daw-lanes"></div><div id="daw-playhead"></div></div>' +
+      '</div>' +
+      '<div id="daw-rack"></div>' +
+    '</div>';
+  document.body.appendChild(m);
+  document.getElementById('daw-close').addEventListener('click', dawCloseUI);
+  document.getElementById('daw-play').addEventListener('click', () => DAW.playing ? dawStop() : dawPlay());
+  document.getElementById('daw-stop').addEventListener('click', dawStop);
+  document.getElementById('daw-loop').addEventListener('click', e => { DAW.loop = !DAW.loop; e.target.classList.toggle('on', DAW.loop); });
+  document.getElementById('daw-bpm').addEventListener('change', e => { DAW.bpm = Math.max(40, Math.min(300, parseInt(e.target.value) || 120)); });
+  document.getElementById('daw-cap-drums').addEventListener('click', dawCaptureDrums);
+  document.getElementById('daw-cap-mel').addEventListener('click', dawCaptureMelody);
+  document.getElementById('daw-add-audio').addEventListener('click', dawAddAudioClip);
+  document.getElementById('daw-add-track').addEventListener('click', () => { dawAddTrack({}); dawRenderTimeline(); });
+  document.getElementById('daw-bounce').addEventListener('click', dawBounce);
+}
+function dawOpenUI() {
+  if (!audioReady) initAudio();
+  dawInjectDOM();
+  if (!DAW.tracks.length) { try { const s = JSON.parse(localStorage.getItem('skrimpad_daw') || 'null'); if (s) dawDeserialize(s); } catch (e) {} }
+  DAW.open = true;
+  document.getElementById('daw-modal').classList.add('open');
+  document.getElementById('daw-bpm').value = DAW.bpm;
+  dawRenderTimeline();
+}
+function dawCloseUI() { dawStop(); dawSaveLocal(); DAW.open = false; const m = document.getElementById('daw-modal'); if (m) m.classList.remove('open'); dawCloseRack(); }
+function dawToggleUI() { DAW.open ? dawCloseUI() : dawOpenUI(); }
+
+function dawAddAudioClip() {
+  importAudioSample((buf, name) => {
+    const tr = dawAddTrack({ name: (name || 'AUDIO').slice(0, 14), instrument: { type: 'sampler', root: 60, buf, libRef: name } });
+    tr.instrument.buf = buf;
+    const beats = Math.max(1, Math.round((buf.duration / dawBeatSec())));
+    tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf, rate: 1, libRef: name });
+    dawRenderTimeline();
+  }, 'AUDIO CLIP');
+}
+
+function dawRenderTimeline() {
+  const heads = document.getElementById('daw-heads'), lanes = document.getElementById('daw-lanes'), ruler = document.getElementById('daw-ruler');
+  if (!heads) return;
+  const totalBeats = Math.max(DAW.bars * DAW.beatsPerBar, dawFreeSlotAll() + 8);
+  const W = totalBeats * DAW.pxPerBeat;
+  // ruler
+  ruler.innerHTML = ''; ruler.style.width = W + 'px';
+  for (let bar = 0; bar * DAW.beatsPerBar < totalBeats; bar++) {
+    const tick = document.createElement('div'); tick.className = 'daw-bar'; tick.style.left = (bar * DAW.beatsPerBar * DAW.pxPerBeat) + 'px';
+    tick.textContent = (bar + 1); ruler.appendChild(tick);
+  }
+  heads.innerHTML = ''; lanes.innerHTML = ''; lanes.style.width = W + 'px';
+  DAW.tracks.forEach((tr, ti) => {
+    // mixer-strip head
+    const h = document.createElement('div'); h.className = 'daw-head'; h.style.height = DAW.rowH + 'px'; h.style.borderLeft = '4px solid ' + tr.color;
+    h.innerHTML =
+      '<div class="daw-hname" title="rename">' + tr.name + '</div>' +
+      '<div class="daw-hrow">' +
+        '<button class="daw-mini" data-a="rack" title="instrument + FX rack">🎛</button>' +
+        '<button class="daw-mini' + (tr.mute ? ' on-m' : '') + '" data-a="mute">M</button>' +
+        '<button class="daw-mini' + (tr.solo ? ' on-s' : '') + '" data-a="solo">S</button>' +
+        '<button class="daw-mini" data-a="del" title="delete track">🗑</button>' +
+      '</div>' +
+      '<div class="daw-hrow"><input class="daw-vol" type="range" min="0" max="1" step="0.01" value="' + tr.vol + '" title="volume">' +
+        '<input class="daw-pan" type="range" min="-1" max="1" step="0.02" value="' + tr.pan + '" title="pan"></div>';
+    h.querySelector('.daw-hname').addEventListener('dblclick', async () => { const n = await uiPrompt('Track name', tr.name); if (n && n.trim()) { tr.name = n.trim().slice(0, 16); dawRenderTimeline(); } });
+    h.querySelector('[data-a=rack]').addEventListener('click', () => dawOpenRack(tr));
+    h.querySelector('[data-a=mute]').addEventListener('click', () => { tr.mute = !tr.mute; dawApplyAllMix(); dawRenderTimeline(); });
+    h.querySelector('[data-a=solo]').addEventListener('click', () => { tr.solo = !tr.solo; dawApplyAllMix(); dawRenderTimeline(); });
+    h.querySelector('[data-a=del]').addEventListener('click', () => { if (confirm('Delete track "' + tr.name + '"?')) { DAW.tracks.splice(ti, 1); dawApplyAllMix(); dawRenderTimeline(); } });
+    h.querySelector('.daw-vol').addEventListener('input', e => { tr.vol = parseFloat(e.target.value); dawApplyMix(tr); });
+    h.querySelector('.daw-pan').addEventListener('input', e => { tr.pan = parseFloat(e.target.value); dawApplyMix(tr); });
+    heads.appendChild(h);
+    // lane + clips
+    const lane = document.createElement('div'); lane.className = 'daw-lane'; lane.style.height = DAW.rowH + 'px'; lane.style.width = W + 'px';
+    lane.addEventListener('dblclick', e => { // dbl-click empty lane = duplicate the nearest clip here
+      if (e.target !== lane) return;
+      const beat = Math.round((e.offsetX / DAW.pxPerBeat));
+      const src = tr.clips[tr.clips.length - 1]; if (!src) return;
+      tr.clips.push(Object.assign({}, src, { start: beat, notes: src.notes })); dawRenderTimeline();
+    });
+    tr.clips.forEach((clip, ci) => {
+      const el = document.createElement('div'); el.className = 'daw-clip' + (clip.kind === 'audio' ? ' audio' : '');
+      el.style.left = (clip.start * DAW.pxPerBeat) + 'px'; el.style.width = (clip.len * DAW.pxPerBeat - 2) + 'px';
+      el.style.background = 'linear-gradient(180deg,' + tr.color + 'cc,' + tr.color + '77)';
+      el.innerHTML = '<span class="daw-clip-lbl">' + (clip.kind === 'audio' ? '♪ ' : '▤ ') + (clip.notes ? clip.notes.length + ' notes' : 'audio') + '</span><span class="daw-clip-grip"></span>';
+      dawClipInteract(el, tr, clip);
+      lane.appendChild(el);
+    });
+    lanes.appendChild(lane);
+  });
+  if (!DAW.tracks.length) lanes.innerHTML = '<div id="daw-empty">Capture a beat or melody, add an audio clip, or ＋ TRACK to start your song →</div>';
+  dawDrawPlayhead();
+}
+function dawFreeSlotAll() { let m = 0; DAW.tracks.forEach(t => t.clips.forEach(c => m = Math.max(m, c.start + c.len))); return m; }
+
+function dawClipInteract(el, tr, clip) {
+  const grip = el.querySelector('.daw-clip-grip');
+  let mode = null, sx = 0, s0 = 0, l0 = 0;
+  el.addEventListener('pointerdown', e => {
+    if (e.target === grip) { mode = 'resize'; } else { mode = 'move'; }
+    sx = e.clientX; s0 = clip.start; l0 = clip.len;
+    try { el.setPointerCapture(e.pointerId); } catch (x) {}
+    e.stopPropagation();
+  });
+  el.addEventListener('pointermove', e => {
+    if (!mode) return;
+    const db = Math.round((e.clientX - sx) / DAW.pxPerBeat);
+    if (mode === 'move') { clip.start = Math.max(0, s0 + db); el.style.left = (clip.start * DAW.pxPerBeat) + 'px'; }
+    else { clip.len = Math.max(1, l0 + db); el.style.width = (clip.len * DAW.pxPerBeat - 2) + 'px'; }
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => el.addEventListener(ev, () => { if (mode) { mode = null; dawRenderTimeline(); } }));
+  el.addEventListener('contextmenu', e => { e.preventDefault(); if (confirm('Delete this clip?')) { tr.clips.splice(tr.clips.indexOf(clip), 1); dawRenderTimeline(); } });
+  addLongPress(el, () => { if (confirm('Delete this clip?')) { tr.clips.splice(tr.clips.indexOf(clip), 1); dawRenderTimeline(); } });
+}
+
+// ---- RACK EDITOR (instrument + insert FX + presets) -----------------
+function dawOpenRack(tr) {
+  DAW._rackTr = tr;
+  const r = document.getElementById('daw-rack'); if (!r) return;
+  const inst = tr.instrument;
+  let html = '<div class="daw-rack-head"><b>🎛 ' + tr.name + ' — RACK</b><div style="flex:1"></div><button class="daw-btn" id="daw-rack-close">✕</button></div>';
+  html += '<div class="daw-rack-sec"><b>INSTRUMENT</b><select id="daw-inst-type">' +
+    ['synth', 'sampler', 'drum'].map(t => '<option value="' + t + '"' + (inst.type === t ? ' selected' : '') + '>' + t.toUpperCase() + '</option>').join('') + '</select>';
+  if (inst.type === 'sampler') {
+    html += '<button class="daw-btn" id="daw-inst-load">' + (inst.buf ? 'REPLACE SOUND' : 'LOAD SOUND') + '</button>' +
+      '<label class="daw-lab">ROOT <input id="daw-inst-root" type="number" min="24" max="96" value="' + (inst.root || 60) + '"></label>';
+  } else if (inst.type === 'synth') {
+    html += '<label class="daw-lab">WAVE <select id="daw-inst-wave">' + ['sawtooth', 'square', 'triangle', 'sine'].map(w => '<option' + (inst.wave === w ? ' selected' : '') + '>' + w + '</option>').join('') + '</select></label>' +
+      '<label class="daw-lab">CUT <input id="daw-inst-cut" type="range" min="200" max="10000" value="' + (inst.cut || 4000) + '"></label>';
+  } else {
+    html += '<label class="daw-lab">PAD <select id="daw-inst-pad">' + drumDefs.map((d, i) => '<option value="' + i + '"' + ((inst.pad || 0) === i ? ' selected' : '') + '>' + d.name + '</option>').join('') + '</select></label>';
+  }
+  html += '</div><div class="daw-rack-sec"><b>INSERTS</b><div id="daw-ins-list"></div>' +
+    '<select id="daw-ins-add"><option value="">＋ add insert…</option>' + Object.keys(DAW_FX).map(k => '<option value="' + k + '">' + DAW_FX[k].label + '</option>').join('') + '</select></div>' +
+    '<div class="daw-rack-sec"><button class="daw-btn" id="daw-preset-save">💾 SAVE PRESET</button><button class="daw-btn" id="daw-preset-load">📂 LOAD PRESET</button></div>';
+  r.innerHTML = html; r.classList.add('open');
+  document.getElementById('daw-rack-close').addEventListener('click', dawCloseRack);
+  document.getElementById('daw-inst-type').addEventListener('change', e => { inst.type = e.target.value; dawOpenRack(tr); dawRenderTimeline(); });
+  if (inst.type === 'sampler') {
+    document.getElementById('daw-inst-load').addEventListener('click', () => importAudioSample((buf, name) => { inst.buf = buf; inst.libRef = name; toast(tr.name + ': instrument = ' + name); }, tr.name + ' instrument'));
+    document.getElementById('daw-inst-root').addEventListener('change', e => inst.root = parseInt(e.target.value) || 60);
+  } else if (inst.type === 'synth') {
+    document.getElementById('daw-inst-wave').addEventListener('change', e => inst.wave = e.target.value);
+    document.getElementById('daw-inst-cut').addEventListener('input', e => inst.cut = parseInt(e.target.value));
+  } else {
+    document.getElementById('daw-inst-pad').addEventListener('change', e => inst.pad = parseInt(e.target.value));
+  }
+  document.getElementById('daw-ins-add').addEventListener('change', e => { if (e.target.value) { tr.inserts.push(dawMakeInsert(e.target.value)); dawWireTrack(tr); dawOpenRack(tr); } });
+  document.getElementById('daw-preset-save').addEventListener('click', () => dawSavePreset(tr));
+  document.getElementById('daw-preset-load').addEventListener('click', () => dawLoadPreset(tr));
+  dawRenderInserts(tr);
+}
+function dawRenderInserts(tr) {
+  const list = document.getElementById('daw-ins-list'); if (!list) return;
+  list.innerHTML = '';
+  tr.inserts.forEach((ins, i) => {
+    const def = DAW_FX[ins.type];
+    const box = document.createElement('div'); box.className = 'daw-ins';
+    let h = '<div class="daw-ins-top"><button class="daw-mini' + (ins.on ? ' on' : '') + '" data-x="on">' + (ins.on ? 'ON' : 'OFF') + '</button><b>' + def.label + '</b><div style="flex:1"></div><button class="daw-mini" data-x="up">▲</button><button class="daw-mini" data-x="rm">🗑</button></div>';
+    Object.keys(def.ranges).forEach(k => {
+      const rg = def.ranges[k];
+      h += '<label class="daw-knob">' + k + '<input type="range" data-k="' + k + '" min="' + rg[0] + '" max="' + rg[1] + '" step="' + ((rg[1] - rg[0]) / 100) + '" value="' + ins.params[k] + '"></label>';
+    });
+    box.innerHTML = h;
+    box.querySelector('[data-x=on]').addEventListener('click', () => { ins.setOn(!ins.on); dawWireTrack(tr); dawRenderInserts(tr); });
+    box.querySelector('[data-x=rm]').addEventListener('click', () => { tr.inserts.splice(i, 1); dawWireTrack(tr); dawRenderInserts(tr); });
+    box.querySelector('[data-x=up]').addEventListener('click', () => { if (i > 0) { const t = tr.inserts[i - 1]; tr.inserts[i - 1] = tr.inserts[i]; tr.inserts[i] = t; dawWireTrack(tr); dawRenderInserts(tr); } });
+    box.querySelectorAll('input[data-k]').forEach(inp => inp.addEventListener('input', e => { ins.setParam(e.target.dataset.k, parseFloat(e.target.value)); dawWireTrack(tr); }));
+    list.appendChild(box);
+  });
+}
+function dawCloseRack() { const r = document.getElementById('daw-rack'); if (r) r.classList.remove('open'); DAW._rackTr = null; }
+function dawSavePreset(tr) {
+  const all = JSON.parse(localStorage.getItem('skrimpad_daw_presets') || '{}');
+  uiPrompt('Preset name', tr.name).then(nm => {
+    if (!nm) return;
+    all[nm] = { instrument: { type: tr.instrument.type, wave: tr.instrument.wave, cut: tr.instrument.cut, root: tr.instrument.root, pad: tr.instrument.pad }, inserts: tr.inserts.map(i => ({ type: i.type, on: i.on, params: i.params })) };
+    try { localStorage.setItem('skrimpad_daw_presets', JSON.stringify(all)); } catch (e) {}
+    toast('💾 Preset "' + nm + '" saved');
+  });
+}
+function dawLoadPreset(tr) {
+  const all = JSON.parse(localStorage.getItem('skrimpad_daw_presets') || '{}');
+  const names = Object.keys(all); if (!names.length) { toast('No saved presets yet'); return; }
+  uiPrompt('Load preset (' + names.join(', ') + ')', names[0]).then(nm => {
+    const p = all[nm]; if (!p) return;
+    Object.assign(tr.instrument, p.instrument);
+    tr.inserts = (p.inserts || []).map(i => { const ins = dawMakeInsert(i.type); Object.assign(ins.params, i.params); ins.on = i.on !== false; ins.rebuild(); return ins; });
+    dawWireTrack(tr); dawOpenRack(tr); toast('📂 "' + nm + '" loaded');
+  });
+}
+
+// ---- LAUNCHERS ------------------------------------------------------
+{
+  const seBtn = document.getElementById('se-studio');
+  if (seBtn) seBtn.addEventListener('click', dawToggleUI);
+  const bBtn = document.getElementById('bnr-studio');
+  if (bBtn) bBtn.addEventListener('click', dawToggleUI);
+}
+console.log('DAW UI ready');
 
 </script>
 </body>
