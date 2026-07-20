@@ -1768,7 +1768,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <canvas id="se-hud" width="440" height="440"></canvas>
     <div id="se-hud-label">
       <div class="kanji" id="se-hud-glyph">音 之 型</div>
-      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'gothic witchy vibes' · 'chop this mp3 into loops and one-shots' · 'analyse this track' · 'make a boom-bap beat at 90 in F dorian then swing it' · 'use a deep kick on the kick, swap the snare' · 'make it slap' · 'steal the groove from this song' · 'hum a melody' · 'add this to the studio' · 'open the mixer' · 'switch the theme to cyberpunk' · 'undo that' · 'do it again'">
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'gothic witchy vibes' · 'give me a dembow at one forty' · 'lay an amen break' · 'chop this mp3 into loops and one-shots' · 'analyse this track' · 'make a boom-bap beat in F dorian then swing it' · 'swap the snare, make it slap' · 'steal the groove from this song' · 'hum a melody' · 'add this to the studio' · 'switch the theme to cyberpunk' · 'undo that'">
       <div class="sub" id="se-ai-status">AI CONSOLE</div>
     </div>
   </div>
@@ -9368,6 +9368,75 @@ const MOOD_WORDS = {
 };
 const BRAIN = { profile: null, history: [], lastCmd: null, _noRecord: false };
 
+// ---- GROOVE DATASET — authentic named drum patterns (step indices) -----
+// generic rhythmic templates (not copyrighted recordings) the brain lays down
+const GROOVE_KB = {
+  'four on the floor': { bpm: 124, style: 'house', aliases: /four.on.the.floor|four.to.the.floor|house beat|club beat|4x4/, pattern: { kick: [0, 4, 8, 12], clap: [4, 12], open: [2, 6, 10, 14], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'boom bap': { bpm: 90, style: 'boombap', aliases: /boom.?bap|90s hip.?hop|golden era|old.?school hip/, pattern: { kick: [0, 6, 10], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'trap': { bpm: 140, style: 'trap', aliases: /trap beat|trap pattern|trap drums/, pattern: { kick: [0, 6, 10, 15], clap: [8], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], sub: [0, 6, 10] } },
+  'drill': { bpm: 142, style: 'drill', aliases: /drill beat|uk drill|drill pattern/, pattern: { kick: [0, 3, 6, 10, 13], snare: [8], hat: [0, 2, 4, 6, 7, 8, 10, 12, 14, 15], sub: [0, 6, 13] } },
+  'dembow': { bpm: 96, style: 'reggaeton', aliases: /dembow|reggaeton|latin beat/, pattern: { kick: [0, 8], rim: [3, 6, 11, 14], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'amen break': { bpm: 170, style: 'jungle', aliases: /amen|breakbeat|break beat/, pattern: { kick: [0, 6], snare: [4, 7, 9, 12, 15], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'two step': { bpm: 174, style: 'jungle', aliases: /two.?step|\bdnb\b|drum.?n.?bass|drum and bass|liquid/, pattern: { kick: [0, 10], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'afrobeats': { bpm: 104, style: 'afrobeats', aliases: /afro.?beat|afropop|naija|amapiano/, pattern: { kick: [0, 3, 6, 10, 13], clap: [4, 12], hat: [0, 2, 3, 5, 6, 8, 10, 11, 13, 14], clave: [0, 3, 6, 10, 12] } },
+  'disco': { bpm: 120, style: 'disco', aliases: /disco|nu.?disco|funk beat/, pattern: { kick: [0, 4, 8, 12], clap: [4, 12], open: [2, 6, 10, 14], hat: [1, 3, 5, 7, 9, 11, 13, 15] } },
+  'garage': { bpm: 130, style: 'garage', aliases: /garage beat|2.?step garage|ukg|uk garage/, pattern: { kick: [0, 6, 10], snare: [4, 12], hat: [0, 2, 3, 6, 8, 10, 11, 14] } },
+  'rock': { bpm: 120, style: null, aliases: /rock beat|rock pattern|backbeat|punk beat/, pattern: { kick: [0, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'halftime': { bpm: 140, style: null, aliases: /half.?time/, pattern: { kick: [0], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'techno': { bpm: 132, style: 'techno', aliases: /techno beat|warehouse|berlin/, pattern: { kick: [0, 4, 8, 12], open: [2, 6, 10, 14], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], clap: [4, 12] } },
+  'dubstep': { bpm: 140, style: 'dubstep', aliases: /dubstep|riddim|brostep/, pattern: { kick: [0, 10], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 10] } }
+};
+const GROOVE_ROLE_NAME = { kick: 'kick', snare: 'snare', hat: 'hh cl', open: 'hh op', clap: 'clap', rim: 'rim', sub: '808', ride: 'ride', tom: 'tom h', clave: 'clave' };
+function grooveTrack(role) { const key = GROOVE_ROLE_NAME[role] || role; return (typeof drumDefs !== 'undefined') ? drumDefs.findIndex(d => d.name.toLowerCase().includes(key)) : -1; }
+function brainLayGroove(g) {
+  if (typeof seqPatterns === 'undefined') return 0;
+  for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(t, s, false);
+  let laid = 0;
+  for (const role in g.pattern) { const ti = grooveTrack(role); if (ti < 0) continue; g.pattern[role].forEach(s => { if (s >= 0 && s < SEQ_STEPS) { setSeqStep(ti, s, true); laid++; } }); }
+  return laid;
+}
+function brainGrooveMatch(c) {
+  for (const name in GROOVE_KB) { const g = GROOVE_KB[name]; if (c.includes(name) || g.aliases.test(c)) return { name, g }; }
+  return null;
+}
+// ---- SPELLED-OUT NUMBERS — "ninety bpm", "one forty", "a hundred twenty" --
+const NUM_UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+const NUM_TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+function brainNumFromWords(str) {
+  str = (str || '').toLowerCase().replace(/[-]/g, ' ');
+  // producer shorthand: "one forty" = 140, "two twenty" = 220
+  let m = str.match(/\b(one|two)\s+(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/);
+  if (m) return (m[1] === 'two' ? 200 : 100) + NUM_TENS[m[2]];
+  let cur = 0, found = false;
+  for (const w of str.split(/\s+/)) {
+    if (w === 'a' || w === 'and') continue;
+    if (w === 'hundred') { cur = (cur || 1) * 100; found = true; }
+    else if (NUM_UNITS[w] != null) { cur += NUM_UNITS[w]; found = true; }
+    else if (NUM_TENS[w] != null) { cur += NUM_TENS[w]; found = true; }
+    else if (found) break;
+  }
+  return found ? cur : null;
+}
+// ---- FUZZY MATCH — typo-tolerant name lookup ("cyberpnk" → cyberpunk) ---
+function brainLev(a, b) {
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  const dp = new Array(n + 1); for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]; dp[0] = i;
+    for (let j = 1; j <= n; j++) { const t = dp[j]; dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; }
+  }
+  return dp[n];
+}
+function brainFuzzy(text, candidates, maxDist) {
+  const words = (text || '').toLowerCase().match(/[a-z]{4,}/g) || [];
+  let best = null, bestD = (maxDist || 2) + 1;
+  candidates.forEach(cand => {
+    const cl = String(cand).toLowerCase();
+    words.forEach(w => { const d = brainLev(w, cl); if (d < bestD && d <= (maxDist || 2) && cl.length >= 5) { bestD = d; best = cand; } });
+  });
+  return best;
+}
+
 // ---- low-level DSP helpers -------------------------------------------
 function brainDownmix(buf, targetSr, maxSec) {
   const ratio = Math.max(1, Math.floor(buf.sampleRate / targetSr));
@@ -9572,6 +9641,11 @@ async function brainClause(c) {
   if (/double.?time|double time|twice as fast/.test(c)) return brainSetBPM(brainCurBPM() * 2, 'double-time');
   m = c.match(/(\d{1,2})\s*bpm\s*(faster|quicker|up)/) ; if (m) return brainSetBPM(brainCurBPM() + parseInt(m[1]));
   m = c.match(/(\d{1,2})\s*bpm\s*(slower|down)/) ; if (m) return brainSetBPM(brainCurBPM() - parseInt(m[1]));
+  // spelled-out tempo: "ninety bpm", "one forty", "set it to a hundred and twenty"
+  if (/\b(bpm|tempo|beats per|set (it|the tempo)|make it)\b/.test(c) || /\bat\b/.test(c)) {
+    const wn = brainNumFromWords(c);
+    if (wn && wn >= 40 && wn <= 300) return brainSetBPM(wn);
+  }
   if (/(faster|speed (it )?up|quicker|pick up the pace|more energy|hype)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() + d, 'faster'); }
   if (/(slower|slow (it )?down|chill(er)?|relax|lay ?back|calmer|less energy)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() - d, 'slower'); }
   // ---- KEY / SCALE ----
@@ -9659,7 +9733,19 @@ async function brainClause(c) {
   const wantsBeat = /\b(beat|drums?|groove|rhythm|pattern|drum ?line)\b/.test(c);
   const wantsMel = /\b(melody|tune|riff|lead|topline|hook)\b/.test(c);
   const wantsBass = /\b(bass ?line|bass|sub ?line|808 line)\b/.test(c);
-  const genVerb = /(make|give|write|create|compose|cook|build|generate|lay down|drop|need|want|some)/.test(c);
+  const genVerb = /(make|give|write|create|compose|cook|build|generate|lay( down| me)?|drop|need|want|some|play)/.test(c);
+  // named groove from the dataset ("give me a dembow", "lay an amen break")
+  if (genVerb) {
+    const gm = brainGrooveMatch(c);
+    if (gm) {
+      if (gm.g.style && AI_STYLES[gm.g.style]) { AI.style = gm.g.style; if (typeof buildStyleUI === 'function') buildStyleUI(); }
+      if (gm.g.bpm && !/\b\d{2,3}\s*bpm\b/.test(c)) brainSetBPM(gm.g.bpm, gm.name);
+      const n = brainLayGroove(gm.g);
+      const out2 = ['🥁 Laid a ' + gm.name + ' groove' + (n ? ' (' + n + ' hits @ ' + brainCurBPM() + ' BPM)' : '')];
+      if (wantsMel || wantsBass) { if (typeof aiGenerateMelodyLocal === 'function') { aiGenerateMelodyLocal(); out2.push('🎹 + a melody'); } }
+      return out2.join('\n');
+    }
+  }
   if (genVerb && (wantsBeat || wantsMel || wantsBass)) {
     // genre → style + tempo via the existing genre map
     let styled = false;
@@ -9771,7 +9857,20 @@ const AESTHETIC_KB = [
   [/blizzard|whiteout|avalanche/, 1, { bpm: 150, mode: 'minor', energy: 2, label: 'blizzard' }],
   [/meadow|wildflower|butterfly|springtime/, 1, { bpm: 100, mode: 'major', dream: 1, label: 'meadow' }],
   [/thunderdome|mad ?max|dieselpunk|war rig/, 1, { bpm: 155, style: 'hardcore', dark: 1, energy: 2, label: 'dieselpunk' }],
-  [/euphoria|bliss|rapture|transcend/, 1, { bpm: 138, style: 'trance', mode: 'major', energy: 2, dream: 1, label: 'euphoria' }]
+  [/euphoria|bliss|rapture|transcend/, 1, { bpm: 138, style: 'trance', mode: 'major', energy: 2, dream: 1, label: 'euphoria' }],
+  // ---- corpus batch 3 ----
+  [/spaghetti west|gunslinger|outlaw|frontier/, 1, { bpm: 92, style: 'funk', mode: 'minor', label: 'frontier' }],
+  [/opium|hazy den|smoke lounge|hookah/, 1, { bpm: 82, style: 'lofi', dream: 1, dark: 1, label: 'opium den' }],
+  [/plague|medieval|castle siege|dungeon/, 1, { bpm: 96, style: 'cinematic', mode: 'minor', dark: 1, label: 'medieval' }],
+  [/rave|hardcore rave|glowstick|acid house/, 1, { bpm: 150, style: 'hardcore', energy: 2, glitch: 1, label: 'rave' }],
+  [/spa|serene|tranquil|still water|float tank/, 1, { bpm: 68, style: 'ambient', dream: 2, label: 'serene' }],
+  [/sci.?fi|spaceship|android|replicant|nebular/, 1, { bpm: 120, style: 'synthwave', mode: 'minor', dream: 1, label: 'sci-fi' }],
+  [/kaiju|godzilla|monster stomp|mecha battle/, 1, { bpm: 128, style: 'industrial', dark: 1, energy: 2, label: 'kaiju' }],
+  [/prom|slow dance|high school|first love/, 1, { bpm: 74, mode: 'major', dream: 1, label: 'slow dance' }],
+  [/heist|getaway|casino|high stakes/, 1, { bpm: 110, style: 'funk', mode: 'minor', energy: 1, label: 'heist' }],
+  [/glacial|iceberg|subzero|deep freeze/, 1, { bpm: 76, mode: 'minor', dream: 1, dark: 1, label: 'glacial' }],
+  [/festival|main stage|drop the beat|edm/, 1, { bpm: 128, style: 'house', mode: 'major', energy: 2, label: 'festival' }],
+  [/lullaby|nursery|music box|bedtime/, 1, { bpm: 72, mode: 'major', dream: 1, label: 'lullaby' }]
 ];
 function brainAestheticScan(text) {
   const hits = []; let score = 0;
@@ -10009,6 +10108,11 @@ function brainToolOps(c) {
     if (typeof SE_THEMES !== 'undefined' && typeof switchTheme === 'function') {
       for (const [id, th] of Object.entries(SE_THEMES)) {
         if (c.includes(id) || (th.name && c.includes(String(th.name).toLowerCase()))) { switchTheme(id); return '🎨 Theme → ' + (th.name || id); }
+      }
+      // typo-tolerant: "cyberpnk" / "vaporwav" still land
+      if (typeof brainFuzzy === 'function') {
+        const fz = brainFuzzy(c, Object.keys(SE_THEMES).concat(Object.values(SE_THEMES).map(t => (t.name || '').toLowerCase().replace(/[^a-z]/g, ''))), 2);
+        if (fz) { const id = SE_THEMES[fz] ? fz : Object.keys(SE_THEMES).find(k => (SE_THEMES[k].name || '').toLowerCase().replace(/[^a-z]/g, '') === fz); if (id && SE_THEMES[id]) { switchTheme(id); return '🎨 Theme → ' + (SE_THEMES[id].name || id); } }
       }
       const tb = document.getElementById('se-hidethemes'); if (tb) { tb.click(); return '🎨 Theme picker open — tap one'; }
     }
