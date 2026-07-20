@@ -1766,7 +1766,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <canvas id="se-hud" width="440" height="440"></canvas>
     <div id="se-hud-label">
       <div class="kanji" id="se-hud-glyph">音 之 型</div>
-      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want — it understands: 'analyse this track' · 'make a boom-bap beat at 90 in F minor then swing it' · 'louder kick, mute the hats' · 'give me some dreamy chords' · 'match the bpm of this song' · 'isolate the vocals' · 'busier hats, add a fill'">
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want: 'pink sand' · 'velvet midnight' · 'analyse this track' · 'make a boom-bap beat at 90 in F minor then swing it' · 'make it slap' · 'steal the groove from this song' · 'transcribe my humming' · 'open the studio' · 'switch the theme to cyberpunk' · 'undo that' · 'do it again'">
       <div class="sub" id="se-ai-status">AI CONSOLE</div>
     </div>
   </div>
@@ -9261,7 +9261,7 @@ const MUSIC_KB = {
     return mode === 'major' ? [0,4,5,3] : [0,5,3,4];
   }
 };
-const BRAIN = { profile: null };
+const BRAIN = { profile: null, history: [], lastCmd: null, _noRecord: false };
 
 // ---- low-level DSP helpers -------------------------------------------
 function brainDownmix(buf, targetSr, maxSec) {
@@ -9375,6 +9375,8 @@ function brainMixReflect() { if (typeof buildMixer === 'function') try { buildMi
 // ---- the deep on-device natural-language engine ----------------------
 async function brainParse(q) {
   if (typeof q !== 'string') return false;
+  const snap = brainSnapshot();
+  BRAIN._noRecord = false;
   const clauses = q.toLowerCase().split(/\bthen\b|\band then\b|;|\.\s+|,\s*(?=(add|make|give|put|drop|bring|turn|mute|solo|pan|set|use|match|swing|speed|slow|raise|lower)\b)/i)
     .map(c => (c || '').trim()).filter(Boolean);
   const notes = [];
@@ -9383,10 +9385,52 @@ async function brainParse(q) {
     const r = await brainClause(c);
     if (r) { handled = true; if (typeof r === 'string') notes.push(r); }
   }
+  if (handled && !BRAIN._noRecord) {
+    // remember what we changed (for "undo") and what was asked (for "again")
+    BRAIN.history.push(snap);
+    if (BRAIN.history.length > 12) BRAIN.history.shift();
+    BRAIN.lastCmd = q;
+  }
   if (handled && notes.length && typeof aiLog === 'function') aiLog(notes.join('\n'), 'good');
   return handled;
 }
+// full musical state snapshot — lets "undo that" roll anything back
+function brainSnapshot() {
+  const s = { bpm: brainCurBPM(), swing: seqSwing };
+  if (typeof AI !== 'undefined') { s.style = AI.style; s.key = AI.lastKey; s.mode = AI.lastMode; }
+  if (typeof seqPatterns !== 'undefined') s.seq = seqPatterns.map(r => r.slice());
+  if (typeof keyLanes !== 'undefined') s.lanes = keyLanes.map(l => l.steps.slice());
+  if (typeof drumDefs !== 'undefined') s.drums = drumDefs.map(d => ({ vol: d.vol, pan: d.pan, muted: d.muted, solo: d.solo }));
+  return s;
+}
+function brainRestore(s) {
+  if (!s) return;
+  brainSetBPM(s.bpm); seqSwing = s.swing || 0;
+  if (typeof AI !== 'undefined') { if (s.style) AI.style = s.style; AI.lastKey = s.key; AI.lastMode = s.mode; }
+  if (s.seq && typeof setSeqStep === 'function') for (let t = 0; t < s.seq.length; t++) for (let st = 0; st < s.seq[t].length; st++) setSeqStep(t, st, s.seq[t][st]);
+  if (s.lanes && typeof keyLanes !== 'undefined') { s.lanes.forEach((steps, i) => { if (keyLanes[i] && !keyLanes[i].locked) keyLanes[i].steps = steps.slice(); }); if (typeof renderKeySeqStep === 'function') for (let st = 0; st < SEQ_STEPS; st++) renderKeySeqStep(st); }
+  if (s.drums && typeof drumDefs !== 'undefined') { s.drums.forEach((d, i) => { if (drumDefs[i]) Object.assign(drumDefs[i], d); }); brainMixReflect(); }
+  if (typeof buildStyleUI === 'function') try { buildStyleUI(); } catch (e) {}
+}
 async function brainClause(c) {
+  // ---- MEMORY: undo / run it back ----
+  const ct = c.trim();
+  if (/^(undo( that| it)?|go back|revert|scratch that|nope,? undo)$/.test(ct)) {
+    BRAIN._noRecord = true;
+    const s = BRAIN.history.pop();
+    if (!s) return '↩️ Nothing to undo yet';
+    brainRestore(s); return '↩️ Undone — back to how it was';
+  }
+  if (/^(again|do (that|it) again|one more time|run it back|more of that|another one)$/.test(ct)) {
+    BRAIN._noRecord = true;
+    if (!BRAIN.lastCmd) return '🤷 Nothing to repeat yet';
+    const cmd = BRAIN.lastCmd;
+    await brainParse(cmd);
+    return '🔁 Ran it back: "' + cmd.slice(0, 40) + '"';
+  }
+  // ---- TOOL OPERATIONS (open/close windows, transport, studio, themes…) ----
+  const tool = brainToolOps(c);
+  if (tool) return tool;
   // ---- ANALYSE a file ----
   if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
     await brainAnalyzeInteractive(); return true;
@@ -9399,6 +9443,10 @@ async function brainClause(c) {
   if (!/bpm|tempo\b/.test(c) &&
       /match (this|that|the) (track|song|file|one|vibe)|(build|work) (on|from) (this|the) (track|song|file)|remix (this|that|the)|(make|write|cook) (something|a beat|a track) (like|from) (this|that|the) (track|song|file)|sync (up )?(to|with) (this|the)/.test(c)) {
     return await brainMatchTrack();
+  }
+  // ---- GROOVE THEFT: copy the timing feel of a reference ----
+  if (/(steal|copy|extract|grab|take|borrow) (the )?(groove|swing|feel|timing|bounce)|(groove|swing|feel) (of|from) (this|that|the|my)/.test(c)) {
+    return await brainGrooveSteal();
   }
   // ---- TEMPO ----
   let m = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\bat\s+(\d{2,3})\b/) || c.match(/tempo (?:of |to )?(\d{2,3})/);
@@ -9446,6 +9494,12 @@ async function brainClause(c) {
     if (/pan.*right|right.*pan/.test(c)) { d.pan = 0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' right'; }
     if (/cent(er|re)/.test(c)) { d.pan = 0; brainMixReflect(); return '↔️ Centred the ' + d.name; }
   }
+  // ---- AUTO-MIX / MASTERING (whole-kit moves) ----
+  if (/(make|let) (it|this|the (beat|mix|track)) (slap|knock|bang|punch|hit hard(er)?)|^(slap|knock|bang)( it)?$|make it punchier/.test(c)) return brainAutoMix('slap');
+  if (/(clean|balance|fix|reset) (up )?the mix|auto ?mix/.test(c)) return brainAutoMix('clean');
+  if (/\bwarm(er)?( it)?( up)?\b|less harsh|smooth (it|the mix) (out|over)|soften the (mix|highs)/.test(c)) return brainAutoMix('warm');
+  if (/widen|\bwider\b|stereo (it|width)|spread (the|it) (mix|out)/.test(c)) return brainAutoMix('wide');
+  if (/(make (it|everything) )loud(er)?\b|turn (it|everything) up|pump it|crank it/.test(c)) return brainAutoMix('loud');
   // ---- DENSITY / PATTERN EDITS ----
   if (/four on the floor|4 on the floor|four.?to.?the.?floor/.test(c)) {
     const k = brainFindDrum('kick'); if (k >= 0) { for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(k, s, s % 4 === 0); return '🥁 Kick set to four-on-the-floor'; }
@@ -9467,6 +9521,12 @@ async function brainClause(c) {
   if (/chords?|progression|harmony|pads?\b/.test(c) && /(add|give|make|write|lay|drop|put|need|want|some)/.test(c)) {
     const mood = ['sad','epic','happy','jazzy','dreamy','dark','hopeful','tense'].find(w => c.includes(w));
     return brainChords(mood);
+  }
+  // ---- AESTHETIC SYNESTHESIA: "pink sand" → glitchy arcade rush ----
+  const aest = brainAestheticScan(c);
+  const wc = ct.split(/\s+/).length;
+  if (aest.score >= 2 || (aest.score >= 1 && wc <= 4) || (aest.score >= 1 && /vibe|aesthetic|mood|feels? like|energy of|palette/.test(c))) {
+    return brainAestheticCompose(aest);
   }
   // ---- GENERATE beat / melody / bass ----
   const wantsBeat = /\b(beat|drums?|groove|rhythm|pattern|drum ?line)\b/.test(c);
@@ -9506,6 +9566,202 @@ function brainChords(mood) {
   lanes.forEach(li => { if (!keyLanes[li].locked) keyLanes[li].voice = 'pad'; });
   if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
   return '🎹 Laid a ' + (mood ? mood + ' ' : '') + prog.length + '-chord progression in ' + (typeof PC_NAMES !== 'undefined' ? PC_NAMES[root] : root) + ' ' + mode + ' across lanes 3-5 — hit ▶ KEYS';
+}
+// ---- AESTHETIC SYNESTHESIA — vibes in, music out ----------------------
+// "pink sand" → glitch-heavy video-game-speed track. Named aesthetics score
+// 2, component words (colours/textures/places) score 1; attributes blend.
+const AESTHETIC_KB = [
+  [/pink sand/, 2, { bpm: 168, style: 'breakcore', mode: 'major', glitch: 2, energy: 2, label: 'pink sand' }],
+  [/vapor ?wave|mall ?soft/, 2, { bpm: 85, style: 'vaporwave', mode: 'major', dream: 2, label: 'vaporwave' }],
+  [/synth ?wave|outrun|retro ?wave/, 2, { bpm: 108, style: 'synthwave', mode: 'minor', energy: 1, label: 'synthwave' }],
+  [/cottage ?core|meadow|picnic/, 2, { bpm: 92, style: 'lofi', mode: 'major', dream: 1, label: 'cottagecore' }],
+  [/dream ?core|weird ?core|liminal|backrooms/, 2, { bpm: 74, style: 'ambient', mode: 'minor', dream: 2, label: 'dreamcore' }],
+  [/dark academia/, 2, { bpm: 80, style: 'cinematic', mode: 'minor', dream: 1, label: 'dark academia' }],
+  [/cyber ?punk|neon noir|night ?city/, 2, { bpm: 128, style: 'industrial', mode: 'minor', energy: 2, dark: 1, label: 'cyberpunk' }],
+  [/\by2k\b|frutiger|bubble ?gum|hyper ?pop/, 2, { bpm: 128, style: 'garage', mode: 'major', energy: 1, glitch: 1, label: 'y2k' }],
+  [/angel ?core|heavenly|ethereal|celestial/, 2, { bpm: 75, style: 'ambient', mode: 'major', dream: 2, label: 'angelcore' }],
+  [/demon ?core|infernal|hellfire|brimstone/, 2, { bpm: 142, style: 'industrial', mode: 'minor', dark: 2, energy: 2, label: 'infernal' }],
+  [/glitch|data ?mosh|corrupt|static ?burst/, 2, { bpm: 162, style: 'breakcore', glitch: 2, energy: 1, label: 'glitchcore' }],
+  [/arcade|8.?bit|16.?bit|chip ?tune|video ?game|game ?boy|pixel/, 2, { bpm: 152, style: 'breakcore', mode: 'major', glitch: 1, energy: 2, label: 'arcade' }],
+  [/royal ?core|baroque|palace|regal/, 2, { bpm: 88, style: 'cinematic', mode: 'major', dream: 1, label: 'royalcore' }],
+  [/\bpink\b|blush|rose ?gold/, 1, { mode: 'major', dream: 1, label: 'pink' }],
+  [/\bneon\b|electric blue|laser ?grid/, 1, { bpm: 132, energy: 1, label: 'neon' }],
+  [/pastel|soft ?focus/, 1, { bpm: 86, mode: 'major', dream: 1, label: 'pastel' }],
+  [/crimson|blood ?red|scarlet/, 1, { mode: 'minor', energy: 1, dark: 1, label: 'crimson' }],
+  [/\bgolden?\b|amber glow/, 1, { mode: 'major', dream: 1, label: 'golden' }],
+  [/violet|lavender|lilac|purple haze/, 1, { mode: 'minor', dream: 1, label: 'violet' }],
+  [/monochrome|charcoal|obsidian|onyx black|pitch black/, 1, { mode: 'minor', dark: 1, label: 'obsidian' }],
+  [/\bsand\b|\bdusty?\b|grainy|gravel/, 1, { glitch: 1, label: 'sand' }],
+  [/\bglassy?\b|crystal|prism/, 1, { dream: 1, label: 'crystal' }],
+  [/velvet|\bsilk(y)?\b|satin/, 1, { bpm: 72, dream: 1, label: 'velvet' }],
+  [/\bchrome\b|\bsteel\b|metallic/, 1, { dark: 1, energy: 1, label: 'chrome' }],
+  [/\bstatic\b|white ?noise|tv snow/, 1, { glitch: 2, label: 'static' }],
+  [/\brust(y|ed)?\b|tarnish/, 1, { dark: 1, label: 'rust' }],
+  [/honey|molasses|syrup/, 1, { bpm: 72, swing: 0.3, mode: 'major', label: 'honey' }],
+  [/\bsmoke\b|\bhaze\b|\bfog(gy)?\b|\bmist(y)?\b/, 1, { dream: 1, dark: 1, label: 'haze' }],
+  [/ocean|underwater|\btide\b|coral|lagoon/, 1, { bpm: 95, swing: 0.2, dream: 1, label: 'ocean' }],
+  [/beach|palm tree|tropic/, 1, { bpm: 100, mode: 'major', label: 'beach' }],
+  [/desert|\bdunes?\b|mirage/, 1, { bpm: 90, mode: 'minor', label: 'desert' }],
+  [/forest|\bmoss(y)?\b|\bfern\b|grove/, 1, { bpm: 94, mode: 'major', label: 'forest' }],
+  [/\brainy?\b|rainfall|drizzle|petrichor/, 1, { bpm: 80, style: 'lofi', dream: 1, label: 'rainfall' }],
+  [/\bstorm(y)?\b|thunder|lightning|tempest/, 1, { bpm: 150, energy: 2, dark: 1, label: 'storm' }],
+  [/\bsnowy?\b|winter|\bfrost(y)?\b|glacier|arctic/, 1, { bpm: 84, mode: 'minor', dream: 1, label: 'frost' }],
+  [/sunset|\bdusk\b|golden hour/, 1, { bpm: 105, style: 'synthwave', label: 'sunset' }],
+  [/midnight|3 ?am|witching hour/, 1, { bpm: 90, mode: 'minor', dark: 1, label: 'midnight' }],
+  [/\bdawn\b|sunrise|first light/, 1, { bpm: 100, mode: 'major', label: 'dawn' }],
+  [/cosmic|galaxy|nebula|starlight|\blunar\b|deep space/, 1, { bpm: 118, dream: 1, label: 'cosmic' }],
+  [/cathedral|\bchurch\b|\bchoir\b|sanctuary/, 1, { bpm: 78, dream: 1, mode: 'minor', label: 'sanctum' }],
+  [/sakura|cherry blossom|petals?/, 1, { bpm: 104, mode: 'major', dream: 1, label: 'sakura' }],
+  [/\blava\b|volcan|magma|molten/, 1, { bpm: 96, energy: 2, dark: 1, label: 'molten' }]
+];
+function brainAestheticScan(text) {
+  const hits = []; let score = 0;
+  for (const [re, w, a] of AESTHETIC_KB) if (re.test(text)) { hits.push([w, a]); score += w; }
+  return { score, hits };
+}
+function brainAestheticCompose(scan) {
+  let bpmSum = 0, bpmW = 0, majorV = 0, minorV = 0, glitch = 0, dream = 0, dark = 0, energy = 0, swing = null, style = null, styleW = -1;
+  const labels = [];
+  scan.hits.forEach(([w, a]) => {
+    labels.push(a.label);
+    if (a.bpm) { bpmSum += a.bpm * w; bpmW += w; }
+    if (a.mode === 'major') majorV += w; else if (a.mode === 'minor') minorV += w;
+    glitch += (a.glitch || 0) * w; dream += (a.dream || 0) * w; dark += (a.dark || 0) * w; energy += (a.energy || 0) * w;
+    if (a.swing != null && (swing == null || a.swing > swing)) swing = a.swing;
+    if (a.style && w > styleW && AI_STYLES[a.style]) { style = a.style; styleW = w; }
+  });
+  const out = [];
+  if (bpmW) out.push(brainSetBPM(bpmSum / bpmW, labels[0]));
+  AI.lastMode = majorV >= minorV ? 'major' : 'minor';
+  if (AI.lastKey == null) AI.lastKey = Math.floor(Math.random() * 12);
+  if (!style) style = glitch >= 2 ? 'breakcore' : dark >= 2 ? 'industrial' : energy >= 2 ? 'techno' : dream >= 2 ? (AI.lastMode === 'major' ? 'vaporwave' : 'ambient') : dream ? 'lofi' : null;
+  if (style && AI_STYLES[style]) { AI.style = style; if (typeof buildStyleUI === 'function') buildStyleUI(); }
+  seqSwing = swing != null ? swing : (dream && !glitch && !energy ? 0.18 : 0);
+  aiSuggestDrumsLocal(); aiApplyDrums(); aiGenerateMelodyLocal();
+  if (bpmW) brainSetBPM(bpmSum / bpmW); // the vibe's tempo wins over the style roll
+  if (glitch >= 2) {
+    const h = brainFindDrum('hats');
+    if (h >= 0) for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(h, s, Math.random() > 0.28);
+    const fx = drumDefs.findIndex(d => /fx|zap|laser/i.test(d.name));
+    if (fx >= 0) for (let k = 0; k < 3; k++) setSeqStep(fx, Math.floor(Math.random() * SEQ_STEPS), true);
+  }
+  if (dream >= 2) brainChords(AI.lastMode === 'major' ? 'dreamy' : 'dark');
+  out.push('🎨 Heard the "' + labels.slice(0, 3).join(' + ') + '" aesthetic → ' + (AI_STYLES[AI.style] && AI_STYLES[AI.style].label || AI.style) + ' in ' + PC_NAMES[AI.lastKey] + ' ' + AI.lastMode +
+    (seqSwing ? ', swung' : '') + (glitch >= 2 ? ', glitched to bits' : '') + ' — an original made from the vibe.');
+  return out.join('\n');
+}
+// ---- AUTO-MIX / MASTERING BRAIN — "make it slap" ----------------------
+function brainAutoMix(kind) {
+  if (typeof drumDefs === 'undefined') return false;
+  const cat = n => { n = n.toLowerCase();
+    if (n.includes('kick')) return 'kick';
+    if (n.includes('snare') || n.includes('clap') || n.includes('snap') || n.includes('rim')) return 'snare';
+    if (n.includes('hat') || n.includes('shaker') || n.includes('ride') || n.includes('crash') || n.includes('pedal')) return 'hats';
+    if (n.includes('808') || n.includes('bass') || n.includes('sub')) return 'bass';
+    return 'perc'; };
+  const target = {
+    slap:  { kick: .95, snare: .85, bass: .9,  hats: .5,  perc: .55 },
+    clean: { kick: .75, snare: .7,  bass: .7,  hats: .55, perc: .55 },
+    warm:  { kick: .8,  snare: .65, bass: .8,  hats: .35, perc: .45 },
+    loud:  { kick: 1,   snare: .95, bass: 1,   hats: .75, perc: .8 }
+  }[kind];
+  if (target) drumDefs.forEach(d => { const t = target[cat(d.name)]; if (t != null) d.vol = t; d.muted = false; d.solo = false; });
+  if (kind === 'wide') { let side = 1; drumDefs.forEach(d => { const c2 = cat(d.name); if (c2 === 'hats' || c2 === 'perc') { d.pan = 0.45 * side; side = -side; } else d.pan = 0; }); }
+  if (kind === 'loud') { const mv = document.getElementById('master-vol'); if (mv) { mv.value = 1; mv.dispatchEvent(new Event('input')); } }
+  brainMixReflect();
+  return { slap: '👊 Mixed it to SLAP — kick + 808 up front, hats tucked, nothing muted',
+    clean: '🧼 Balanced the whole mix back to a clean baseline',
+    warm: '🔥 Warmed it up — highs softened, low end forward',
+    wide: '↔️ Widened the stereo — hats & percussion panned out to the sides',
+    loud: '📢 Everything pushed hot + master up' }[kind];
+}
+// ---- GROOVE THEFT — copy the timing FEEL of a reference (never audio) --
+function brainGrooveFromBuffer(buf) {
+  const bpm = typeof detectBPM === 'function' ? detectBPM(buf) : null;
+  if (!bpm) return null;
+  const sr = 8000, mono = brainDownmix(buf, sr, 30);
+  const hop = Math.floor(sr / 250), frames = Math.floor(mono.length / hop), env = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) { let s = 0; const o = i * hop; for (let j = 0; j < hop; j++) s += Math.abs(mono[o + j]); env[i] = s / hop; }
+  let mean = 0; for (let i = 0; i < frames; i++) mean += env[i]; mean /= frames || 1;
+  const fps = sr / hop, gap = Math.floor(fps * 0.06), onsets = [];
+  for (let i = 2; i < frames - 1; i++)
+    if (env[i] > mean * 1.6 && env[i] >= env[i - 1] && env[i] > env[i + 1] && (!onsets.length || i - onsets[onsets.length - 1] > gap)) onsets.push(i);
+  const stepSec = 60 / bpm / 4, lates = [];
+  onsets.forEach(fi => { const rel = (fi / fps / stepSec) % 2; if (rel > 0.75 && rel < 1.7) lates.push(rel - 1); });
+  lates.sort((a, b) => a - b);
+  const swingF = lates.length >= 2 ? Math.max(0, Math.min(0.6, lates[Math.floor(lates.length / 2)])) : 0;
+  return { bpm, swing: swingF, onsets: onsets.length };
+}
+async function brainGrooveSteal() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🕺 Feeling out the groove…');
+  await new Promise(r => setTimeout(r, 20));
+  const g = brainGrooveFromBuffer(song.buf);
+  if (!g) { aiLog('Could not lock a steady groove in that file', 'tip'); return true; }
+  brainSetBPM(g.bpm, 'groove match'); seqSwing = g.swing;
+  aiLog('🕺 Stole the FEEL of "' + song.name.slice(0, 22) + '" — ' + g.bpm + ' BPM, ' + Math.round(g.swing * 100) + '% swing off ' + g.onsets + ' hits. Timing only, never the audio.', 'good');
+  return true;
+}
+// ---- TOOL OPERATIONS — the brain can drive every tool in the app ------
+const BRAIN_TOOL_RES = { pads: /\bpads?\b|drum ?machine/, seq: /sequencer|step ?seq|drum grid/, synth: /\bsynth(esizer)?\b|wave ?shaper/,
+  keys: /\bkeys\b|keyboard|\bpiano\b/, mixer: /\bmixer\b|faders/, lib: /library|sound bank|sample bank/, fx: /\bfx\b|effects?|pedals?/ };
+function brainModuleWin(id) {
+  if (typeof SE_SOURCE !== 'undefined') { const src = document.getElementById(SE_SOURCE[id]); const w = src && src.closest('.se-mod'); if (w) return w; }
+  return document.querySelector('.se-mod[data-mid="' + id + '"]');
+}
+function brainToolOps(c) {
+  const openRe = /(open|show|bring (up|out)|pull up|launch|give me the|maximi[sz]e|expand|go to)/;
+  const closeRe = /(close|hide|put away|minimi[sz]e|collapse|dismiss|shrink)/;
+  // transport
+  if (/^(play|go|run it|hit play)$|^(play|start) (the )?(beat|music|drums|track|sequence|song)\b/.test(c)) {
+    if (typeof seqPlaying !== 'undefined' && !seqPlaying && typeof seqPlay === 'function') seqPlay();
+    return '▶️ Rolling';
+  }
+  if (/^(stop|pause|halt)$|(stop|pause) (the )?(beat|music|playback|everything|it)\b/.test(c)) {
+    if (typeof seqPlaying !== 'undefined' && seqPlaying && typeof seqStop === 'function') seqStop();
+    return '⏹ Stopped';
+  }
+  if (/\bpanic\b|kill (all|the) sound|silence everything|shut it (all )?off/.test(c)) { if (typeof panicStopAll === 'function') panicStopAll(); return '🔇 Panic — all sound killed'; }
+  // studio / DAW
+  if (/(studio|\bdaw\b|timeline|arrangement)/.test(c)) {
+    if (closeRe.test(c) || /leave|exit/.test(c)) { if (typeof dawCloseUI === 'function') dawCloseUI(); return '🎚 Closed the studio'; }
+    if (openRe.test(c) || /^studio$/.test(c)) { if (typeof dawOpenUI === 'function') dawOpenUI(); return '🎚 Studio open — timeline, mixer strips, plugin rack'; }
+  }
+  if (/(bounce|export|render).*(song|track|\bwav\b|\bmix\b|project)/.test(c)) {
+    if (typeof dawOpenUI === 'function' && typeof DAW !== 'undefined') { if (!DAW.open) dawOpenUI(); try { if (typeof dawBounce === 'function') dawBounce(); return '💾 Bouncing the song to WAV…'; } catch (e) {} }
+  }
+  // settings / themes / characters
+  if (openRe.test(c) && /(settings|preferences|options)\b/.test(c)) { if (typeof openSettings === 'function') { openSettings(); return '⚙ Settings open'; } }
+  if (/(theme|skin|look)s?\b/.test(c) && /(switch|change|set|use|swap|pick|open|show)/.test(c)) {
+    if (typeof SE_THEMES !== 'undefined' && typeof switchTheme === 'function') {
+      for (const [id, th] of Object.entries(SE_THEMES)) {
+        if (c.includes(id) || (th.name && c.includes(String(th.name).toLowerCase()))) { switchTheme(id); return '🎨 Theme → ' + (th.name || id); }
+      }
+      const tb = document.getElementById('se-hidethemes'); if (tb) { tb.click(); return '🎨 Theme picker open — tap one'; }
+    }
+  }
+  if (/(roster|characters?|sprites?|pixel (world|pals))\b/.test(c)) {
+    if (closeRe.test(c) || /despawn|send.*(away|home)/.test(c)) { if (typeof vgaStopWorld === 'function') { vgaStopWorld(); return '👾 Characters dismissed'; } }
+    if (openRe.test(c) || /summon|spawn/.test(c)) {
+      if (typeof vgaOpenRoster === 'function') { if (typeof VGA !== 'undefined' && !VGA.on) { vgaLoadActive(); vgaStartWorld(); if (window.SKRIMPAD_EDITION !== 'vga' && typeof vgaLoadChips === 'function') vgaLoadChips(); } vgaOpenRoster(); return '👾 Character roster open'; }
+    }
+  }
+  // module windows — skip when the sentence is really asking to CREATE music
+  if (/(beat|melody|sound\b|chords?|bassline|riff|tune|loop)/.test(c)) return false;
+  for (const [id, re] of Object.entries(BRAIN_TOOL_RES)) {
+    if (!re.test(c)) continue;
+    const wantOpen = openRe.test(c), wantClose = closeRe.test(c), wantToggle = /toggle/.test(c);
+    if (!wantOpen && !wantClose && !wantToggle) continue;
+    const win = brainModuleWin(id);
+    if (win) {
+      if (wantToggle) win.classList.toggle('min'); else win.classList.toggle('min', wantClose);
+      if (!win.classList.contains('min')) { try { win.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+      return (win.classList.contains('min') ? '🗕 Minimised ' : '🪟 Opened ') + id.toUpperCase();
+    }
+    if (id === 'lib') { const m = document.getElementById('lib-modal'); if (m) { m.classList.toggle('open', !wantClose); if (!wantClose && typeof buildSoundLib === 'function') buildSoundLib(); return (wantClose ? '🗕 Closed' : '🪟 Opened') + ' the library'; } }
+  }
+  return false;
 }
 // ---- MELODY TRANSCRIPTION — hear a tune (hummed/played) and write notes --
 // autocorrelation pitch tracking per frame → segmented notes → melody lane
