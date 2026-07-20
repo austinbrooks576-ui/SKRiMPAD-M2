@@ -1766,7 +1766,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <canvas id="se-hud" width="440" height="440"></canvas>
     <div id="se-hud-label">
       <div class="kanji" id="se-hud-glyph">音 之 型</div>
-      <input id="se-ai-input" placeholder="ASK THE AI…" title="Try: 'make a drill beat' · 'isolate the vocals' · 'match the bpm of this song' · 'give me the snares from a track'">
+      <input id="se-ai-input" placeholder="ASK THE AI…" title="Just tell it what you want — it understands: 'analyse this track' · 'make a boom-bap beat at 90 in F minor then swing it' · 'louder kick, mute the hats' · 'give me some dreamy chords' · 'match the bpm of this song' · 'isolate the vocals' · 'busier hats, add a fill'">
       <div class="sub" id="se-ai-status">AI CONSOLE</div>
     </div>
   </div>
@@ -2696,6 +2696,7 @@ let seqPatterns = Array(SEQ_TRACKS).fill(null).map(() => new Array(SEQ_STEPS).fi
 let seqPlaying = false;
 let seqStep = 0;
 let seqSchedulerTimer = null;
+let seqSwing = 0; // 0 = straight; the AI brain sets this for shuffle/swing feel
 let seqNextTime = 0;
 
 function seqGetBeatSec() { return 60 / parseInt(document.getElementById('bpm').value) / 4; }
@@ -2833,10 +2834,12 @@ function seqSchedule() {
   let n = 0;
   while (seqNextTime < ctx.currentTime + 0.1 && n++ < 64) {
     const s = seqStep;
+    // swing: delay the off-beat 16ths by a fraction of a step for a shuffled feel
+    const swT = seqNextTime + ((s % 2 === 1) ? seqSwing * seqGetBeatSec() : 0);
     seqPatterns.forEach((track, ti) => {
-      if (track[s]) playDrum(ti, seqNextTime);
+      if (track[s]) playDrum(ti, swT);
     });
-    scheduleLaneStep(s, seqNextTime);
+    scheduleLaneStep(s, swT);
     highlightSeqStep(s);
     seqStep = (s + 1) % SEQ_STEPS;
     seqNextTime += seqGetBeatSec();
@@ -6911,6 +6914,11 @@ function aiStyleMimic(ql) {
   aiLog('Composed an ORIGINAL track inspired by that vibe' + (picked ? ' (' + picked + ' style)' : '') + ' — I never copy the actual song, that would be theft. Tweak and make it yours!', 'good');
 }
 async function aiToolCommand(ql) {
+  // the on-device Music Brain gets first crack at rich natural-language verbs
+  // (tempo/key/swing/mix/density/chords/analyse) — it only claims what it
+  // actually executes, so anything it can't do falls through to the tools /
+  // LLM below.
+  if (typeof brainParse === 'function') { try { if (await brainParse(ql)) return true; } catch (e) {} }
   const mentionsSong = /\bfrom\b|song|track|file|mp3|wav|audio|this beat|the beat/.test(ql);
   // "generate / make me a <description> sound" → synthesize from description
   if (/(generate|synthes|make|create|design|build|give me|conjure|cook up).*(sound|kick|snare|hat|bass|lead|pad|laser|zap|pluck|stab|808|bell|riser|fx|noise|drone|sub)\b/.test(ql)
@@ -9230,6 +9238,267 @@ function vgaActivateEdition() {
 }
 if (window.SKRIMPAD_EDITION === 'vga') setTimeout(vgaActivateEdition, 120);
 console.log('VGA world ready');
+
+// =====================================================================
+// SKRiMPAD MUSIC BRAIN — real audio understanding + deep natural language
+//   · analyse any mp3/wav/mp4 into a full musical profile (BPM/key/tone…)
+//   · a genuine on-device command engine (relative tempo, keys, swing,
+//     per-drum mixing, density, multi-step) so you can just *say* things
+//   · an embedded music-theory / genre knowledge base it reasons over
+//   Works fully offline; when an API key is set the LLM handles anything
+//   the on-device brain can't parse.
+// =====================================================================
+const MUSIC_KB = {
+  scales: {
+    major: [0,2,4,5,7,9,11], minor: [0,2,3,5,7,8,10], dorian: [0,2,3,5,7,9,10],
+    phrygian: [0,1,3,5,7,8,10], lydian: [0,2,4,6,7,9,11], mixolydian: [0,2,4,5,7,9,10],
+    harmonic: [0,2,3,5,7,8,11], pentMinor: [0,3,5,7,10], pentMajor: [0,2,4,7,9], blues: [0,3,5,6,7,10]
+  },
+  // progressions as scale-degree roots (0-indexed); triads are built from the active scale
+  moodProg: { sad:[0,5,3,4], epic:[0,5,6,4], happy:[0,4,5,3], jazzy:[1,4,0,4], dreamy:[0,3,4,5], dark:[0,6,5,4], hopeful:[3,4,0,5], tense:[0,1,0,6] },
+  progFor(mood, mode) {
+    if (this.moodProg[mood]) return this.moodProg[mood];
+    return mode === 'major' ? [0,4,5,3] : [0,5,3,4];
+  }
+};
+const BRAIN = { profile: null };
+
+// ---- low-level DSP helpers -------------------------------------------
+function brainDownmix(buf, targetSr, maxSec) {
+  const ratio = Math.max(1, Math.floor(buf.sampleRate / targetSr));
+  const chs = buf.numberOfChannels, src = [];
+  for (let c = 0; c < chs; c++) src.push(buf.getChannelData(c));
+  const maxSrcLen = Math.min(buf.length, maxSec ? Math.floor(maxSec * buf.sampleRate) : buf.length);
+  const outLen = Math.floor(maxSrcLen / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) { let s = 0; const o = i * ratio; for (let c = 0; c < chs; c++) s += src[c][o] || 0; out[i] = s / chs; }
+  return out;
+}
+// framed Goertzel chroma — stable pitch-class energy for key detection on any buffer
+function brainChroma(buf) {
+  const sr = 8000, N = 2048;
+  const mono = brainDownmix(buf, sr, 30);
+  const chroma = new Array(12).fill(0);
+  const freqs = [];
+  for (let m = 36; m <= 84; m++) freqs.push({ f: 440 * Math.pow(2, (m - 69) / 12), pc: ((m % 12) + 12) % 12 });
+  for (let off = 0; off + N <= mono.length; off += N) {
+    for (const { f, pc } of freqs) {
+      const k = Math.round(N * f / sr), w = 2 * Math.PI * k / N, coeff = 2 * Math.cos(w);
+      let s1 = 0, s2 = 0;
+      for (let i = 0; i < N; i++) { const s0 = mono[off + i] + coeff * s1 - s2; s2 = s1; s1 = s0; }
+      chroma[pc] += Math.sqrt(Math.max(0, s1 * s1 + s2 * s2 - coeff * s1 * s2));
+    }
+  }
+  return chroma;
+}
+// full musical profile of a decoded buffer
+function brainAnalyze(buf, name) {
+  const dur = buf.duration;
+  const bpm = (typeof detectBPM === 'function') ? detectBPM(buf) : null;
+  const chroma = brainChroma(buf);
+  const { key, mode } = (typeof aiDetectKey === 'function') ? aiDetectKey(chroma) : { key: 0, mode: 'minor' };
+  const sorted = chroma.slice().sort((a, b) => b - a);
+  const mean = chroma.reduce((a, b) => a + b, 0) / 12 || 1;
+  const keyConf = Math.max(0, Math.min(1, (sorted[0] / mean - 1) / 2));
+  const mono = brainDownmix(buf, 22050, 40);
+  let sum = 0, peak = 0, zc = 0, lp = 0, lowE = 0, highE = 0; const a = 0.03;
+  for (let i = 0; i < mono.length; i++) {
+    const v = mono[i]; sum += v * v; const av = Math.abs(v); if (av > peak) peak = av;
+    if (i && (mono[i] >= 0) !== (mono[i - 1] >= 0)) zc++;
+    lp += a * (v - lp); lowE += lp * lp; const h = v - lp; highE += h * h;
+  }
+  const n = mono.length || 1;
+  const rms = Math.sqrt(sum / n), rmsDb = 20 * Math.log10(rms || 1e-6), peakDb = 20 * Math.log10(peak || 1e-6);
+  const brightness = Math.max(0, Math.min(1, (zc / n) * 22050 / 3500));
+  const lowP = Math.sqrt(lowE / n), highP = Math.sqrt(highE / n), tot = lowP + highP || 1;
+  const bands = { low: lowP / tot, high: highP / tot };
+  // coarse energy curve → section count
+  const secN = Math.max(8, Math.min(64, Math.floor(dur / 2))), seg = Math.max(1, Math.floor(n / secN)), curve = [];
+  for (let i = 0; i < secN; i++) { let s = 0; for (let j = 0; j < seg; j++) { const v = mono[i * seg + j] || 0; s += v * v; } curve.push(Math.sqrt(s / seg)); }
+  const maxC = Math.max(...curve, 1e-6);
+  let sections = 1; for (let i = 1; i < curve.length; i++) if (Math.abs(curve[i] - curve[i - 1]) / maxC > 0.28) sections++;
+  return { name: name || 'track', dur, bpm, key, mode, keyName: (typeof PC_NAMES !== 'undefined' ? PC_NAMES[key] : key) + ' ' + mode,
+    keyConf, rmsDb, peakDb, brightness, bands, sections, curve, maxC };
+}
+function brainReport(p) {
+  BRAIN.profile = p;
+  if (typeof AI !== 'undefined') { AI.lastKey = p.key; AI.lastMode = p.mode; }
+  const loud = p.rmsDb > -9 ? 'loud / hot' : p.rmsDb > -16 ? 'healthy level' : 'quiet / lots of headroom';
+  const tone = p.brightness > 0.62 ? 'bright & crisp' : p.brightness > 0.34 ? 'balanced' : 'warm & dark';
+  const weight = p.bands.low > 0.6 ? 'bass-heavy' : p.bands.low < 0.35 ? 'thin on low end' : 'even low/high balance';
+  const mm = Math.floor(p.dur / 60), ss = String(Math.round(p.dur % 60)).padStart(2, '0');
+  const lines = [
+    '🎧 Analysed "' + p.name.slice(0, 26) + '" — ' + mm + ':' + ss,
+    '• Tempo: ' + (p.bpm ? p.bpm + ' BPM' : 'no steady beat found'),
+    '• Key: ' + p.keyName + (p.keyConf > 0.5 ? ' (confident)' : p.keyConf > 0.25 ? ' (likely)' : ' (uncertain)'),
+    '• Loudness: ' + loud + ' (' + p.rmsDb.toFixed(1) + ' dB RMS, peak ' + p.peakDb.toFixed(1) + ' dB)',
+    '• Tone: ' + tone + ', ' + weight,
+    '• Roughly ' + p.sections + ' sections',
+    'Say "match this", "use its key", or "pull the drums" to build on it.'
+  ];
+  if (typeof aiLog === 'function') aiLog(lines.join('\n'), 'good');
+  if (typeof toast === 'function') toast('🎧 ' + (p.bpm ? p.bpm + ' BPM · ' : '') + p.keyName);
+}
+async function brainAnalyzeInteractive() {
+  if (typeof aiPickSong !== 'function') return false;
+  const song = await aiPickSong(); if (!song) return true;
+  if (typeof toast === 'function') toast('🎧 Listening closely…');
+  await new Promise(r => setTimeout(r, 20));
+  try { brainReport(brainAnalyze(song.buf, song.name)); } catch (e) { if (typeof aiLog === 'function') aiLog('Could not analyse that file (' + e.message + ')', 'tip'); }
+  return true;
+}
+
+// ---- action helpers used by the command engine -----------------------
+function brainBpmEl() { return document.getElementById('bpm'); }
+function brainCurBPM() { return parseInt((brainBpmEl() || {}).value) || 120; }
+function brainSetBPM(n, why) {
+  n = Math.max(40, Math.min(300, Math.round(n)));
+  const el = brainBpmEl(); if (el) el.value = n;
+  ['ai-bpm-val', 'se-bpm-val'].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = n; });
+  return '🕐 Tempo → ' + n + ' BPM' + (why ? ' (' + why + ')' : '');
+}
+// [regex to spot in the request, keyword guaranteed to appear in the track name]
+const BRAIN_DRUMS = [[/\bkicks?\b|\bbd\b|bass ?drum/, 'kick'], [/\bsnares?\b|\bsd\b/, 'snare'], [/\bclaps?\b/, 'clap'],
+  [/open hat/, 'open'], [/closed hat|hi.?hats?|\bhats?\b|\bhh\b/, 'hat'], [/\b808s?\b|\bsub\b/, '808'],
+  [/\bbass\b/, 'bass'], [/\btoms?\b/, 'tom'], [/\bride\b/, 'ride'], [/\bcrash\b/, 'crash'], [/\brim\b/, 'rim'],
+  [/cow ?bell/, 'cow'], [/shakers?/, 'shak'], [/claves?/, 'clav'], [/snaps?/, 'snap']];
+function brainFindDrum(text) {
+  if (typeof drumDefs === 'undefined') return -1;
+  for (const [re, key] of BRAIN_DRUMS) if (re.test(text)) {
+    const i = drumDefs.findIndex(d => d.name.toLowerCase().includes(key));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+function brainMixReflect() { if (typeof buildMixer === 'function') try { buildMixer(); } catch (e) {} }
+
+// ---- the deep on-device natural-language engine ----------------------
+async function brainParse(q) {
+  if (typeof q !== 'string') return false;
+  const clauses = q.toLowerCase().split(/\bthen\b|\band then\b|;|\.\s+|,\s*(?=(add|make|give|put|drop|bring|turn|mute|solo|pan|set|use|match|swing|speed|slow|raise|lower)\b)/i)
+    .map(c => (c || '').trim()).filter(Boolean);
+  const notes = [];
+  let handled = false;
+  for (const c of clauses) {
+    const r = await brainClause(c);
+    if (r) { handled = true; if (typeof r === 'string') notes.push(r); }
+  }
+  if (handled && notes.length && typeof aiLog === 'function') aiLog(notes.join('\n'), 'good');
+  return handled;
+}
+async function brainClause(c) {
+  // ---- ANALYSE a file ----
+  if (/\banaly[sz]e\b|listen to|scan (this|the)|inspect|read (this|the|my)|what('| i)?s the (bpm|tempo|key)|what key|what bpm|what tempo/.test(c)) {
+    await brainAnalyzeInteractive(); return true;
+  }
+  // ---- TEMPO ----
+  let m = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\bat\s+(\d{2,3})\b/) || c.match(/tempo (?:of |to )?(\d{2,3})/);
+  if (m) { const b = parseInt(m[1]); if (b >= 40 && b <= 300) return brainSetBPM(b); }
+  if (/half.?time|half time/.test(c)) return brainSetBPM(brainCurBPM() / 2, 'half-time');
+  if (/double.?time|double time|twice as fast/.test(c)) return brainSetBPM(brainCurBPM() * 2, 'double-time');
+  m = c.match(/(\d{1,2})\s*bpm\s*(faster|quicker|up)/) ; if (m) return brainSetBPM(brainCurBPM() + parseInt(m[1]));
+  m = c.match(/(\d{1,2})\s*bpm\s*(slower|down)/) ; if (m) return brainSetBPM(brainCurBPM() - parseInt(m[1]));
+  if (/(faster|speed (it )?up|quicker|pick up the pace|more energy|hype)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() + d, 'faster'); }
+  if (/(slower|slow (it )?down|chill(er)?|relax|lay ?back|calmer|less energy)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() - d, 'slower'); }
+  // ---- KEY / SCALE ----
+  const noteRe = /\b(a|b|c|d|e|f|g)(#|b|sharp|flat)?\s*(maj(or)?|min(or)?|minor|major)?\b/;
+  if (/\b(key|in the key of|transpose|scale)\b/.test(c) || /\bin\s+[a-g](#|b)?\s*(maj|min)/.test(c)) {
+    if (/same key as|match(ing)? (the )?key|its key|the track'?s key|last (song|track)/.test(c) && BRAIN.profile) {
+      AI.lastKey = BRAIN.profile.key; AI.lastMode = BRAIN.profile.mode;
+      return '🎼 Using the analysed track’s key: ' + BRAIN.profile.keyName;
+    }
+    const nm = c.match(noteRe);
+    if (nm && typeof PC_NAMES !== 'undefined') {
+      const base = { a: 9, b: 11, c: 0, d: 2, e: 4, f: 5, g: 7 }[nm[1]];
+      let pc = base; if (nm[2] === '#' || nm[2] === 'sharp') pc = (pc + 1) % 12; if (nm[2] === 'b' || nm[2] === 'flat') pc = (pc + 11) % 12;
+      AI.lastKey = pc; AI.lastMode = /maj/.test(nm[3] || '') ? 'major' : /min/.test(nm[3] || '') ? 'minor' : (AI.lastMode || 'minor');
+      return '🎼 Key set to ' + PC_NAMES[pc] + ' ' + AI.lastMode;
+    }
+  }
+  if (/make it (major|happy|bright|uplifting)/.test(c)) { AI.lastMode = 'major'; return '🎼 Switched to a major (brighter) tonality'; }
+  if (/make it (minor|sad|dark(er)?|moody|melancholy)/.test(c)) { AI.lastMode = 'minor'; return '🎼 Switched to a minor (darker) tonality'; }
+  m = c.match(/transpose (up|down) (\d{1,2})/); if (m && AI.lastKey != null) { const d = parseInt(m[2]) * (m[1] === 'up' ? 1 : -1); AI.lastKey = ((AI.lastKey + d) % 12 + 12) % 12; return '🎼 Transposed to ' + PC_NAMES[AI.lastKey] + ' ' + (AI.lastMode || 'minor'); }
+  // ---- SWING / FEEL ----
+  if (/straighten|no swing|un ?swing|tighten|quantize|on the grid|robotic/.test(c)) { seqSwing = 0; return '🎵 Straightened the groove (no swing)'; }
+  if (/swing|shuffle|bounce|groove it|swung|humaniz/.test(c)) {
+    seqSwing = /(hard|heavy|drunk|lots?)/.test(c) ? 0.55 : /(light|subtle|little|touch)/.test(c) ? 0.2 : 0.34;
+    return '🎵 Added ' + (seqSwing >= 0.5 ? 'heavy' : seqSwing <= 0.22 ? 'a light' : 'a') + ' swing to the beat';
+  }
+  // ---- MIXING per drum ----
+  const di = brainFindDrum(c);
+  if (di >= 0 && typeof drumDefs !== 'undefined') {
+    const d = drumDefs[di];
+    if (/mute|kill|cut|drop the|take out|remove/.test(c)) { d.muted = true; brainMixReflect(); return '🔇 Muted the ' + d.name; }
+    if (/unmute|bring back/.test(c)) { d.muted = false; brainMixReflect(); return '🔊 Un-muted the ' + d.name; }
+    if (/\bsolo\b/.test(c)) { d.solo = true; brainMixReflect(); return '🎯 Soloed the ' + d.name; }
+    if (/louder|boost|turn up|bring up|more (kick|snare|bass|hat)|punch/.test(c)) { d.vol = Math.min(1, (d.vol || 0.5) + (/(way|much)/.test(c) ? 0.3 : 0.15)); brainMixReflect(); return '📈 ' + d.name + ' louder → ' + Math.round(d.vol * 100) + '%'; }
+    if (/quieter|softer|turn down|duck|less (kick|snare|bass|hat)|back off/.test(c)) { d.vol = Math.max(0, (d.vol || 0.5) - (/(way|much)/.test(c) ? 0.3 : 0.15)); brainMixReflect(); return '📉 ' + d.name + ' quieter → ' + Math.round(d.vol * 100) + '%'; }
+    if (/pan.*left|left.*pan/.test(c)) { d.pan = -0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' left'; }
+    if (/pan.*right|right.*pan/.test(c)) { d.pan = 0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' right'; }
+    if (/cent(er|re)/.test(c)) { d.pan = 0; brainMixReflect(); return '↔️ Centred the ' + d.name; }
+  }
+  // ---- DENSITY / PATTERN EDITS ----
+  if (/four on the floor|4 on the floor|four.?to.?the.?floor/.test(c)) {
+    const k = brainFindDrum('kick'); if (k >= 0) { for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(k, s, s % 4 === 0); return '🥁 Kick set to four-on-the-floor'; }
+  }
+  if (/add a fill|drop a fill|fill it|snare roll|tom fill/.test(c)) {
+    const sn = brainFindDrum(/tom/.test(c) ? 'tom' : 'snare'); if (sn >= 0) { for (let s = 12; s < 16; s++) setSeqStep(sn, s, true); return '🥁 Added a fill on the last beat'; }
+  }
+  if (/busier|more (hats|percussion|hi.?hats|energy)|fill it out|denser|add (more )?hats/.test(c)) {
+    const h = brainFindDrum('closed hat'); if (h >= 0) { for (let s = 0; s < SEQ_STEPS; s++) if (Math.random() < 0.6) setSeqStep(h, s, true); return '🥁 Made the hats busier'; }
+  }
+  if (/simpler|sparse|strip (it )?back|less busy|minimal|thin (it )?out|breathing room/.test(c)) {
+    let removed = 0; for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) if (seqPatterns[t][s] && Math.random() < 0.4) { setSeqStep(t, s, false); removed++; }
+    if (removed) return '🥁 Stripped it back (' + removed + ' hits removed)';
+  }
+  if (/clear (the )?(beat|drums|pattern)|wipe (the )?drums|reset the beat|empty the (beat|drums)/.test(c)) {
+    for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(t, s, false); return '🧹 Cleared the drum pattern';
+  }
+  // ---- CHORDS / PROGRESSION ----
+  if (/chords?|progression|harmony|pads?\b/.test(c) && /(add|give|make|write|lay|drop|put|need|want|some)/.test(c)) {
+    const mood = ['sad','epic','happy','jazzy','dreamy','dark','hopeful','tense'].find(w => c.includes(w));
+    return brainChords(mood);
+  }
+  // ---- GENERATE beat / melody / bass ----
+  const wantsBeat = /\b(beat|drums?|groove|rhythm|pattern|drum ?line)\b/.test(c);
+  const wantsMel = /\b(melody|tune|riff|lead|topline|hook)\b/.test(c);
+  const wantsBass = /\b(bass ?line|bass|sub ?line|808 line)\b/.test(c);
+  const genVerb = /(make|give|write|create|compose|cook|build|generate|lay down|drop|need|want|some)/.test(c);
+  if (genVerb && (wantsBeat || wantsMel || wantsBass)) {
+    // genre → style + tempo via the existing genre map
+    let styled = false;
+    if (typeof GENRE_HINTS !== 'undefined') for (const [re, style, b] of GENRE_HINTS) if (re.test(c)) { if (AI_STYLES[style]) { AI.style = style; if (typeof buildStyleUI === 'function') buildStyleUI(); } if (b) brainSetBPM(b, style); styled = true; break; }
+    const out = [];
+    if (wantsBeat) { if (typeof aiSuggestDrumsLocal === 'function') { aiSuggestDrumsLocal(); if (typeof aiApplyDrums === 'function') aiApplyDrums(); out.push('🥁 Wrote a ' + (styled ? AI.style + ' ' : '') + 'beat'); } }
+    if (wantsMel || wantsBass) { if (typeof aiGenerateMelodyLocal === 'function') { aiGenerateMelodyLocal(); out.push('🎹 Laid a melody' + (wantsBass ? ' + bassline' : '') + (AI.lastKey != null ? ' in ' + PC_NAMES[AI.lastKey] + ' ' + (AI.lastMode || 'minor') : '')); } }
+    if (out.length) return out.join('\n');
+  }
+  return false;
+}
+// place a triad progression across the melody lanes in the current key/scale
+function brainChords(mood) {
+  if (typeof keyLanes === 'undefined' || typeof KEY_LANES === 'undefined') return false;
+  const root = (typeof AI !== 'undefined' && AI.lastKey != null) ? AI.lastKey : 0;
+  const mode = (typeof AI !== 'undefined' && AI.lastMode) ? AI.lastMode : 'minor';
+  const scale = MUSIC_KB.scales[mode] || MUSIC_KB.scales.minor;
+  const prog = MUSIC_KB.progFor(mood, mode);
+  const per = Math.max(1, Math.floor(SEQ_STEPS / prog.length));
+  const voices = [0, 2, 4]; // triad: root / third / fifth
+  const lanes = [2, 3, 4].filter(i => i < KEY_LANES);
+  lanes.forEach(li => { if (!keyLanes[li].locked) keyLanes[li].steps.fill(null); });
+  prog.forEach((deg, ci) => {
+    voices.forEach((v, vi) => {
+      const li = lanes[vi]; if (li == null || keyLanes[li].locked) return;
+      const d = deg + v, oct = Math.floor(d / scale.length), pc = scale[((d % scale.length) + scale.length) % scale.length];
+      const midi = 48 + root + pc + 12 * oct;
+      keyLanes[li].steps[ci * per] = { midi, sustain: true };
+    });
+  });
+  lanes.forEach(li => { if (!keyLanes[li].locked) keyLanes[li].voice = 'pad'; });
+  if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
+  return '🎹 Laid a ' + (mood ? mood + ' ' : '') + prog.length + '-chord progression in ' + (typeof PC_NAMES !== 'undefined' ? PC_NAMES[root] : root) + ' ' + mode + ' across lanes 3-5 — hit ▶ KEYS';
+}
+console.log('Music Brain ready');
 
 </script>
 </body>
