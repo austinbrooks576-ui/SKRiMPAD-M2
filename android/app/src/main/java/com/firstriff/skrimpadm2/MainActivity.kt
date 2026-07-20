@@ -1,9 +1,13 @@
 package com.firstriff.skrimpadm2
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.view.View
 import android.view.WindowManager
 import android.webkit.*
@@ -11,12 +15,63 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
     lateinit var webView: WebView
     private val AUDIO_PERMISSION_REQUEST = 1001
     private lateinit var fileHandler: FileHandler
+    private var speech: SpeechRecognizer? = null
+
+    // Voice bridge — the WebView has no Web Speech API, so the AI console's
+    // 🎤 talks to Android's native SpeechRecognizer through this interface.
+    inner class VoiceBridge {
+        @JavascriptInterface
+        fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(this@MainActivity)
+
+        @JavascriptInterface
+        fun startListening() {
+            runOnUiThread {
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this@MainActivity,
+                        arrayOf(Manifest.permission.RECORD_AUDIO), AUDIO_PERMISSION_REQUEST)
+                    webView.evaluateJavascript("window.brainVoiceError && brainVoiceError('permission')", null)
+                    return@runOnUiThread
+                }
+                if (speech == null) {
+                    speech = SpeechRecognizer.createSpeechRecognizer(this@MainActivity).apply {
+                        setRecognitionListener(object : RecognitionListener {
+                            override fun onResults(results: Bundle?) {
+                                val txt = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+                                webView.evaluateJavascript(
+                                    "window.brainVoiceResult && brainVoiceResult(" + JSONObject.quote(txt) + ")", null)
+                            }
+                            override fun onError(error: Int) {
+                                webView.evaluateJavascript("window.brainVoiceError && brainVoiceError('" + error + "')", null)
+                            }
+                            override fun onReadyForSpeech(p: Bundle?) {}
+                            override fun onBeginningOfSpeech() {}
+                            override fun onRmsChanged(v: Float) {}
+                            override fun onBufferReceived(b: ByteArray?) {}
+                            override fun onEndOfSpeech() {}
+                            override fun onPartialResults(p: Bundle?) {}
+                            override fun onEvent(t: Int, p: Bundle?) {}
+                        })
+                    }
+                }
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                }
+                speech?.startListening(intent)
+            }
+        }
+
+        @JavascriptInterface
+        fun stopListening() { runOnUiThread { speech?.stopListening() } }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +172,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.addJavascriptInterface(fileHandler, "AndroidFileHandler")
+        webView.addJavascriptInterface(VoiceBridge(), "AndroidVoice")
         webView.loadUrl("file:///android_asset/index.html")
     }
 
@@ -176,6 +232,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        speech?.destroy()
         webView.destroy()
         super.onDestroy()
     }
