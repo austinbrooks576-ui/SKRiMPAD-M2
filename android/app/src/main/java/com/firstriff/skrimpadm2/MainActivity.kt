@@ -216,6 +216,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        // Resume Web Audio when the app returns to the foreground / the screen unlocks.
+        webView.evaluateJavascript("window.skrimpadOnResume && window.skrimpadOnResume()", null)
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -228,6 +230,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Silence Web Audio the instant the app is backgrounded or the screen locks,
+        // before the WebView is paused, so nothing keeps droning in the background.
+        webView.evaluateJavascript("window.skrimpadOnPause && window.skrimpadOnPause()", null)
         webView.onPause()
     }
 

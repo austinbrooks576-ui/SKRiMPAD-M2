@@ -203,6 +203,8 @@ input[type=range]{width:100%;accent-color:var(--teal);height:20px;cursor:pointer
 .ctx-title{padding:8px 12px 6px;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--bdr);}
 .ctx-item{padding:9px 12px;font-size:11px;font-weight:700;color:var(--txt);cursor:pointer;transition:background .1s;}
 .ctx-item:hover,.ctx-item:active{background:var(--surf3);}
+.ctx-item.on{background:var(--surf2);color:var(--teal);}
+.ctx-item.on::after{content:' ✓';}
 
 /* AI COMPOSER */
 .ai-section{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:10px;margin-bottom:8px;}
@@ -818,7 +820,8 @@ body.se-active .daw-head{background:rgba(var(--se-ink-rgb),.4);}
 .daw-vol,.daw-pan{flex:1;height:12px;}
 .daw-clip{position:absolute;top:5px;bottom:5px;border-radius:5px;overflow:hidden;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.25);touch-action:none;}
 .daw-clip.audio{border-style:dashed;}
-.daw-clip-lbl{position:absolute;left:5px;top:3px;font-size:8px;font-weight:800;color:#04121b;text-shadow:0 1px 1px rgba(255,255,255,.3);pointer-events:none;}
+.daw-clip-wave{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.85;}
+.daw-clip-lbl{position:absolute;left:5px;top:3px;font-size:8px;font-weight:800;color:#04121b;text-shadow:0 1px 1px rgba(255,255,255,.3);pointer-events:none;z-index:1;}
 .daw-clip-grip{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;background:rgba(0,0,0,.25);}
 #daw-playhead{position:absolute;top:26px;bottom:0;width:2px;background:#ff3c5a;box-shadow:0 0 6px #ff3c5a;pointer-events:none;z-index:4;left:0;}
 #daw-empty{color:#5c6784;font-size:11px;padding:30px;}
@@ -1877,9 +1880,49 @@ function uiPrompt(message, defaultValue) {
 // AUDIO ENGINE
 // =============================================
 let ctx = null;
-let masterGain, masterComp, analyser;
+let masterGain, masterComp, analyser, masterLimiter, masterClip;
+// Gentle poly soft-clip: transparent below ~0.7, rounds the last bit so peaks
+// never hit the hard digital wall that pops/crunches.
+let _softClipCurve = null;
+function softClipCurve() {
+  if (_softClipCurve) return _softClipCurve;
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1, a = Math.abs(x);
+    c[i] = a <= 0.7 ? x : Math.sign(x) * (0.7 + (Math.tanh((a - 0.7) * 3.2) * 0.3));
+  }
+  return (_softClipCurve = c);
+}
 let fxNodes = {};
 let audioReady = false;
+
+// On a phone, audio must go silent the moment the app is backgrounded or the
+// screen locks (otherwise the sequencer keeps droning in the background), and
+// pick straight back up when the app returns. Desktop/Electron keeps playing.
+const IS_MOBILE_SHELL = (typeof AndroidFileHandler !== 'undefined') || (typeof AndroidVoice !== 'undefined') || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+let _bgSuspended = false;
+function audioSuspendForBackground() {
+  if (!audioReady || !ctx || _bgSuspended) return;
+  _bgSuspended = true;
+  try { if (ctx.state === 'running') ctx.suspend(); } catch (e) {}
+}
+function audioResumeFromBackground() {
+  if (!audioReady || !ctx || !_bgSuspended) return;
+  _bgSuspended = false;
+  try { ctx.resume(); } catch (e) {}
+}
+if (IS_MOBILE_SHELL) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) audioSuspendForBackground(); else audioResumeFromBackground();
+  });
+  window.addEventListener('pagehide', audioSuspendForBackground);
+  window.addEventListener('blur', () => { if (document.hidden) audioSuspendForBackground(); });
+  window.addEventListener('pageshow', audioResumeFromBackground);
+}
+// Native Android lifecycle hooks call these directly (belt-and-suspenders — a
+// locked screen doesn't always fire visibilitychange inside a WebView).
+window.skrimpadOnPause = audioSuspendForBackground;
+window.skrimpadOnResume = audioResumeFromBackground;
 
 function initAudio() {
   if (audioReady) return;
@@ -1894,13 +1937,27 @@ function initAudio() {
   masterComp.release.value = 0.25;
 
   masterGain = ctx.createGain();
-  masterGain.gain.value = 0.8;
+  masterGain.gain.value = 0.7;
+
+  // Brick-wall limiter + gentle soft-clip so a full beat (kick+snare+hats+808
+  // all at once) can never overshoot 0 dBFS and crunch/pop the output.
+  masterLimiter = ctx.createDynamicsCompressor();
+  masterLimiter.threshold.value = -1.5;
+  masterLimiter.knee.value = 0;
+  masterLimiter.ratio.value = 20;
+  masterLimiter.attack.value = 0.001;
+  masterLimiter.release.value = 0.08;
+  masterClip = ctx.createWaveShaper();
+  masterClip.curve = softClipCurve();
+  masterClip.oversample = '4x';
 
   analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
 
   masterComp.connect(masterGain);
-  masterGain.connect(analyser);
+  masterGain.connect(masterLimiter);
+  masterLimiter.connect(masterClip);
+  masterClip.connect(analyser);
   analyser.connect(ctx.destination);
 
   initFX();
@@ -1934,7 +1991,7 @@ function startRetro() {
       retro.pos = pos;
     };
     const mute = ctx.createGain(); mute.gain.value = 0;
-    masterGain.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    (masterClip || masterGain).connect(proc); proc.connect(mute); mute.connect(ctx.destination);
   } catch (e) { retro = null; }
 }
 function retroSave() {
@@ -2427,8 +2484,8 @@ function playSub808(t) {
   osc.frequency.setValueAtTime(110, t);
   osc.frequency.exponentialRampToValueAtTime(41, t + 0.09);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(1.0, t + 0.012);
-  g.gain.setValueAtTime(1.0, t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.82, t + 0.012);
+  g.gain.setValueAtTime(0.82, t + 0.18);
   g.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
   osc.connect(g); g.connect(sat); sat.connect(out);
   osc.start(t); osc.stop(t + 0.9);
@@ -2565,7 +2622,8 @@ let _satCurve = null;
 function satCurve() {
   if (_satCurve) return _satCurve;
   const n = 1024, c = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.4); }
+  // gentle warmth, not aggressive fuzz — keeps the low end punchy without crunch
+  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 1.5) / Math.tanh(1.5); }
   return (_satCurve = c);
 }
 function makeSat() {
@@ -2594,14 +2652,14 @@ function playKick(t) {
   osc.frequency.setValueAtTime(200, t);
   osc.frequency.exponentialRampToValueAtTime(48, t + 0.08);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(1.1, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.85, t + 0.006);
   g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
   osc.connect(g); g.connect(sat); sat.connect(out);
   osc.start(t); osc.stop(t + 0.45);
   // beater click transient
   const c = noise(0.02), cf = ctx.createBiquadFilter(), cg = ctx.createGain();
   cf.type = 'highpass'; cf.frequency.value = 1400;
-  cg.gain.setValueAtTime(0.45, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+  cg.gain.setValueAtTime(0.35, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
   c.connect(cf); cf.connect(cg); cg.connect(out); c.start(t); c.stop(t + 0.03);
 }
 
@@ -2847,6 +2905,19 @@ function synthApplyToUI(snap) {
   if (typeof drawWaveEditor === 'function') try { drawWaveEditor(); } catch (e) {}
 }
 
+// Lock every synth-voice lane to its current sound so a change to the live
+// KEYBOARD (loading/shifting a key sample) can't bleed into the sequencer.
+// The selected lane is detached from live-tracking until it's re-selected or
+// its synth is edited again.
+function keysFreezeMainLanes() {
+  if (typeof keyLanes === 'undefined' || typeof synthSnapshot !== 'function') return;
+  keyLanes.forEach((L, i) => {
+    if (L.voice !== 'main' || L.locked) return;
+    if (!L.synthLock) L.synthLock = synthSnapshot();
+    if (i === curLane) L._detached = true;
+  });
+}
+
 // Per-lane sound banks — standalone mini-voices so 5 lanes can layer freely
 function playLaneNote(lane, midi, gateMs) {
   if (!audioReady) initAudio();
@@ -2855,7 +2926,7 @@ function playLaneNote(lane, midi, gateMs) {
     // The SELECTED, unlocked lane tracks the live synth so you can design its
     // sound; every other lane plays through its own frozen patch snapshot so it
     // keeps its sound and never reverts to stock when the synth is retuned.
-    const useLive = (lane === keyLanes[curLane] && !lane.locked);
+    const useLive = (lane === keyLanes[curLane] && !lane.locked && !lane._detached);
     if (!useLive && lane.synthLock) withSynthSnapshot(lane.synthLock, () => noteOn(midi));
     else noteOn(midi);
     keySeqTimers.push(setTimeout(() => noteOff(midi), gateMs));
@@ -3466,14 +3537,32 @@ function toast(msg) {
 }
 
 // TAB SWITCHING
+function selectTab(name) {
+  const tab = document.querySelector('.tab[data-tab="' + name + '"]');
+  if (!tab) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+  tab.classList.add('on');
+  const panel = document.getElementById(name + '-panel');
+  if (panel) panel.classList.add('on');
+  const x = document.getElementById('panel-close');
+  if (x) x.style.display = name === 'pads' ? 'none' : 'flex';
+}
 document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
-    tab.classList.add('on');
-    document.getElementById(tab.dataset.tab + '-panel').classList.add('on');
-  });
+  tab.addEventListener('click', () => selectTab(tab.dataset.tab));
 });
+// ✕ close chip — every tool tab gets one X to jump back to the main PADS face
+(function addPanelClose() {
+  const host = document.getElementById('panels');
+  if (!host) return;
+  const x = document.createElement('button');
+  x.id = 'panel-close';
+  x.textContent = '✕';
+  x.title = 'Close — back to pads';
+  x.style.cssText = 'position:absolute;top:6px;right:6px;z-index:60;display:none;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;border:1px solid var(--bdr);background:var(--surf2);color:var(--txt);font-size:13px;font-weight:800;cursor:pointer;line-height:1;';
+  x.addEventListener('click', () => selectTab('pads'));
+  host.appendChild(x);
+})();
 
 // DRUM PADS — 3x3 grid with A/B/C banks (all 20 sounds stay live for the
 // sequencer/mixer; the bank just picks which 9 are under your fingers)
@@ -3769,12 +3858,14 @@ function openKeysMenu(x, y) {
   const items = [
     { label: synth.keySampleBuf ? 'REPLACE KEY SAMPLE' : 'IMPORT KEY SAMPLE (WAV/MP3/OGG)', act: () => {
         importAudioSample(buf => {
+          keysFreezeMainLanes();            // lock the sequencer's current voices first
           synth.keySampleBuf = buf;
           synth.keySampleRoot = lastPlayedMidi != null ? lastPlayedMidi : 60;
+          toast('Key sample loaded — sequencer lanes kept their own voices');
         }, 'Key sample');
       } }
   ];
-  if (synth.keySampleBuf) items.push({ label: 'REMOVE KEY SAMPLE', act: () => { synth.keySampleBuf = null; toast('Keys back to synth'); } });
+  if (synth.keySampleBuf) items.push({ label: 'REMOVE KEY SAMPLE', act: () => { keysFreezeMainLanes(); synth.keySampleBuf = null; toast('Keys back to synth'); } });
   items.forEach(it => {
     const el = document.createElement('div');
     el.className = 'ctx-item'; el.textContent = it.label;
@@ -5543,14 +5634,9 @@ function composeMelody() {
       keySeq[i] = { midi, sustain: Math.random() < 0.25 };
     } else keySeq[i] = null;
   }
-  const bl = keyLanes[(curLane + 1) % KEY_LANES];
-  if (bl.steps.every(c => c == null)) {
-    if (bl.voice === 'main') bl.voice = 'bass';
-    for (let i = 0; i < SEQ_STEPS; i++) {
-      bl.steps[i] = (i % 4 === 0) ? { midi: root - 12 + (i === 8 ? 7 : 0), sustain: true } : null;
-    }
-    aiLog('Bassline added on lane ' + (((curLane + 1) % KEY_LANES) + 1) + ' (BASS voice)', 'info');
-  }
+  // Melody only touches the active lane — no auto-bassline on a neighbouring
+  // lane (that used to clobber whatever the user had there). Ask for a bass
+  // line explicitly ("give me a bassline") to get one.
   for (let i = 0; i < SEQ_STEPS; i++) renderKeySeqStep(i);
   return { rootPc, mode };
 }
@@ -5798,6 +5884,7 @@ function setLane(i) {
   const prev = keyLanes[curLane];
   if (prev && prev.voice === 'main' && !prev.locked && typeof synthSnapshot === 'function') prev.synthLock = synthSnapshot();
   curLane = i;
+  keyLanes[i]._detached = false; // re-selecting a lane resumes live design on it
   // Recall the lane we're entering: load its own patch back into the live synth
   // + controls so what you hear and see is that lane's sound, not the last one's.
   if (keyLanes[i].voice === 'main' && keyLanes[i].synthLock && typeof synthApplyToUI === 'function') synthApplyToUI(keyLanes[i].synthLock);
@@ -5845,16 +5932,55 @@ document.querySelectorAll('.lane-lock').forEach(btn => {
   };
   btn.addEventListener('click', updateLock);
 });
-document.getElementById('lane-voice').addEventListener('change', e => {
+function applyLaneVoice(val) {
   if (keyLanes[curLane].locked) {
-    e.target.value = keyLanes[curLane].voice; // frozen — unlock to change the voice
+    const lv = document.getElementById('lane-voice'); if (lv) lv.value = keyLanes[curLane].voice;
     toast('Lane ' + (curLane + 1) + ' is locked — unlock 🔒 to change its voice');
     return;
   }
-  keyLanes[curLane].voice = e.target.value;
-  if (e.target.value === 'sample' && !keyLanes[curLane].sampleBuf) toast('Tap 📥 SOUND to load a sample for this lane');
-  else toast('Lane ' + (curLane + 1) + ' voice: ' + e.target.value.toUpperCase());
-});
+  keyLanes[curLane].voice = val;
+  keyLanes[curLane]._detached = false; // choosing a voice = designing this lane live
+  const lv = document.getElementById('lane-voice'); if (lv) lv.value = val;
+  if (val === 'sample' && !keyLanes[curLane].sampleBuf) toast('Tap 📥 SOUND to load a sample for this lane');
+  else toast('Lane ' + (curLane + 1) + ' voice: ' + val.toUpperCase());
+}
+// Custom lane-voice picker — used on touch (after a long hold) and desktop
+// right-click, so a stray tap can't pop the OS dropdown mid-performance.
+function openLaneVoiceMenu(x, y) {
+  const sel = document.getElementById('lane-voice');
+  ctxMenu.innerHTML = `<div class="ctx-title" style="color:var(--teal)">LANE ${curLane + 1} VOICE</div>`;
+  [...sel.options].forEach(o => {
+    const it = document.createElement('div');
+    it.className = 'ctx-item' + (keyLanes[curLane].voice === o.value ? ' on' : '');
+    it.textContent = o.textContent;
+    it.addEventListener('click', () => { applyLaneVoice(o.value); closeSeqMenu(); });
+    ctxMenu.appendChild(it);
+  });
+  const r = sel.getBoundingClientRect();
+  positionMenu(x != null ? x : r.left, y != null ? y : r.bottom + 4);
+}
+(function wireLaneVoice() {
+  const sel = document.getElementById('lane-voice');
+  const HOLD_MS = 10000; // 10s hold on touch so it never opens while playing keys
+  let holdTimer = null, holdStart = 0, holdHint = null;
+  const clearHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } if (holdHint) { clearInterval(holdHint); holdHint = null; } };
+  sel.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') {
+      e.preventDefault(); sel.blur();       // block the native dropdown on touch
+      clearHold(); holdStart = Date.now();
+      toast('Hold 10s to change lane voice…');
+      holdTimer = setTimeout(() => { clearHold(); openLaneVoiceMenu(); }, HOLD_MS);
+      holdHint = setInterval(() => {
+        const left = Math.ceil((HOLD_MS - (Date.now() - holdStart)) / 1000);
+        if (left > 0 && left <= 9) toast('Hold ' + left + 's…');
+      }, 1000);
+    }
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => sel.addEventListener(ev, e => { if (e.pointerType === 'touch') clearHold(); }));
+  // desktop: right-click opens the picker instantly; native left-click still works
+  sel.addEventListener('contextmenu', e => { e.preventDefault(); openLaneVoiceMenu(e.clientX, e.clientY); });
+  sel.addEventListener('change', () => applyLaneVoice(sel.value));
+})();
 document.getElementById('keys-import').addEventListener('click', () => {
   importAudioSample(buf => {
     keyLanes[curLane].sampleBuf = buf;
@@ -8662,6 +8788,7 @@ function dawInjectDOM() {
         '<button class="daw-btn" id="daw-cap-drums">＋ CAPTURE BEAT</button>' +
         '<button class="daw-btn" id="daw-cap-mel">＋ CAPTURE MELODY</button>' +
         '<button class="daw-btn" id="daw-add-audio">＋ AUDIO CLIP</button>' +
+        '<button class="daw-btn" id="daw-add-cine">🎬 CINEMATIC</button>' +
         '<button class="daw-btn" id="daw-add-lib">＋ LIBRARY CLIP</button>' +
         '<button class="daw-btn" id="daw-add-track">＋ TRACK</button>' +
         '<div style="flex:1"></div>' +
@@ -8683,6 +8810,7 @@ function dawInjectDOM() {
   document.getElementById('daw-cap-drums').addEventListener('click', dawCaptureDrums);
   document.getElementById('daw-cap-mel').addEventListener('click', dawCaptureMelody);
   document.getElementById('daw-add-audio').addEventListener('click', dawAddAudioClip);
+  document.getElementById('daw-add-cine').addEventListener('click', dawAddCinematic);
   document.getElementById('daw-add-lib').addEventListener('click', dawAddLibraryClip);
   document.getElementById('daw-add-track').addEventListener('click', () => { dawAddTrack({}); dawRenderTimeline(); });
   document.getElementById('daw-bounce').addEventListener('click', dawBounce);
@@ -8712,6 +8840,22 @@ function dawAddAudioClip() {
     tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf, rate: 1, libRef: name });
     dawRenderTimeline();
   }, 'AUDIO CLIP');
+}
+// A dedicated channel for cinematic voice sampling — spoken-word / dialogue /
+// old-movie clips. Pre-loaded with a vintage band-limit + warmth + small room
+// so a cowboy-flick line drops in already sounding like the reel.
+function dawAddCinematic() {
+  importAudioSample((buf, name) => {
+    const tr = dawAddTrack({ name: '🎬 ' + (name ? name.slice(0, 9) : 'CINE'), color: '#c9a227', instrument: { type: 'sampler', root: 60, buf, libRef: name } });
+    tr.instrument.buf = buf; tr.cinematic = true;
+    [['eq', { low: -7, mid: 4, high: -9 }], ['drive', { amt: 16 }], ['reverb', { size: 1.3, mix: 0.16 }]].forEach(([type, params]) => {
+      const ins = dawMakeInsert(type); Object.assign(ins.params, params); ins.rebuild(); tr.inserts.push(ins);
+    });
+    const beats = Math.max(1, Math.round((buf.duration / dawBeatSec())));
+    tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf, rate: 1, libRef: name });
+    dawWireTrack(tr); dawRenderTimeline();
+    toast('🎬 Cinematic voice channel — vintage dialogue tone baked in');
+  }, 'CINEMATIC VOICE CLIP');
 }
 // ---- LIBRARY → STUDIO — pick any library sound straight into the DAW --
 function dawLibPicker(onPick) {
@@ -8808,9 +8952,10 @@ function dawRenderTimeline() {
       const el = document.createElement('div'); el.className = 'daw-clip' + (clip.kind === 'audio' ? ' audio' : '');
       el.style.left = (clip.start * DAW.pxPerBeat) + 'px'; el.style.width = (clip.len * DAW.pxPerBeat - 2) + 'px';
       el.style.background = 'linear-gradient(180deg,' + tr.color + 'cc,' + tr.color + '77)';
-      el.innerHTML = '<span class="daw-clip-lbl">' + (clip.kind === 'audio' ? '♪ ' : '▤ ') + (clip.notes ? clip.notes.length + ' notes' : 'audio') + '</span><span class="daw-clip-grip"></span>';
+      el.innerHTML = '<canvas class="daw-clip-wave"></canvas><span class="daw-clip-lbl">' + (clip.kind === 'audio' ? '♪ ' : '▤ ') + (clip.notes ? clip.notes.length + ' notes' : 'audio') + '</span><span class="daw-clip-grip"></span>';
       dawClipInteract(el, tr, clip);
       lane.appendChild(el);
+      dawDrawClipWave(el.querySelector('.daw-clip-wave'), clip);
     });
     lanes.appendChild(lane);
   });
@@ -8818,6 +8963,44 @@ function dawRenderTimeline() {
   dawDrawPlayhead();
 }
 function dawFreeSlotAll() { let m = 0; DAW.tracks.forEach(t => t.clips.forEach(c => m = Math.max(m, c.start + c.len))); return m; }
+
+// Draw a clip's contents inside its bubble — a real sample waveform for audio
+// clips, a mini piano-roll / drum-grid for pattern clips.
+function dawDrawClipWave(cv, clip) {
+  if (!cv) return;
+  const w = Math.max(8, Math.round(clip.len * DAW.pxPerBeat - 2));
+  const h = Math.max(12, (DAW.rowH || 44) - 10);
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'); g.clearRect(0, 0, w, h);
+  if (clip.kind === 'audio' && clip.buf) {
+    const d = clip.buf.getChannelData(0), N = d.length, mid = h / 2;
+    g.strokeStyle = 'rgba(4,18,27,.6)'; g.lineWidth = 1; g.beginPath();
+    for (let x = 0; x < w; x++) {
+      const i0 = Math.floor(x / w * N), i1 = Math.max(i0 + 1, Math.floor((x + 1) / w * N));
+      let mn = 1, mx = -1;
+      for (let i = i0; i < i1; i++) { const v = d[i] || 0; if (v < mn) mn = v; if (v > mx) mx = v; }
+      g.moveTo(x + 0.5, mid + mn * mid * 0.92); g.lineTo(x + 0.5, mid + mx * mid * 0.92);
+    }
+    g.stroke();
+  } else if (clip.notes && clip.notes.length) {
+    const beats = clip.len || 4, patLen = clip.patLen || beats;
+    const isDrum = clip.notes[0].pad != null;
+    let lo = 127, hi = 0;
+    clip.notes.forEach(n => { const p = isDrum ? n.pad : n.midi; lo = Math.min(lo, p); hi = Math.max(hi, p); });
+    if (hi < lo) { lo = 0; hi = 12; }
+    const range = Math.max(isDrum ? 4 : 8, hi - lo + 2);
+    g.fillStyle = 'rgba(4,18,27,.7)';
+    for (let off = 0; off < beats - 1e-6; off += patLen) {
+      clip.notes.forEach(n => {
+        const p = isDrum ? n.pad : n.midi;
+        const bx = (off + n.beat) / beats * w;
+        const bw = Math.max(2, ((n.len || 0.22) / beats) * w);
+        const y = h - ((p - lo + 1) / range) * h;
+        g.fillRect(bx, Math.max(0, y - 1), bw, isDrum ? 2 : 2.6);
+      });
+    }
+  }
+}
 
 function dawClipInteract(el, tr, clip) {
   const grip = el.querySelector('.daw-clip-grip');
