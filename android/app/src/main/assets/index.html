@@ -2420,24 +2420,30 @@ function waveAccent(alpha) {
 // DRUM SOUNDS
 // =============================================
 function playSub808(t) {
+  const out = getOutput(), sat = makeSat();
+  // real 808: quick pitch glide into a long, saturated sustain
   const osc = ctx.createOscillator(), g = ctx.createGain();
-  osc.type = 'sine'; osc.frequency.setValueAtTime(55, t); osc.frequency.exponentialRampToValueAtTime(30, t + 0.5);
-  g.gain.setValueAtTime(1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
-  osc.connect(g); g.connect(getOutput()); osc.start(t); osc.stop(t + 0.75);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(110, t);
+  osc.frequency.exponentialRampToValueAtTime(41, t + 0.09);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(1.0, t + 0.012);
+  g.gain.setValueAtTime(1.0, t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+  osc.connect(g); g.connect(sat); sat.connect(out);
+  osc.start(t); osc.stop(t + 0.9);
 }
 
 function playSnap(t) {
-  const n = noise(0.06), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-  nf.type = 'bandpass'; nf.frequency.value = 1800; nf.Q.value = 8;
-  ng.gain.setValueAtTime(0.9, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  n.connect(nf); nf.connect(ng); ng.connect(getOutput()); n.start(t); n.stop(t + 0.06);
+  const n = noise(0.05), bp = ctx.createBiquadFilter(), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+  bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 3;
+  hp.type = 'highpass'; hp.frequency.value = 1500;
+  g.gain.setValueAtTime(0.85, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(getOutput()); n.start(t); n.stop(t + 0.05);
 }
 
 function playPedalHat(t) {
-  const n = noise(0.04), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-  nf.type = 'highpass'; nf.frequency.value = 6500;
-  ng.gain.setValueAtTime(0.25, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
-  n.connect(nf); nf.connect(ng); ng.connect(getOutput()); n.start(t); n.stop(t + 0.04);
+  metalOscs(t, 0.03, 7000, 0.15);
 }
 
 function playZap(t) {
@@ -2551,55 +2557,101 @@ function noise(dur) {
   const src = ctx.createBufferSource(); src.buffer = buf; return src;
 }
 
+// ---- modern-kit voicing helpers -------------------------------------
+// A soft tanh saturator gives the kick/808 body its punch + harmonics so
+// the low end reads on small phone speakers instead of sounding like a
+// naked, janky sine. The curve is context-independent so we cache it.
+let _satCurve = null;
+function satCurve() {
+  if (_satCurve) return _satCurve;
+  const n = 1024, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.4); }
+  return (_satCurve = c);
+}
+function makeSat() {
+  const ws = ctx.createWaveShaper();
+  ws.curve = satCurve(); ws.oversample = '2x';
+  return ws;
+}
+// TR-808/909-style metallic hi-hat: six detuned squares through a bandpass
+// then a high-pass — crisp and real, not white-noise hiss.
+function metalOscs(t, dur, hpFreq, level) {
+  const out = getOutput();
+  const ratios = [2, 3, 4.16, 5.43, 6.79, 8.21], base = 40;
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 10000; bp.Q.value = 0.7;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = hpFreq;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(level, t); g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+  ratios.forEach(r => { const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = base * r; o.connect(bp); o.start(t); o.stop(t + dur + 0.02); });
+  bp.connect(hp); hp.connect(g); g.connect(out);
+}
+
 function playKick(t) {
+  const out = getOutput(), sat = makeSat();
+  // punchy body: fast pitch drop 200→48 with a saturated tail
   const osc = ctx.createOscillator(), g = ctx.createGain();
-  osc.frequency.setValueAtTime(180, t);
-  osc.frequency.exponentialRampToValueAtTime(45, t + 0.35);
-  g.gain.setValueAtTime(1, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
-  osc.connect(g); g.connect(getOutput());
-  osc.start(t); osc.stop(t + 0.5);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, t);
+  osc.frequency.exponentialRampToValueAtTime(48, t + 0.08);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(1.1, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+  osc.connect(g); g.connect(sat); sat.connect(out);
+  osc.start(t); osc.stop(t + 0.45);
+  // beater click transient
+  const c = noise(0.02), cf = ctx.createBiquadFilter(), cg = ctx.createGain();
+  cf.type = 'highpass'; cf.frequency.value = 1400;
+  cg.gain.setValueAtTime(0.45, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+  c.connect(cf); cf.connect(cg); cg.connect(out); c.start(t); c.stop(t + 0.03);
 }
 
 function playSnare(t) {
-  const n = noise(0.25), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-  nf.type = 'bandpass'; nf.frequency.value = 1500; nf.Q.value = 0.7;
-  ng.gain.setValueAtTime(1, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-  n.connect(nf); nf.connect(ng); ng.connect(getOutput());
-
-  const osc = ctx.createOscillator(), og = ctx.createGain();
-  osc.frequency.value = 220;
-  og.gain.setValueAtTime(0.6, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-  osc.connect(og); og.connect(getOutput());
-
-  n.start(t); n.stop(t + 0.25); osc.start(t); osc.stop(t + 0.15);
+  const out = getOutput();
+  // tuned shell — two triangle partials that fall slightly (boom-bap body)
+  [188, 330].forEach((f, i) => {
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'triangle'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.82, t + 0.1);
+    og.gain.setValueAtTime(i ? 0.22 : 0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    o.connect(og); og.connect(out); o.start(t); o.stop(t + 0.12);
+  });
+  // bright snappy noise body, band-shaped so it cracks not hisses
+  const n = noise(0.22), hp = ctx.createBiquadFilter(), bp = ctx.createBiquadFilter(), ng = ctx.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 1500;
+  bp.type = 'bandpass'; bp.frequency.value = 4200; bp.Q.value = 0.5;
+  ng.gain.setValueAtTime(0.9, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+  n.connect(hp); hp.connect(bp); bp.connect(ng); ng.connect(out);
+  n.start(t); n.stop(t + 0.22);
 }
 
 function playHHCl(t) {
-  const n = noise(0.08), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-  nf.type = 'highpass'; nf.frequency.value = 8000;
-  ng.gain.setValueAtTime(0.6, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-  n.connect(nf); nf.connect(ng); ng.connect(getOutput());
-  n.start(t); n.stop(t + 0.08);
+  metalOscs(t, 0.045, 8200, 0.3);
+  const n = noise(0.05), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 9000;
+  g.gain.setValueAtTime(0.22, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  n.connect(hp); hp.connect(g); g.connect(getOutput()); n.start(t); n.stop(t + 0.05);
 }
 
 function playHHOp(t) {
-  const n = noise(0.5), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-  nf.type = 'highpass'; nf.frequency.value = 7000;
-  ng.gain.setValueAtTime(0.5, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-  n.connect(nf); nf.connect(ng); ng.connect(getOutput());
-  n.start(t); n.stop(t + 0.5);
+  metalOscs(t, 0.34, 7200, 0.26);
+  const n = noise(0.4), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 8000;
+  g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  n.connect(hp); hp.connect(g); g.connect(getOutput()); n.start(t); n.stop(t + 0.4);
 }
 
 function playClap(t) {
-  for (let i = 0; i < 3; i++) {
-    const n = noise(0.06), nf = ctx.createBiquadFilter(), ng = ctx.createGain();
-    nf.type = 'bandpass'; nf.frequency.value = 1200; nf.Q.value = 0.5;
-    const offset = i * 0.012;
-    ng.gain.setValueAtTime(0.8, t + offset); ng.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.05);
-    n.connect(nf); nf.connect(ng); ng.connect(getOutput());
-    n.start(t + offset); n.stop(t + offset + 0.08);
-  }
+  const out = getOutput();
+  // shared band-pass gives the three cracks + the diffuse tail one room
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 1.1;
+  bp.connect(out);
+  [0, 0.011, 0.021].forEach(off => {
+    const n = noise(0.05), g = ctx.createGain();
+    g.gain.setValueAtTime(0.7, t + off); g.gain.exponentialRampToValueAtTime(0.001, t + off + 0.045);
+    n.connect(g); g.connect(bp); n.start(t + off); n.stop(t + off + 0.06);
+  });
+  const nt = noise(0.16), tg = ctx.createGain();
+  tg.gain.setValueAtTime(0.4, t + 0.03); tg.gain.exponentialRampToValueAtTime(0.001, t + 0.17);
+  nt.connect(tg); tg.connect(bp); nt.start(t + 0.03); nt.stop(t + 0.19);
 }
 
 function playTomH(t) {
@@ -2765,14 +2817,46 @@ function withSynthSnapshot(snap, fn) {
   }
 }
 
+// Push a synth snapshot back into the live synth PARAMS *and* the on-screen
+// controls, so selecting a lane recalls its own patch/filter instead of every
+// lane sharing (and reverting to) one global synth. This is what makes a
+// lane's sound permanent across lane switches.
+const SYNTH_UI_MAP = [
+  ['o1-oct', 'o1Oct', 1], ['o1-semi', 'o1Semi', 1], ['o1-det', 'o1Det', 1], ['o1-lev', 'o1Lev', 100],
+  ['o2-oct', 'o2Oct', 1], ['o2-semi', 'o2Semi', 1], ['o2-det', 'o2Det', 1], ['o2-lev', 'o2Lev', 100],
+  ['filt-cut', 'filtCut', 1], ['filt-res', 'filtRes', 1], ['filt-env', 'filtEnv', 1],
+  ['env-a', 'attack', 1000], ['env-d', 'decay', 1000], ['env-s', 'sustain', 1], ['env-r', 'release', 1000],
+  ['lfo-rate', 'lfoRate', 1], ['lfo-depth', 'lfoDepth', 1], ['glide', 'glide', 1], ['vib', 'vibrato', 1], ['bright', 'brightness', 1]
+];
+function synthApplyToUI(snap) {
+  if (!snap) return;
+  SYNTH_SNAP_KEYS.forEach(k => { if (snap[k] !== undefined) synth[k] = snap[k]; });
+  if (snap.waves) snap.waves.forEach((w, i) => { if (!OSC_WAVES[i]) return; OSC_WAVES[i].useCustom = w.useCustom; OSC_WAVES[i].custom = w.custom; OSC_WAVES[i].samples = w.samples && w.samples.slice ? w.samples.slice() : w.samples; OSC_WAVES[i].dirty = true; });
+  SYNTH_UI_MAP.forEach(([id, key, scale]) => {
+    const el = document.getElementById(id); if (!el || snap[key] === undefined) return;
+    el.value = snap[key] * scale;
+    const ve = document.getElementById(id + '-val'); if (ve) ve.textContent = el.value;
+  });
+  const setSel = (id, key) => { const el = document.getElementById(id); if (el && snap[key] !== undefined) el.value = snap[key]; };
+  setSel('filt-type', 'filtType'); setSel('lfo-shape', 'lfoShape'); setSel('lfo-target', 'lfoTarget');
+  ['osc1-type', 'osc2-type'].forEach((id, oi) => {
+    const key = oi === 0 ? 'osc1Type' : 'osc2Type', grp = document.getElementById(id);
+    if (grp && snap[key] !== undefined) grp.querySelectorAll('.osc-btn').forEach(b => b.classList.toggle('on', b.dataset.wave === snap[key]));
+  });
+  if (typeof renderModeButtons === 'function') try { renderModeButtons(); } catch (e) {}
+  if (typeof drawWaveEditor === 'function') try { drawWaveEditor(); } catch (e) {}
+}
+
 // Per-lane sound banks — standalone mini-voices so 5 lanes can layer freely
 function playLaneNote(lane, midi, gateMs) {
   if (!audioReady) initAudio();
   const v = lane.voice;
   if (v === 'main') {
-    // A locked lane plays through its frozen synth snapshot, isolated from the
-    // live synth/filter controls; an unlocked lane tracks the live synth.
-    if (lane.synthLock) withSynthSnapshot(lane.synthLock, () => noteOn(midi));
+    // The SELECTED, unlocked lane tracks the live synth so you can design its
+    // sound; every other lane plays through its own frozen patch snapshot so it
+    // keeps its sound and never reverts to stock when the synth is retuned.
+    const useLive = (lane === keyLanes[curLane] && !lane.locked);
+    if (!useLive && lane.synthLock) withSynthSnapshot(lane.synthLock, () => noteOn(midi));
     else noteOn(midi);
     keySeqTimers.push(setTimeout(() => noteOff(midi), gateMs));
     return;
@@ -4819,6 +4903,14 @@ document.getElementById('customize-close').addEventListener('click', () => docum
 ['help-modal','customize-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.remove('open'); });
 });
+// SE hides the classic app with `body.se-active #app{display:none}`, which
+// also hides any fixed-overlay modal parented inside #app (a display:none
+// ancestor hides fixed descendants). Re-home those overlays onto <body> so
+// Settings, the library picker, editors, HW-map etc. work in EVERY edition.
+['customize-modal','help-modal','hw-map-modal','lib-modal','edit-modal','pick-modal','file-modal','key-filters-modal','sample-editor-modal','ai-panel','lib-store-modal'].forEach(id => {
+  const m = document.getElementById(id);
+  if (m && m.parentElement && m.parentElement !== document.body && m.parentElement.closest && m.parentElement.closest('#app')) document.body.appendChild(m);
+});
 
 // SKINS — every color is a CSS variable, so a skin is just a variable map
 const SKIN_VARS = ['--bg','--surf','--surf2','--surf3','--bdr','--txt','--mute','--red','--orange','--yellow','--green','--teal','--blue','--purple','--pink','--lime','--kick','--snare','--hhat','--clap','--tom1','--tom2','--ride','--crash','--perc1','--perc2','--bass','--fx1','--fx2','--fx3','--fx4','--fx5'];
@@ -5700,7 +5792,15 @@ function buildMixer() {
 
 // ---- KEY SEQ LANE UI ----
 function setLane(i) {
+  // Freeze the lane we're leaving: its current synth patch becomes permanent
+  // so it won't change when we retune the synth for another lane. (A manually
+  // locked lane is already frozen — leave its snapshot untouched.)
+  const prev = keyLanes[curLane];
+  if (prev && prev.voice === 'main' && !prev.locked && typeof synthSnapshot === 'function') prev.synthLock = synthSnapshot();
   curLane = i;
+  // Recall the lane we're entering: load its own patch back into the live synth
+  // + controls so what you hear and see is that lane's sound, not the last one's.
+  if (keyLanes[i].voice === 'main' && keyLanes[i].synthLock && typeof synthApplyToUI === 'function') synthApplyToUI(keyLanes[i].synthLock);
   keySeq = keyLanes[i].steps;
   document.querySelectorAll('.lane-btn').forEach(b => {
     const li = parseInt(b.dataset.lane);
@@ -9229,34 +9329,107 @@ function vgaWorldFrame(now) {
   for (const s of VGA.sprites) {
     const ch = VGA.chars[s.ci];
     s.t += dt;
-    if (playing) { s.mode = 'dance'; }
-    else if (s.mode === 'dance') { s.mode = 'walk'; }
-    if (s.mode === 'walk') {
-      if (Math.random() < 0.006) s.mode = 'idle', s.idleT = 20 + Math.random() * 40;
-      s.x += s.vx * dt; s.dir = s.vx < 0 ? -1 : 1;
-      if (s.x < 20) { s.x = 20; s.vx = Math.abs(s.vx); } if (s.x > innerWidth - 40) { s.x = innerWidth - 40; s.vx = -Math.abs(s.vx); }
-      s.y += Math.sin(s.t * 0.1) * 0.3;
-      if (s.y < 70) s.y = 70; if (s.y > innerHeight - 90) s.y = innerHeight - 90;
-    } else if (s.mode === 'idle') { if ((s.idleT -= dt) <= 0) { s.mode = 'walk'; if (Math.random() < 0.5) s.vx = -s.vx; } }
-    // interactions: nearby idle pair emote
-    if (!s.emote && Math.random() < 0.01) {
-      const near = VGA.sprites.find(o => o !== s && Math.abs(o.x - s.x) < 46 && Math.abs(o.y - s.y) < 30);
-      if (near) { s.emote = playing ? '♪' : (Math.random() < 0.5 ? '♥' : '!'); s.emoteT = 30; near.emote = s.emote; near.emoteT = 30; s.dir = near.x < s.x ? -1 : 1; }
+    const held = s.mode === 'held'; // being dragged by the pointer — freeze autonomy
+    if (!held) {
+      if (playing) { s.mode = 'dance'; }
+      else if (s.mode === 'dance') { s.mode = 'walk'; }
+      if (s.mode === 'walk') {
+        if (Math.random() < 0.006) s.mode = 'idle', s.idleT = 20 + Math.random() * 40;
+        s.x += s.vx * dt; s.dir = s.vx < 0 ? -1 : 1;
+        if (s.x < 20) { s.x = 20; s.vx = Math.abs(s.vx); } if (s.x > innerWidth - 40) { s.x = innerWidth - 40; s.vx = -Math.abs(s.vx); }
+        s.y += Math.sin(s.t * 0.1) * 0.3;
+        if (s.y < 70) s.y = 70; if (s.y > innerHeight - 90) s.y = innerHeight - 90;
+      } else if (s.mode === 'idle') { if ((s.idleT -= dt) <= 0) { s.mode = 'walk'; if (Math.random() < 0.5) s.vx = -s.vx; } }
+      // interactions: nearby idle pair emote
+      if (!s.emote && Math.random() < 0.01) {
+        const near = VGA.sprites.find(o => o !== s && Math.abs(o.x - s.x) < 46 && Math.abs(o.y - s.y) < 30);
+        if (near) { s.emote = playing ? '♪' : (Math.random() < 0.5 ? '♥' : '!'); s.emoteT = 30; near.emote = s.emote; near.emoteT = 30; s.dir = near.x < s.x ? -1 : 1; }
+      }
     }
     if (s.emote && (s.emoteT -= dt) <= 0) s.emote = null;
+    if (s.hop) s.hop = Math.max(0, s.hop - dt * 1.6); // decay a poke/pick-up bounce
     // pose
     let pose;
-    if (playing) pose = (Math.floor(s.t * 0.3) % 2) ? 'dance0' : 'dance1';
+    if (held) pose = 'cheer';
+    else if (s.hop > 0.5) pose = 'cheer';
+    else if (playing) pose = (Math.floor(s.t * 0.3) % 2) ? 'dance0' : 'dance1';
     else if (s.mode === 'walk') pose = (Math.floor(s.t * 0.25) % 2) ? 'walk1' : 'idle';
     else pose = 'idle';
     const spr = vgaSprite(ch, pose);
-    const sc = 0.72;                              // walk the world a touch smaller than the roster art
+    const sc = held ? 0.84 : 0.72;               // walk the world a touch smaller than the roster art; grow when grabbed
     const w = spr.width * sc, h = spr.height * sc;
-    g.save(); g.translate(Math.round(s.x), Math.round(s.y));
+    s._w = w; s._h = h;                          // cache screen size for hit-testing
+    g.save(); g.translate(Math.round(s.x), Math.round(s.y - (s.hop || 0)));
     if (s.dir < 0) { g.scale(-1, 1); g.translate(-w, 0); }
     g.drawImage(spr, 0, 0, w, h); g.restore();
-    if (s.emote) { g.fillStyle = '#fff'; g.font = 'bold 16px monospace'; g.fillText(s.emote, Math.round(s.x) + 18, Math.round(s.y) - 4); }
+    if (s.emote) { g.fillStyle = '#fff'; g.font = 'bold 16px monospace'; g.fillText(s.emote, Math.round(s.x) + 18, Math.round(s.y - (s.hop || 0)) - 4); }
   }
+}
+// ---- INTERACTION — click to poke, drag to move a character -----------
+// The world canvas stays pointer-events:none so it never blocks the UI; we
+// listen on the document in the CAPTURE phase and only swallow the event when
+// the pointer actually lands on a sprite, otherwise it passes through to the app.
+function vgaHitSprite(px, py) {
+  for (let i = VGA.sprites.length - 1; i >= 0; i--) {
+    const s = VGA.sprites[i];
+    const w = s._w || 44, h = s._h || 56;
+    if (px >= s.x && px <= s.x + w && py >= s.y - (s.hop || 0) && py <= s.y - (s.hop || 0) + h) return s;
+  }
+  return null;
+}
+function vgaLiveBlip(kind) {
+  try {
+    if (!window.audioReady && typeof initAudio === 'function') initAudio();
+    if (typeof ctx === 'undefined' || !ctx) return;
+    const out = (typeof getOutput === 'function') ? getOutput() : ctx.destination;
+    const t0 = ctx.currentTime + 0.001;
+    const notes = kind === 'love' ? [79, 84, 88] : [72, 76, 79, 84];
+    notes.forEach((m, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = 440 * Math.pow(2, (m - 69) / 12);
+      const st = t0 + i * 0.055;
+      g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(0.2, st + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, st + 0.13);
+      o.connect(g); g.connect(out); o.start(st); o.stop(st + 0.15);
+    });
+  } catch (e) {}
+}
+function vgaPokeSprite(s) {
+  const ch = VGA.chars[s.ci];
+  const love = Math.random() < 0.5;
+  s.emote = love ? '♥' : '♪'; s.emoteT = 45; s.hop = 15; s.mode = 'idle'; s.idleT = 26;
+  vgaLiveBlip(love ? 'love' : 'note');
+  if (typeof toast === 'function') toast('👾 ' + ch.name + ' — ' + ch.cls);
+}
+function vgaPointerDown(e) {
+  if (!VGA.on || VGA.drag) return;
+  const s = vgaHitSprite(e.clientX, e.clientY);
+  if (!s) return; // not on a character — let the UI have the event
+  VGA.drag = { s, offx: e.clientX - s.x, offy: e.clientY - s.y, sx: e.clientX, sy: e.clientY, moved: false };
+  s.mode = 'held';
+  e.preventDefault(); e.stopPropagation();
+}
+function vgaPointerMove(e) {
+  if (!VGA.drag) return;
+  const d = VGA.drag, s = d.s;
+  if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true;
+  s.x = Math.max(10, Math.min(innerWidth - 40, e.clientX - d.offx));
+  s.y = Math.max(60, Math.min(innerHeight - 80, e.clientY - d.offy));
+  e.preventDefault(); e.stopPropagation();
+}
+function vgaPointerUp(e) {
+  if (!VGA.drag) return;
+  const d = VGA.drag, s = d.s; VGA.drag = null;
+  s.mode = 'walk';
+  if (!d.moved) vgaPokeSprite(s); // a tap/click, not a drag
+  e.preventDefault(); e.stopPropagation();
+}
+function vgaWireInteraction() {
+  if (VGA._ptrWired) return; VGA._ptrWired = true;
+  document.addEventListener('pointerdown', vgaPointerDown, true);
+  document.addEventListener('pointermove', vgaPointerMove, true);
+  document.addEventListener('pointerup', vgaPointerUp, true);
+  document.addEventListener('pointercancel', vgaPointerUp, true);
 }
 function vgaStartWorld() {
   if (!document.getElementById('vga-world')) {
@@ -9264,7 +9437,7 @@ function vgaStartWorld() {
     cv.style.cssText = 'position:fixed;inset:0;z-index:2200;pointer-events:none;';
     document.body.appendChild(cv);
   }
-  VGA.on = true; vgaSyncSprites();
+  VGA.on = true; vgaSyncSprites(); vgaWireInteraction();
   if (!VGA.raf) { VGA.last = performance.now(); vgaWorldFrame(VGA.last); }
 }
 function vgaStopWorld() { VGA.on = false; if (VGA.raf) cancelAnimationFrame(VGA.raf); VGA.raf = null; const cv = document.getElementById('vga-world'); if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); }
@@ -9514,6 +9687,122 @@ function brainAnswer(c) {
   }
   return false;
 }
+// ===== RUN 5 — BASSLINE dataset =======================================
+const BASS_KB = {
+  house: { name: 'house offbeat', notes: [[2, 0], [6, 0], [10, 0], [14, 0]] },
+  trap: { name: 'trap 808', notes: [[0, 0], [6, 0], [10, 4], [15, 0]] },
+  dnb: { name: 'rolling DnB', notes: [[0, 0], [3, 0], [6, 4], [10, 0], [13, 2]] },
+  reggaeton: { name: 'dembow bass', notes: [[0, 0], [8, 0], [11, 4]] },
+  boombap: { name: 'boom-bap walk', notes: [[0, 0], [4, 4], [8, 2], [12, 4]] },
+  synthwave: { name: 'driving 8ths', notes: [[0, 0], [2, 0], [4, 0], [6, 0], [8, 0], [10, 0], [12, 0], [14, 0]] },
+  funk: { name: 'funk pluck', notes: [[0, 0], [3, 0], [6, 4], [7, 2], [10, 0], [14, 4]] }
+};
+function brainLayBass(genreKey, laneIdx) {
+  if (typeof keyLanes === 'undefined') return false;
+  const b = BASS_KB[genreKey] || BASS_KB.house;
+  const root = (AI.lastKey != null ? AI.lastKey : 0), mode = (AI.lastMode || 'minor');
+  const scale = MUSIC_KB.scales[mode] || MUSIC_KB.scales.minor;
+  const li = (laneIdx != null && laneIdx >= 0 && laneIdx < KEY_LANES) ? laneIdx : (typeof curLane === 'number' ? curLane : 1);
+  const lane = keyLanes[li]; if (!lane || lane.locked) return false;
+  lane.steps.fill(null); lane.voice = 'bass';
+  b.notes.forEach(([step, deg]) => { const pc = scale[((deg % scale.length) + scale.length) % scale.length]; const oct = Math.floor(deg / scale.length); lane.steps[step] = { midi: 36 + root + pc + 12 * oct, sustain: true }; });
+  if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
+  b._lane = li; return b;
+}
+// parse an explicit lane target from a command ("on lane 3", "in lane 2")
+function brainLaneTarget(c) {
+  const m = c.match(/\b(?:on|in|to|for) (?:the )?lane\s*(\d)/) || c.match(/\blane\s*(\d)\b/);
+  if (m) { const n = parseInt(m[1]) - 1; if (n >= 0 && n < (typeof KEY_LANES !== 'undefined' ? KEY_LANES : 5)) return n; }
+  return null;
+}
+function brainBassGenre(c) {
+  const map = [[/house|offbeat/, 'house'], [/trap|808/, 'trap'], [/\bdnb\b|drum.?n.?bass|jungle|rolling/, 'dnb'], [/reggaeton|dembow/, 'reggaeton'], [/boom.?bap|walk/, 'boombap'], [/synthwave|driving|retro/, 'synthwave'], [/funk/, 'funk']];
+  for (const [re, k] of map) if (re.test(c)) return k;
+  return null;
+}
+// Lane-aware bass placement: honour a named lane, reuse an existing bass lane,
+// otherwise drop onto an EMPTY lane so we never clobber a melody the user is
+// already working on. Only forces the current lane if nothing else is free.
+function brainBassLane(c) {
+  if (typeof keyLanes === 'undefined' || typeof KEY_LANES === 'undefined') return null;
+  const named = brainLaneTarget(c);
+  if (named != null && keyLanes[named] && !keyLanes[named].locked) return named;
+  const laneEmpty = l => l && !l.locked && l.steps.every(s => !s);
+  const pref = [1, 0, 4, 3, 2].filter(i => i < KEY_LANES);
+  const reuse = pref.find(i => keyLanes[i] && !keyLanes[i].locked && keyLanes[i].voice === 'bass');
+  if (reuse != null) return reuse;
+  const empty = pref.find(i => laneEmpty(keyLanes[i]));
+  if (empty != null) return empty;
+  return (typeof curLane === 'number' && keyLanes[curLane] && !keyLanes[curLane].locked) ? curLane : pref[0];
+}
+// ===== RUN 6 — ROMAN-NUMERAL / degree chord progressions ==============
+function brainDegreeProg(c) {
+  const m = c.match(/\b((?:[ivx]+|[1-7])(?:[\s\-]+(?:[ivx]+|[1-7])){1,5})\b/i);
+  if (!m) return null;
+  const rn = { i: 0, ii: 1, iii: 2, iv: 3, v: 4, vi: 5, vii: 6 };
+  const deg = m[0].split(/[\s\-]+/).filter(Boolean).map(t => { if (/^[1-7]$/.test(t)) return parseInt(t) - 1; const l = t.toLowerCase().replace(/[^iv]/g, ''); return rn[l] != null ? rn[l] : null; }).filter(x => x != null);
+  return deg.length >= 2 ? deg : null;
+}
+function brainChordsFromDegrees(deg, seventh) {
+  if (typeof keyLanes === 'undefined' || typeof KEY_LANES === 'undefined') return false;
+  const root = (AI.lastKey != null ? AI.lastKey : 0), mode = (AI.lastMode || 'major');
+  const scale = MUSIC_KB.scales[mode] || MUSIC_KB.scales.major;
+  const voices = seventh ? [0, 2, 4, 6] : [0, 2, 4];
+  const lanes = [2, 3, 4, 5].filter(i => i < KEY_LANES).slice(0, voices.length);
+  const per = Math.max(1, Math.floor(SEQ_STEPS / deg.length));
+  lanes.forEach(li => { if (!keyLanes[li].locked) keyLanes[li].steps.fill(null); });
+  deg.forEach((d, ci) => { voices.forEach((v, vi) => { const li = lanes[vi]; if (li == null || keyLanes[li].locked) return; const dd = d + v, oct = Math.floor(dd / scale.length), pc = scale[((dd % scale.length) + scale.length) % scale.length]; keyLanes[li].steps[ci * per] = { midi: 48 + root + pc + 12 * oct, sustain: true }; }); });
+  lanes.forEach(li => { if (!keyLanes[li].locked) keyLanes[li].voice = 'pad'; });
+  if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s);
+  const roman = mode === 'major' ? ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'] : ['i', 'ii°', 'III', 'iv', 'v', 'VI', 'VII'];
+  return '🎹 Laid ' + deg.map(d => roman[d] || ('#' + (d + 1))).join('–') + (seventh ? ' (7th voicings)' : '') + ' in ' + PC_NAMES[root] + ' ' + mode + ' — hit ▶ KEYS';
+}
+// ===== RUN 7 — more grooves + pattern-layer verbs =====================
+Object.assign(GROOVE_KB, {
+  'jersey club': { bpm: 140, style: 'garage', aliases: /jersey club|bed squeak/, pattern: { kick: [0, 3, 5, 8, 11, 13], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'baile funk': { bpm: 130, style: 'reggaeton', aliases: /baile|funk carioca|brazilian phonk/, pattern: { kick: [0, 3, 6, 8, 11, 14], rim: [2, 5, 10, 13], clap: [4, 12] } },
+  'footwork': { bpm: 160, style: 'jungle', aliases: /footwork|juke|chicago/, pattern: { kick: [0, 2, 5, 8, 10, 13], clap: [4, 12], hat: [0, 1, 3, 4, 6, 8, 9, 11, 12, 14] } },
+  'gospel': { bpm: 96, style: 'funk', aliases: /gospel|shuffle swing|church groove/, pattern: { kick: [0, 6, 10], snare: [4, 12], hat: [0, 3, 4, 7, 8, 11, 12, 15], ride: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'moombahton': { bpm: 108, style: 'reggaeton', aliases: /moombahton|dutch house latin/, pattern: { kick: [0, 4, 8, 12], rim: [3, 6, 11, 14], open: [2, 6, 10, 14] } },
+  'phonk': { bpm: 130, style: 'memphis', aliases: /phonk|drift phonk|cowbell/, pattern: { kick: [0, 6, 10], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14], clave: [0, 3, 6, 8, 11, 14] } },
+  'hyperpop': { bpm: 160, style: 'trap', aliases: /hyperpop|glitch pop|pc music/, pattern: { kick: [0, 6, 10, 14], clap: [8], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] } },
+  'uk funky': { bpm: 130, style: 'house', aliases: /uk funky|broken beat|afroswing/, pattern: { kick: [0, 6, 10], clap: [4, 12], rim: [3, 7, 11, 15], hat: [2, 5, 8, 11, 14] } }
+});
+function brainPatternVerb(c) {
+  const h = brainFindDrum('hats'), cl = brainFindDrum('clap'), sn = brainFindDrum('snare'), rd = grooveTrack('ride');
+  if (/double (the )?hats?|hats? on every|16th hats|more hats everywhere/.test(c) && h >= 0) { for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(h, s, true); return '🥁 Doubled the hats to straight 16ths'; }
+  if (/add (a |some )?clap|clap on (2 and 4|the backbeat|every)/.test(c) && cl >= 0) { setSeqStep(cl, 4, true); setSeqStep(cl, 12, true); return '🥁 Added claps on the backbeat (2 & 4)'; }
+  if (/ghost (snare|note)|add (some )?ghost/.test(c) && sn >= 0) { [3, 7, 11, 15].forEach(s => setSeqStep(sn, s, true)); return '🥁 Added ghost snares on the offbeats'; }
+  if (/add (a |the )?ride|ride (pattern|cymbal)/.test(c) && rd >= 0) { for (let s = 0; s < SEQ_STEPS; s += 2) setSeqStep(rd, s, true); return '🥁 Added a ride cymbal on the 8ths'; }
+  return false;
+}
+// ===== RUN 8 — energy morphing ========================================
+function brainEnergyMorph(c) {
+  if (/more energ|hype it|amp it up|make it (more )?(intense|energetic|hyped)|go harder|turn up the energy/.test(c)) {
+    const h = brainFindDrum('hats'), k = brainFindDrum('kick');
+    if (h >= 0) for (let s = 0; s < SEQ_STEPS; s++) if (Math.random() < 0.7) setSeqStep(h, s, true);
+    if (k >= 0) [2, 6, 14].forEach(s => { if (Math.random() < 0.6) setSeqStep(k, s, true); });
+    seqSwing = 0; brainSetBPM(brainCurBPM() + 6);
+    return '⚡ Amped it up — busier hats, extra kicks, tighter + faster';
+  }
+  if (/chill (it )?(out)?|make it chill|relax(ed)?|calm(er)?|mellow it|lay ?back|more laid ?back/.test(c)) {
+    let removed = 0; for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) if (seqPatterns[t][s] && Math.random() < 0.35) { setSeqStep(t, s, false); removed++; }
+    seqSwing = 0.22; brainSetBPM(brainCurBPM() - 8);
+    return '😌 Chilled it out — thinned, swung and slowed down';
+  }
+  if (/build (it )?up|buildup|build.?up/.test(c)) {
+    const cr = brainFindDrum('crash') >= 0 ? brainFindDrum('crash') : grooveTrack('crash'), sn = brainFindDrum('snare');
+    if (sn >= 0) [12, 13, 14, 15].forEach(s => setSeqStep(sn, s, true));
+    if (cr >= 0) setSeqStep(cr, 0, true);
+    return '📈 Built it up — snare roll into a crash';
+  }
+  if (/strip (it )?(down|back|for the drop)?|drop coming|clear for the drop|just the kick/.test(c)) {
+    const k = brainFindDrum('kick');
+    for (let t = 0; t < SEQ_TRACKS; t++) if (t !== k) for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(t, s, false);
+    return '📉 Stripped it back to just the kick — space for the drop';
+  }
+  return false;
+}
 
 // ---- low-level DSP helpers -------------------------------------------
 function brainDownmix(buf, targetSr, maxSec) {
@@ -9611,7 +9900,7 @@ function brainSetBPM(n, why) {
 }
 // [regex to spot in the request, keyword guaranteed to appear in the track name]
 const BRAIN_DRUMS = [[/\bkicks?\b|\bbd\b|bass ?drum/, 'kick'], [/\bsnares?\b|\bsd\b/, 'snare'], [/\bclaps?\b/, 'clap'],
-  [/open hat/, 'open'], [/closed hat|hi.?hats?|\bhats?\b|\bhh\b/, 'hat'], [/\b808s?\b|\bsub\b/, '808'],
+  [/open hat|\bhh op\b/, 'hh op'], [/closed hat|hi.?hats?|\bhats?\b|\bhh\b/, 'hh cl'], [/\b808s?\b|\bsub\b/, '808'],
   [/\bbass\b/, 'bass'], [/\btoms?\b/, 'tom'], [/\bride\b/, 'ride'], [/\bcrash\b/, 'crash'], [/\brim\b/, 'rim'],
   [/cow ?bell/, 'cow'], [/shakers?/, 'shak'], [/claves?/, 'clav'], [/snaps?/, 'snap']];
 function brainFindDrum(text) {
@@ -9738,8 +10027,9 @@ async function brainClause(c) {
     const wn = brainNumFromWords(c);
     if (wn && wn >= 40 && wn <= 300) return brainSetBPM(wn);
   }
-  if (/(faster|speed (it )?up|quicker|pick up the pace|more energy|hype)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() + d, 'faster'); }
-  if (/(slower|slow (it )?down|chill(er)?|relax|lay ?back|calmer|less energy)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() - d, 'slower'); }
+  // pure-tempo nudges only — richer "hype it / chill it out" feel-morphs are owned by brainEnergyMorph below
+  if (/(faster|speed (it )?up|quicker|pick up the pace|up the tempo|push the tempo)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() + d, 'faster'); }
+  if (/(slower|slow (it )?down|less energy|drop the tempo|take it down|ease off the tempo)/.test(c)) { const d = /(way|much|lot)/.test(c) ? 16 : /(bit|little|touch|slightly)/.test(c) ? 4 : 8; return brainSetBPM(brainCurBPM() - d, 'slower'); }
   // ---- KEY / SCALE ----
   const noteRe = /\b(a|b|c|d|e|f|g)(#|b|sharp|flat)?\s*(maj(or)?|min(or)?|minor|major)?\b/;
   if (/\b(key|in the key of|transpose|scale)\b/.test(c) || /\bin\s+[a-g](#|b)?\s*(maj|min)/.test(c)) {
@@ -9777,12 +10067,32 @@ async function brainClause(c) {
     if (/pan.*right|right.*pan/.test(c)) { d.pan = 0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' right'; }
     if (/cent(er|re)/.test(c)) { d.pan = 0; brainMixReflect(); return '↔️ Centred the ' + d.name; }
   }
+  // ---- LANE OPS — recognise a named key lane and act only on it ----
+  if (/\blane\s*\d/.test(c) && typeof keyLanes !== 'undefined') {
+    const li = brainLaneTarget(c);
+    if (li != null && keyLanes[li]) {
+      const L = keyLanes[li], n = li + 1;
+      if (/\b(select|focus|go to|switch to|use)\b/.test(c)) { if (typeof setLane === 'function') setLane(li); return '🎯 Focused lane ' + n; }
+      if (/\b(clear|wipe|empty|erase|reset)\b/.test(c)) { L.steps.fill(null); if (typeof renderKeySeqStep === 'function') for (let s = 0; s < SEQ_STEPS; s++) renderKeySeqStep(s); return '🧹 Cleared lane ' + n; }
+      if (/\bunmute|bring back\b/.test(c)) { L.mute = false; if (typeof setLane === 'function') setLane(curLane); return '🔊 Un-muted lane ' + n; }
+      if (/\bmute|silence|kill\b/.test(c)) { L.mute = true; if (typeof setLane === 'function') setLane(curLane); return '🔇 Muted lane ' + n; }
+      if (/\bsolo\b/.test(c)) { keyLanes.forEach((o, i) => o.mute = i !== li); if (typeof setLane === 'function') setLane(li); return '🎯 Soloed lane ' + n; }
+      if (/\bunlock\b/.test(c)) { L.locked = false; L.synthLock = null; return '🔓 Unlocked lane ' + n; }
+      if (/\block|freeze\b/.test(c)) { if (L.voice === 'main' && typeof synthSnapshot === 'function') L.synthLock = synthSnapshot(); L.locked = true; return '🔒 Locked lane ' + n + ' — its sound is frozen'; }
+      const bg = brainBassGenre(c);
+      if (/\bbass|808|sub\b/.test(c)) { const b = brainLayBass(bg || 'house', li); if (b) return '🎸 Laid a ' + b.name + ' bassline on lane ' + n; }
+    }
+  }
   // ---- AUTO-MIX / MASTERING (whole-kit moves) ----
   if (/(make|let) (it|this|the (beat|mix|track)) (slap|knock|bang|punch|hit hard(er)?)|^(slap|knock|bang)( it)?$|make it punchier/.test(c)) return brainAutoMix('slap');
   if (/(clean|balance|fix|reset) (up )?the mix|auto ?mix/.test(c)) return brainAutoMix('clean');
   if (/\bwarm(er)?( it)?( up)?\b|less harsh|smooth (it|the mix) (out|over)|soften the (mix|highs)/.test(c)) return brainAutoMix('warm');
   if (/widen|\bwider\b|stereo (it|width)|spread (the|it) (mix|out)/.test(c)) return brainAutoMix('wide');
   if (/(make (it|everything) )loud(er)?\b|turn (it|everything) up|pump it|crank it/.test(c)) return brainAutoMix('loud');
+  // ---- PATTERN-LAYER verbs (double hats, add clap/ride/ghost snares) ----
+  const pv = brainPatternVerb(c); if (pv) return pv;
+  // ---- ENERGY morph (amp up / chill out / build up / strip for the drop) ----
+  const em = brainEnergyMorph(c); if (em) return em;
   // ---- DENSITY / PATTERN EDITS ----
   if (/four on the floor|4 on the floor|four.?to.?the.?floor/.test(c)) {
     const k = brainFindDrum('kick'); if (k >= 0) { for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(k, s, s % 4 === 0); return '🥁 Kick set to four-on-the-floor'; }
@@ -9801,6 +10111,11 @@ async function brainClause(c) {
     for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(t, s, false); return '🧹 Cleared the drum pattern';
   }
   // ---- CHORDS / PROGRESSION ----
+  // roman-numeral / degree progression: "play a 1 5 6 4", "give me a I V vi IV"
+  if (/(chord|progression|play)/.test(c)) {
+    const dp = brainDegreeProg(c);
+    if (dp) return brainChordsFromDegrees(dp, /7th|seventh|jazzy|jazz/.test(c));
+  }
   if (/chords?|progression|harmony|pads?\b/.test(c) && /(add|give|make|write|lay|drop|put|need|want|some)/.test(c)) {
     let mood = Object.keys(MOOD_WORDS).find(k => MOOD_WORDS[k].test(c));
     return brainChords(mood);
@@ -9820,6 +10135,13 @@ async function brainClause(c) {
   const wc = ct.split(/\s+/).length;
   if (aest.score >= 2 || (aest.score >= 1 && wc <= 4) || (aest.score >= 1 && /vibe|aesthetic|mood|feels? like|energy of|palette/.test(c))) {
     return brainAestheticCompose(aest);
+  }
+  // ---- GENRE BASSLINE from the dataset (respects the active / named lane) ----
+  if (/bass ?line|808 line|sub ?line/.test(c) && /(give|make|add|lay|drop|write|need|want|some|put|cook)/.test(c) && !/\b(louder|quieter|mute|solo|pan|swap|different|volume)\b/.test(c)) {
+    if (AI.lastKey == null) AI.lastKey = Math.floor(Math.random() * 12);
+    const b = brainLayBass(brainBassGenre(c) || 'house', brainBassLane(c));
+    if (b) return '🎸 Laid a ' + b.name + ' bassline on lane ' + (b._lane + 1) + ' in ' + PC_NAMES[AI.lastKey] + ' ' + (AI.lastMode || 'minor') + ' — hit ▶ KEYS';
+    return '🔒 That lane is locked — unlock it or pick another.';
   }
   // ---- GENERATE beat / melody / bass ----
   const wantsBeat = /\b(beat|drums?|groove|rhythm|pattern|drum ?line)\b/.test(c);
