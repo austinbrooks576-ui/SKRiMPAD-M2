@@ -1,10 +1,17 @@
 package com.firstriff.skrimpadm2
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.midi.MidiDevice
+import android.media.midi.MidiDeviceInfo
+import android.media.midi.MidiManager
+import android.media.midi.MidiReceiver
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -23,6 +30,62 @@ class MainActivity : AppCompatActivity() {
     private val AUDIO_PERMISSION_REQUEST = 1001
     private lateinit var fileHandler: FileHandler
     private var speech: SpeechRecognizer? = null
+    private var midiManager: MidiManager? = null
+    private val openMidiDevices = mutableListOf<MidiDevice>()
+    private var midiCallback: MidiManager.DeviceCallback? = null
+
+    // MIDI bridge — the WebView has no Web MIDI API, so USB / BLE controllers
+    // are opened natively through android.media.midi and their raw bytes are
+    // forwarded to the same onMIDI() path the desktop build uses.
+    inner class MidiBridge {
+        @JavascriptInterface
+        fun enable() { runOnUiThread { setupMidi() } }
+    }
+
+    private fun jsMidiStatus(txt: String) {
+        val safe = txt.replace("'", "").replace("\\", "")
+        webView.evaluateJavascript("window.onNativeMIDIStatus && onNativeMIDIStatus('$safe')", null)
+    }
+
+    private fun setupMidi() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("MIDI needs Android 6+"); return }
+        if (midiManager == null) midiManager = getSystemService(Context.MIDI_SERVICE) as? MidiManager
+        val mm = midiManager
+        if (mm == null) { jsMidiStatus("MIDI unavailable on this device"); return }
+        for (info in mm.devices) openMidiInput(mm, info)
+        if (midiCallback == null) {
+            midiCallback = object : MidiManager.DeviceCallback() {
+                override fun onDeviceAdded(info: MidiDeviceInfo) { openMidiInput(mm, info) }
+                override fun onDeviceRemoved(info: MidiDeviceInfo) {}
+            }
+            mm.registerDeviceCallback(midiCallback!!, Handler(Looper.getMainLooper()))
+        }
+        val n = mm.devices.count { it.outputPortCount > 0 }
+        jsMidiStatus(if (n > 0) "🟢 $n MIDI device(s) connected" else "🎹 Native MIDI on — connect a USB / BT controller")
+    }
+
+    // Open the device's OUTPUT port (data flowing FROM the controller to us) and
+    // stream its bytes to the WebView as a JSON int array.
+    private fun openMidiInput(mm: MidiManager, info: MidiDeviceInfo) {
+        if (info.outputPortCount <= 0) return
+        mm.openDevice(info, { device ->
+            if (device == null) return@openDevice
+            openMidiDevices.add(device)
+            val port = device.openOutputPort(0) ?: return@openDevice
+            port.connect(object : MidiReceiver() {
+                override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
+                    if (count <= 0) return
+                    val sb = StringBuilder("[")
+                    for (k in 0 until count) { if (k > 0) sb.append(','); sb.append(msg[offset + k].toInt() and 0xFF) }
+                    sb.append("]")
+                    val js = "window.onNativeMIDIMessage && onNativeMIDIMessage($sb)"
+                    runOnUiThread { webView.evaluateJavascript(js, null) }
+                }
+            })
+            val name = info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device"
+            jsMidiStatus("🟢 $name")
+        }, Handler(Looper.getMainLooper()))
+    }
 
     // Voice bridge — the WebView has no Web Speech API, so the AI console's
     // 🎤 talks to Android's native SpeechRecognizer through this interface.
@@ -173,6 +236,9 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(fileHandler, "AndroidFileHandler")
         webView.addJavascriptInterface(VoiceBridge(), "AndroidVoice")
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_MIDI)) {
+            webView.addJavascriptInterface(MidiBridge(), "AndroidMidi")
+        }
         webView.loadUrl("file:///android_asset/index.html")
     }
 
@@ -238,6 +304,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         speech?.destroy()
+        midiCallback?.let { midiManager?.unregisterDeviceCallback(it) }
+        openMidiDevices.forEach { try { it.close() } catch (e: Exception) {} }
+        openMidiDevices.clear()
         webView.destroy()
         super.onDestroy()
     }
