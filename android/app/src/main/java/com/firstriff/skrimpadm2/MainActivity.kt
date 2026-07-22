@@ -88,9 +88,9 @@ class MainActivity : AppCompatActivity() {
 
     // Shared for USB + BLE — connect a MidiReceiver to the device's output port.
     private fun attachMidiDevice(device: MidiDevice?, name: String) {
-        if (device == null) { jsMidiStatus("Could not open $name"); return }
+        if (device == null) return                       // not a MIDI device (e.g. a bonded headset) — stay quiet
+        val port = device.openOutputPort(0) ?: run { try { device.close() } catch (e: Exception) {}; return } // no MIDI-out port
         openMidiDevices.add(device)
-        val port = device.openOutputPort(0) ?: run { jsMidiStatus("$name has no MIDI out port"); return }
         port.connect(object : MidiReceiver() {
             override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
                 if (count <= 0) return
@@ -104,43 +104,65 @@ class MainActivity : AppCompatActivity() {
         jsMidiStatus("🟢 $name")
     }
 
-    // BLE MIDI (Korg microKEY Air / nanoKEY Studio / nanoKONTROL Studio, etc.) —
-    // Android never lists BLE controllers in getDevices(); we have to BLE-scan for
-    // the standard MIDI service then hand the BluetoothDevice to MidiManager.
+    // BLE MIDI (Korg microKEY Air / nanoKEY Studio / nanoKONTROL Studio, etc.).
+    // Two gotchas make the naive approach fail: (1) most BLE MIDI controllers do
+    // NOT advertise the MIDI service UUID in their scan packet, so a service
+    // ScanFilter finds nothing; (2) pre-Android-12 BLE scanning needs location
+    // permission. So we scan UNFILTERED, match by name or advertised service, and
+    // also try every already-paired (bonded) device — the reliable path.
+    private val bleTried = mutableSetOf<String>()
+    private val MIDI_NAME_RE = Regex("midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|keystation|mpk|mpd|launchkey|minilab|keylab|seaboard|roli|yamaha|casio|akai|arturia|novation|xkey|cme|widi", RegexOption.IGNORE_CASE)
+
     private fun startBleMidiScan() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("BLE MIDI needs Android 6+"); return }
         if (midiManager == null) midiManager = getSystemService(Context.MIDI_SERVICE) as? MidiManager
         val mm = midiManager ?: run { jsMidiStatus("MIDI unavailable on this device"); return }
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
         if (adapter == null || !adapter.isEnabled) { jsMidiStatus("Turn Bluetooth ON, then tap 📶 again"); return }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), BLE_PERMISSION_REQUEST)
-            jsMidiStatus("Grant Bluetooth permission, then tap 📶 again"); return
+        // permissions: SCAN/CONNECT on 12+, FINE_LOCATION on 6–11
+        val need = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_SCAN)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        val scanner = adapter.bluetoothLeScanner ?: run { jsMidiStatus("BLE scan unavailable"); return }
-        bleScanner?.let { s -> bleScanCb?.let { try { s.stopScan(it) } catch (e: Exception) {} } }
-        val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(BLE_MIDI_UUID)).build()
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        if (need.isNotEmpty()) { ActivityCompat.requestPermissions(this, need.toTypedArray(), BLE_PERMISSION_REQUEST); jsMidiStatus("Grant Bluetooth permission, then tap 📶 again"); return }
+
+        bleTried.clear()
+        // 1) already-paired devices are the most reliable — try to open each.
+        var bonded = 0
+        try { adapter.bondedDevices?.forEach { dev -> bonded++; tryOpenBle(mm, dev, "BLE MIDI") } } catch (e: Exception) {}
+
+        // 2) scan UNFILTERED for unpaired controllers.
+        val scanner = adapter.bluetoothLeScanner
+        if (scanner == null) { if (bonded == 0) jsMidiStatus("No paired MIDI device — pair it in Bluetooth settings first"); return }
+        bleScanCb?.let { try { scanner.stopScan(it) } catch (e: Exception) {} }
         bleScanner = scanner
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         bleScanCb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val dev = result.device ?: return
-                try { scanner.stopScan(this) } catch (e: Exception) {}
-                val nm = try { dev.name } catch (e: SecurityException) { null } ?: "BLE MIDI"
-                jsMidiStatus("📶 Connecting $nm…")
-                try { mm.openBluetoothDevice(dev, { device -> attachMidiDevice(device, nm) }, Handler(Looper.getMainLooper())) }
-                catch (e: Exception) { jsMidiStatus("BLE connect failed: ${e.message}") }
+                val advertisesMidi = result.scanRecord?.serviceUuids?.any { it.uuid == BLE_MIDI_UUID } == true
+                val nm = try { dev.name } catch (e: SecurityException) { null }
+                val looksMidi = nm != null && MIDI_NAME_RE.containsMatchIn(nm)
+                if (advertisesMidi || looksMidi) tryOpenBle(mm, dev, nm ?: "BLE MIDI")
             }
-            override fun onScanFailed(errorCode: Int) { jsMidiStatus("BLE scan failed ($errorCode)") }
+            override fun onScanFailed(errorCode: Int) { jsMidiStatus("BLE scan failed ($errorCode) — pair the controller in Bluetooth settings") }
         }
-        jsMidiStatus("📶 Scanning for Korg / BLE MIDI…")
-        try { scanner.startScan(listOf(filter), settings, bleScanCb) } catch (e: Exception) { jsMidiStatus("BLE scan error: ${e.message}"); return }
-        // stop the scan after 15s to save battery if nothing pairs
+        jsMidiStatus("📶 Scanning for Korg / BLE MIDI — make sure it's paired + in range…")
+        try { scanner.startScan(emptyList(), settings, bleScanCb) } catch (e: Exception) { jsMidiStatus("BLE scan error: ${e.message}"); return }
         Handler(Looper.getMainLooper()).postDelayed({
             try { bleScanCb?.let { scanner.stopScan(it) } } catch (e: Exception) {}
+            if (bleTried.isEmpty()) jsMidiStatus("No BLE MIDI found — pair it in Android Bluetooth settings, then tap 📶")
         }, 15000)
+    }
+
+    private fun tryOpenBle(mm: MidiManager, dev: android.bluetooth.BluetoothDevice, label: String) {
+        val addr = try { dev.address } catch (e: Exception) { return }
+        if (!bleTried.add(addr)) return // only attempt each address once per scan
+        val nm = try { dev.name } catch (e: SecurityException) { null } ?: label
+        try { mm.openBluetoothDevice(dev, { device -> attachMidiDevice(device, nm) }, Handler(Looper.getMainLooper())) } catch (e: Exception) {}
     }
 
     // Voice bridge — the WebView has no Web Speech API, so the AI console's
