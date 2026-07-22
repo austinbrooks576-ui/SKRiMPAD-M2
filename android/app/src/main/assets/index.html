@@ -7480,7 +7480,7 @@ async function initBluetoothMIDI() {
     nativeMidiOn = true;
     try { window.AndroidMidi.enable(); } catch (e) {}       // USB devices too
     try { window.AndroidMidi.scanBluetooth(); } catch (e) {}
-    toast('📶 Scanning for Korg / BLE MIDI — put the controller in pairing mode');
+    toast('📶 Pair the controller in Android Bluetooth settings first, then it connects here — scanning…');
     return;
   }
   if (!navigator.bluetooth) {
