@@ -513,7 +513,9 @@ body.studio.float .slot-title{cursor:move;user-select:none;}
 #scope-canvas{width:100%;height:64px;display:block;background:#04120b;border:1px solid rgba(0,230,118,.25);border-radius:var(--r2);margin-bottom:8px;}
 
 /* SAMPLE EDITOR */
-#edit-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:4200;align-items:center;justify-content:center;}
+/* above the DAW modal (5000) + its library picker (6200) so ✂ SNIP from a DAW
+   channel opens the sample editor ON TOP, not hidden behind the studio. */
+#edit-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:6400;align-items:center;justify-content:center;}
 #edit-modal.open{display:flex;}
 #edit-card{width:min(640px,95vw);background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r3);padding:14px;}
 #edit-canvas{width:100%;height:140px;display:block;background:#0a0e14;border:1px solid var(--bdr);border-radius:var(--r2);cursor:crosshair;touch-action:none;}
@@ -630,8 +632,11 @@ body.se-active #se-root{
 #se-bar .spacer{flex:1;}
 
 /* circular HUD centerpiece */
-#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-54%);z-index:46;
-  width:min(56vh,440px);height:min(56vh,440px);pointer-events:none;}
+/* AI node rests BEHIND / even with the side windows (base z below .se-mod's 40)
+   and is compact so it never covers the front window. Tapping it still brings it
+   forward via seRaise(). */
+#se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-52%);z-index:38;
+  width:min(40vh,300px);height:min(40vh,300px);pointer-events:none;}
 #se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(var(--se-glow-rgb),.28));}
 #se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;}
 #se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper);opacity:.75;margin-top:5px;}
@@ -840,7 +845,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
 .daw-knob input{width:100%;}
 @media (max-width:760px){
   #daw-heads{width:130px;}
-  #se-hud-wrap{width:74vw;height:74vw;top:42%;}
+  #se-hud-wrap{width:52vw;height:52vw;top:42%;}
   /* the drop-shadow filter re-rasterizes the HUD canvas every frame — on a
      phone GPU that fights the audio pipeline, so the glow comes off */
   #se-hud{filter:none;}
@@ -11465,34 +11470,56 @@ function brainVoiceInit() {
   mic.title = native || SRec ? 'Talk to the AI — tap, speak, it does it' : 'Hum a melody — tap and hum, it becomes notes';
   mic.style.cssText = 'margin-left:6px;padding:6px 10px;border-radius:16px;border:1px solid var(--se-line,#666);background:rgba(0,0,0,.35);color:inherit;cursor:pointer;font-size:13px;';
   input.insertAdjacentElement('afterend', mic);
-  let rec = null, listening = false;
+  let rec = null, listening = false, gotResult = false, micReady = false;
+  const isElectron = /Electron/i.test(navigator.userAgent || '');
   const done = () => { listening = false; mic.textContent = '🎤'; };
   // native bridge callbacks (also reused by the Web Speech path)
-  window.brainVoiceResult = said => { done(); if (said) { input.value = ''; if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info'); aiSearch(said); } };
-  window.brainVoiceError = e => { done(); if (typeof toast === 'function') toast('🎤 ' + (String(e) === 'permission' ? 'Allow microphone access so you can talk to the AI' : 'Didn’t catch that — try again')); };
-  function voiceStart() {
+  window.brainVoiceResult = said => { gotResult = true; done(); if (said && said.trim()) { input.value = ''; if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info'); aiSearch(said.trim()); } };
+  window.brainVoiceError = e => {
+    done(); const code = String(e);
+    let msg = 'Didn’t catch that — try again';
+    if (code === 'permission' || /not-?allowed|denied|9|SecurityError/i.test(code)) msg = 'Microphone blocked — allow mic access in the app / OS settings, then tap 🎤 again';
+    else if (/network|service-?not/i.test(code)) msg = isElectron ? 'Desktop voice needs internet for speech — or just type your command here' : 'Speech service offline — check your connection';
+    else if (/no-?speech|7/i.test(code)) msg = 'Didn’t hear anything — hold 🎤 / Right Ctrl and speak';
+    else if (/audio-?capture|no microphone|5/i.test(code)) msg = 'No microphone found';
+    if (typeof toast === 'function') toast('🎤 ' + msg);
+  };
+  // Acquire the OS mic once so permission is granted before recognition runs.
+  async function ensureMic() {
+    if (micReady) return true;
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return true; // native path handles its own
+    try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); micReady = true; return true; }
+    catch (e) { brainVoiceError('permission'); return false; }
+  }
+  async function voiceStart() {
     if (!audioReady) initAudio();
     if (listening) return;
-    brainMicPrime(); // surface the permission prompt on first use
-    listening = true; mic.textContent = '🔴';
+    listening = true; gotResult = false; mic.textContent = '🔴';
     if (native) {
       if (typeof toast === 'function') toast('🎤 Listening… say what you want');
       try { AndroidVoice.startListening(); } catch (e) { brainVoiceError('bridge'); }
       return;
     }
     if (SRec) {
-      rec = new SRec(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+      if (!(await ensureMic())) return;              // secure the mic first
+      if (!listening) return;                        // stopped while priming
+      rec = new SRec(); rec.lang = navigator.language || 'en-US'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
       if (typeof toast === 'function') toast('🎤 Listening… say what you want');
-      rec.onresult = ev => brainVoiceResult(ev.results[0][0].transcript);
-      rec.onend = done;
-      rec.onerror = () => brainVoiceError('speech');
-      try { rec.start(); } catch (e) { done(); }
+      rec.onresult = ev => {
+        let finalT = '', interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) { const r = ev.results[i]; if (r.isFinal) finalT += r[0].transcript; else interim += r[0].transcript; }
+        if (interim) input.value = interim;
+        if (finalT) brainVoiceResult(finalT);
+      };
+      rec.onend = () => { if (!gotResult && listening) brainVoiceError('no-speech'); else done(); };
+      rec.onerror = ev => brainVoiceError((ev && ev.error) || 'speech');
+      try { rec.start(); } catch (e) { brainVoiceError((e && e.name) || 'speech'); }
       return;
     }
-    // no speech engine on this platform — capture a hum instead
+    // no speech engine on this platform — capture a hum → notes instead
     brainHumCapture().then(done, done);
   }
-  function voiceStop() { if (!listening) return; try { if (native) AndroidVoice.stopListening(); else if (rec) rec.stop(); } catch (e) {} done(); }
+  function voiceStop() { if (!listening) return; try { if (native) AndroidVoice.stopListening(); else if (rec) rec.stop(); } catch (e) {} if (native) done(); }
   mic.addEventListener('pointerdown', e => e.stopPropagation());
   mic.addEventListener('click', () => { if (listening) voiceStop(); else voiceStart(); });
   // PUSH-TO-TALK — hold Right Ctrl to talk, release to send. Ignored while typing
