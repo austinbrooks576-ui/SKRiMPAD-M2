@@ -10090,18 +10090,32 @@ const MUSIC_KB = {
     locrian: [0,1,3,5,6,8,10], harmonic: [0,2,3,5,7,8,11], melodic: [0,2,3,5,7,9,11],
     pentMinor: [0,3,5,7,10], pentMajor: [0,2,4,7,9], blues: [0,3,5,6,7,10],
     hirajoshi: [0,2,3,7,8], insen: [0,1,5,7,10], egyptian: [0,2,5,7,10],
-    wholetone: [0,2,4,6,8,10], phrygdom: [0,1,4,5,7,8,10], hungarian: [0,2,3,6,7,8,11]
+    wholetone: [0,2,4,6,8,10], phrygdom: [0,1,4,5,7,8,10], hungarian: [0,2,3,6,7,8,11],
+    // expanded scale/mode set
+    byzantine: [0,1,4,5,7,8,11], ukrainian: [0,2,3,6,7,9,10], altered: [0,1,3,4,6,8,10],
+    bebopDom: [0,2,4,5,7,9,10,11], bebopMaj: [0,2,4,5,7,8,9,11], iwato: [0,1,5,6,10],
+    kumoi: [0,2,3,7,9], prometheus: [0,2,4,6,9,10], augmented: [0,3,4,7,8,11],
+    diminished: [0,2,3,5,6,8,9,11], enigmatic: [0,1,4,6,8,10,11], neapolitan: [0,1,3,5,7,8,11],
+    lydianDom: [0,2,4,6,7,9,10], superlocrian: [0,1,3,4,6,8,10], chromatic: [0,1,2,3,4,5,6,7,8,9,10,11]
   },
   // scale name aliases the language engine understands
   scaleWords: { major:'major', minor:'minor', dorian:'dorian', phrygian:'phrygian', lydian:'lydian', mixolydian:'mixolydian', locrian:'locrian',
     'harmonic minor':'harmonic', 'melodic minor':'melodic', pentatonic:'pentMinor', 'minor pentatonic':'pentMinor', 'major pentatonic':'pentMajor',
-    blues:'blues', japanese:'hirajoshi', hirajoshi:'hirajoshi', egyptian:'egyptian', 'whole tone':'wholetone', 'spanish':'phrygdom', 'gypsy':'hungarian', 'hungarian':'hungarian' },
+    blues:'blues', japanese:'hirajoshi', hirajoshi:'hirajoshi', insen:'insen', egyptian:'egyptian', 'whole tone':'wholetone', 'spanish':'phrygdom', 'gypsy':'hungarian', 'hungarian':'hungarian',
+    byzantine:'byzantine', 'double harmonic':'byzantine', arabic:'byzantine', ukrainian:'ukrainian', altered:'altered', 'super locrian':'superlocrian', superlocrian:'superlocrian',
+    bebop:'bebopDom', 'bebop dominant':'bebopDom', 'bebop major':'bebopMaj', iwato:'iwato', kumoi:'kumoi', prometheus:'prometheus', mystic:'prometheus',
+    augmented:'augmented', diminished:'diminished', octatonic:'diminished', enigmatic:'enigmatic', neapolitan:'neapolitan', 'lydian dominant':'lydianDom', 'acoustic':'lydianDom', chromatic:'chromatic' },
   // progressions as scale-degree roots (0-indexed); triads are built from the active scale
   moodProg: {
     sad:[0,5,3,4], epic:[0,5,6,4], happy:[0,4,5,3], jazzy:[1,4,0,4], dreamy:[0,3,4,5], dark:[0,6,5,4],
     hopeful:[3,4,0,5], tense:[0,1,0,6], triumphant:[0,3,4,0], nostalgic:[5,3,0,4], anthemic:[0,4,5,3],
     mysterious:[0,1,5,4], romantic:[0,3,1,4], heroic:[0,4,3,4], eerie:[0,6,1,5], uplifting:[3,4,5,0],
-    melancholy:[0,3,5,4], suspense:[0,0,1,6], groovy:[0,3,0,4], cinematic:[0,5,3,6], gospel:[0,3,4,0]
+    melancholy:[0,3,5,4], suspense:[0,0,1,6], groovy:[0,3,0,4], cinematic:[0,5,3,6], gospel:[0,3,4,0],
+    // expanded mood → progression map
+    chill:[0,3,5,4], aggressive:[0,0,6,5], funky:[0,0,3,4], sensual:[5,1,4,0], spacey:[0,4,3,4],
+    playful:[0,4,1,4], majestic:[0,3,4,5], hypnotic:[0,0,0,5], ambient:[0,3,0,4], victorious:[0,4,5,4],
+    tragic:[0,6,3,4], driving:[0,5,0,4], soulful:[1,4,0,3], trap:[0,5,3,3], lofi:[1,4,0,5],
+    house:[5,3,0,4], phonk:[0,6,5,5], vaporwave:[0,3,4,3], drill:[0,5,5,4], edm:[5,3,4,0]
   },
   progFor(mood, mode) {
     if (this.moodProg[mood]) return this.moodProg[mood];
@@ -10119,7 +10133,14 @@ const MOOD_WORDS = {
   romantic:/roman|love|tender|sweetheart|amour/, heroic:/hero|brave|valor|champion/,
   eerie:/eerie|creepy|haunt|spooky|unsettl/, uplifting:/uplift|inspir|soar|elevate/,
   melancholy:/melanchol|bittersweet|longing|yearn/, suspense:/suspense|thriller|cliffhang|dread/,
-  groovy:/groovy|funky|bounce|swagger/, cinematic:/cinema|film|score|trailer|movie/, gospel:/gospel|church|choir|soul(ful)?/
+  groovy:/groovy|bounce|swagger/, cinematic:/cinema|film|score|trailer|movie/, gospel:/gospel|church|choir/,
+  chill:/chill|relaxed|laid.?back|mellow|lo.?fi vibe|easy/, aggressive:/aggress|angry|hard|brutal|savage|rage/,
+  funky:/funky|funk|slap bass|groove machine/, sensual:/sensual|sultry|seduc|bedroom|smooth r.?n.?b/,
+  spacey:/spacey|cosmic|astral|nebula|interstellar|zero.?g/, playful:/playful|quirky|bouncy|cute|whimsical/,
+  majestic:/majestic|regal|noble|grand hall|coronation/, hypnotic:/hypnot|trance.?y|repetitive|drone|mantra/,
+  ambient:/ambient|atmospher|drift(ing)?|soundscape|calm pad/, victorious:/victor|winner|conquer|final boss/,
+  tragic:/tragic|doom|grief|mourn|funeral/, driving:/driving|relentless|motorik|forward|propulsive/,
+  soulful:/soulful|neo.?soul|motown|deep soul/
 };
 const BRAIN = { profile: null, history: [], lastCmd: null, _noRecord: false };
 
@@ -10139,7 +10160,29 @@ const GROOVE_KB = {
   'rock': { bpm: 120, style: null, aliases: /rock beat|rock pattern|backbeat|punk beat/, pattern: { kick: [0, 8], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
   'halftime': { bpm: 140, style: null, aliases: /half.?time/, pattern: { kick: [0], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
   'techno': { bpm: 132, style: 'techno', aliases: /techno beat|warehouse|berlin/, pattern: { kick: [0, 4, 8, 12], open: [2, 6, 10, 14], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], clap: [4, 12] } },
-  'dubstep': { bpm: 140, style: 'dubstep', aliases: /dubstep|riddim|brostep/, pattern: { kick: [0, 10], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 10] } }
+  'dubstep': { bpm: 140, style: 'dubstep', aliases: /dubstep|riddim|brostep/, pattern: { kick: [0, 10], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 10] } },
+  // ---- expanded rhythm dataset ----
+  'amapiano': { bpm: 112, style: 'afrobeats', aliases: /amapiano|piano house|yanos/, pattern: { kick: [0, 4, 8, 12], open: [2, 6, 10, 14], hat: [0, 2, 4, 6, 8, 10, 12, 14], rim: [7, 15], sub: [0, 8] } },
+  'dancehall': { bpm: 100, style: 'reggaeton', aliases: /dancehall|bogle|riddim beat/, pattern: { kick: [0, 6, 8, 14], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'gqom': { bpm: 124, style: 'techno', aliases: /gqom|sgubhu|durban/, pattern: { kick: [0, 3, 6, 10, 12], clap: [4, 12], tom: [7, 15], hat: [2, 6, 10, 14] } },
+  'phonk': { bpm: 130, style: 'trap', aliases: /phonk|memphis|drift phonk/, pattern: { kick: [0, 6, 10], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 6, 10], cowbell: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'jersey club': { bpm: 140, style: 'garage', aliases: /jersey club|bounce club|philly club/, pattern: { kick: [0, 3, 5, 8, 11, 13], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'baile funk': { bpm: 130, style: 'garage', aliases: /baile funk|funk carioca|brazilian funk|tamborzão/, pattern: { kick: [0, 3, 6, 8, 11, 14], clap: [4, 12], rim: [2, 5, 10, 13], hat: [0, 4, 8, 12] } },
+  'footwork': { bpm: 160, style: 'juke', aliases: /footwork|juke|chicago juke|160/, pattern: { kick: [0, 2, 3, 8, 10, 11], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 8] } },
+  'moombahton': { bpm: 108, style: 'reggaeton', aliases: /moombahton|moombah/, pattern: { kick: [0, 8], clap: [4, 12], rim: [3, 6, 11, 14], open: [2, 6, 10, 14], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'hyperpop': { bpm: 160, style: 'trap', aliases: /hyperpop|glitchpop|pc music|bubblegum bass/, pattern: { kick: [0, 6, 10, 14], clap: [8], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], sub: [0, 10] } },
+  'uk funky': { bpm: 130, style: 'house', aliases: /uk funky|funky house|broken beat/, pattern: { kick: [0, 6, 10], clap: [4, 12], tom: [2, 7, 11, 15], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'gospel': { bpm: 76, style: 'gospel', aliases: /gospel beat|shuffle gospel|praise break/, pattern: { kick: [0, 4, 8, 12], snare: [4, 12], hat: [0, 2, 3, 5, 6, 8, 10, 11, 13, 14], ride: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'trance': { bpm: 138, style: 'techno', aliases: /trance|uplifting trance|psytrance|goa/, pattern: { kick: [0, 4, 8, 12], open: [2, 6, 10, 14], clap: [4, 12], hat: [1, 3, 5, 7, 9, 11, 13, 15] } },
+  'hardstyle': { bpm: 150, style: 'hardcore', aliases: /hardstyle|rawstyle|gabber|hardcore/, pattern: { kick: [0, 4, 8, 12], clap: [4, 12], open: [2, 6, 10, 14], sub: [0, 4, 8, 12] } },
+  'neurofunk': { bpm: 174, style: 'jungle', aliases: /neuro|neurofunk|techstep/, pattern: { kick: [0, 7, 10], snare: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 3, 10, 13] } },
+  'reggae': { bpm: 74, style: null, aliases: /reggae|one.?drop|roots|skank/, pattern: { kick: [8], rim: [4, 12], snare: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'samba': { bpm: 100, style: null, aliases: /samba|batucada|brazil(ian)? carnival/, pattern: { kick: [0, 3, 8, 11], snare: [2, 6, 10, 14], rim: [4, 12], hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] } },
+  'bossa nova': { bpm: 130, style: null, aliases: /bossa|bossa nova|latin jazz/, pattern: { kick: [0, 6, 8, 14], rim: [0, 3, 6, 10, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'trip hop': { bpm: 88, style: 'lofi', aliases: /trip.?hop|downtempo|bristol/, pattern: { kick: [0, 10], snare: [4, 12], hat: [0, 3, 6, 8, 11, 14], sub: [0, 10] } },
+  'new jack swing': { bpm: 108, style: null, aliases: /new jack|swingbeat|njs/, pattern: { kick: [0, 3, 8, 11], snare: [4, 12], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14] } },
+  'electro': { bpm: 128, style: 'techno', aliases: /electro|freestyle|miami bass|808 electro/, pattern: { kick: [0, 6, 8, 14], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 6, 8, 14] } },
+  'grime': { bpm: 140, style: 'garage', aliases: /grime|eskibeat|140 grime/, pattern: { kick: [0, 3, 8], snare: [4, 12], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], sub: [0, 8] } }
 };
 const GROOVE_ROLE_NAME = { kick: 'kick', snare: 'snare', hat: 'hh cl', open: 'hh op', clap: 'clap', rim: 'rim', sub: '808', ride: 'ride', tom: 'tom h', clave: 'clave' };
 function grooveTrack(role) { const key = GROOVE_ROLE_NAME[role] || role; return (typeof drumDefs !== 'undefined') ? drumDefs.findIndex(d => d.name.toLowerCase().includes(key)) : -1; }
@@ -10255,7 +10298,10 @@ function brainAnswer(c) {
   }
   // notes in a scale — "what notes are in C minor" / "in F# dorian"
   if (/note|scale/.test(c)) {
-    const hit = noteAt(/\b(?:in|of|key of)\s+([a-g])\s*(sharp|flat|#|b)?\s*(major|minor|dorian|phrygian|lydian|mixolydian|locrian|harmonic|melodic|blues|penta\w*)?/) || noteAt(/\b([a-g])\s*(sharp|flat|#|b)?\s+(major|minor|dorian|phrygian|lydian|mixolydian|locrian|harmonic|melodic|blues|penta\w*)\b/);
+    const SCW = '(double harmonic|harmonic minor|melodic minor|minor pentatonic|major pentatonic|whole tone|lydian dominant|super ?locrian|bebop dominant|bebop major|byzantine|ukrainian|prometheus|diminished|octatonic|augmented|enigmatic|neapolitan|acoustic|hungarian|egyptian|hirajoshi|japanese|spanish|gypsy|arabic|altered|bebop|iwato|kumoi|mystic|insen|chromatic|major|minor|dorian|phrygian|lydian|mixolydian|locrian|harmonic|melodic|blues|penta\\w*)';
+    // NB: the accidental must touch the note (no space) so the "b" in a scale
+    // name like "byzantine"/"blues" isn't misread as a flat.
+    const hit = noteAt(new RegExp('\\b(?:in|of|key of)\\s+([a-g])(#|b|sharp|flat)?\\s*' + SCW + '?')) || noteAt(new RegExp('\\b([a-g])(#|b|sharp|flat)?\\s+' + SCW + '\\b'));
     if (hit) { let sn = hit.scale ? (/penta/.test(hit.scale) ? 'pentMinor' : (MUSIC_KB.scaleWords[hit.scale] || hit.scale)) : (AI.lastMode || 'major'); const scale = MUSIC_KB.scales[sn] || MUSIC_KB.scales.major; return 'ℹ️ ' + PC_NAMES[hit.pc] + ' ' + (hit.scale || sn) + ': ' + scale.map(iv => PC_NAMES[(hit.pc + iv) % 12]).join('  '); }
   }
   // chords in a key
@@ -10367,7 +10413,7 @@ function brainEnergyMorph(c) {
     seqSwing = 0; brainSetBPM(brainCurBPM() + 6);
     return '⚡ Amped it up — busier hats, extra kicks, tighter + faster';
   }
-  if (/chill (it )?(out)?|make it chill|relax(ed)?|calm(er)?|mellow it|lay ?back|more laid ?back/.test(c)) {
+  if ((/chill (it )?out\b|make it chill(er)?\b|relax(ed)? (it|the)|calm(er)? (it|down)|mellow (it|out)|lay ?back|more laid ?back/.test(c)) && !/chord|progression|melody|riff/.test(c)) {
     let removed = 0; for (let t = 0; t < SEQ_TRACKS; t++) for (let s = 0; s < SEQ_STEPS; s++) if (seqPatterns[t][s] && Math.random() < 0.35) { setSeqStep(t, s, false); removed++; }
     seqSwing = 0.22; brainSetBPM(brainCurBPM() - 8);
     return '😌 Chilled it out — thinned, swung and slowed down';
@@ -10648,6 +10694,36 @@ async function brainClause(c) {
     if (/pan.*left|left.*pan/.test(c)) { d.pan = -0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' left'; }
     if (/pan.*right|right.*pan/.test(c)) { d.pan = 0.6; brainMixReflect(); return '↔️ Panned the ' + d.name + ' right'; }
     if (/cent(er|re)/.test(c)) { d.pan = 0; brainMixReflect(); return '↔️ Centred the ' + d.name; }
+  }
+  // ---- MIDI SETTINGS by voice/text — "enable midi", "pair my korg",
+  //      "set the pad base to C1", "split the keys at C3", "midi learn" ----
+  if (/\bmidi\b|\bcontroller\b|\bkorg\b|\bbluetooth\b|\bpad base\b|key split|split the keys/.test(c)) {
+    const noteToMidi = (t) => {
+      const m = (t || '').match(/\b([a-g])\s*(#|b|sharp|flat)?\s*(-?\d)\b/i);
+      if (!m) return null;
+      const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+      let pc = base; if (/#|sharp/i.test(m[2] || '')) pc++; if (/b|flat/i.test(m[2] || '')) pc--;
+      return (parseInt(m[3]) + 1) * 12 + pc; // C4 = 60 convention
+    };
+    const numArg = () => { const n = c.match(/\b(\d{1,3})\b/); if (n) return parseInt(n[1]); const w = brainNumFromWords(c); return w || null; };
+    if (/(pair|connect|scan).*(bluetooth|korg|ble)|bluetooth midi|\bble midi\b|pair my (korg|controller|keyboard)/.test(c)) {
+      if (typeof initBluetoothMIDI === 'function') { initBluetoothMIDI(); return '📶 Scanning for Bluetooth / Korg MIDI — put the controller in pairing mode.'; }
+    }
+    if (/(enable|turn on|connect|start|hook up|set ?up).*(midi|controller)|midi (on|enable)/.test(c)) {
+      if (typeof initMIDI === 'function') { initMIDI(); return '🎹 MIDI enabled — play your controller.'; }
+    }
+    if (/(midi )?learn|map (a )?pad/.test(c) && !/split|base/.test(c)) {
+      midiLearnArm = true; const lb = document.getElementById('midi-learn'); if (lb) lb.textContent = 'HIT A MIDI KEY…';
+      return '🎯 MIDI-learn armed — tap the app pad you want, then press a key on your controller.';
+    }
+    if (/pad base|pads? (start|begin)|base note/.test(c) && typeof midiMap !== 'undefined') {
+      const v = noteToMidi(c); const n = v != null ? v : numArg();
+      if (n != null && n >= 0 && n <= 127) { midiMap.padBase = n; saveMidi(); const pb = document.getElementById('midi-padbase'); if (pb) pb.value = n; return '🎛 Pad base note set to ' + (typeof PC_NAMES !== 'undefined' ? PC_NAMES[n % 12] + Math.floor(n / 12 - 1) : n) + ' (MIDI ' + n + ').'; }
+    }
+    if (/key split|split the keys|split point|keys? (from|above)/.test(c) && typeof midiMap !== 'undefined') {
+      const v = noteToMidi(c); const n = v != null ? v : numArg();
+      if (n != null && n >= 0 && n <= 127) { midiMap.keySplit = n; saveMidi(); const ks = document.getElementById('midi-keysplit'); if (ks) ks.value = n; return '🎹 Key split set to MIDI ' + n + ' — notes below fire pads, above play the keys.'; }
+    }
   }
   // ---- LANE OPS — recognise a named key lane and act only on it ----
   if (/\blane\s*\d/.test(c) && typeof keyLanes !== 'undefined') {
@@ -11394,10 +11470,9 @@ function brainVoiceInit() {
   // native bridge callbacks (also reused by the Web Speech path)
   window.brainVoiceResult = said => { done(); if (said) { input.value = ''; if (typeof aiLog === 'function') aiLog('🎤 "' + said + '"', 'info'); aiSearch(said); } };
   window.brainVoiceError = e => { done(); if (typeof toast === 'function') toast('🎤 ' + (String(e) === 'permission' ? 'Allow microphone access so you can talk to the AI' : 'Didn’t catch that — try again')); };
-  mic.addEventListener('pointerdown', e => e.stopPropagation());
-  mic.addEventListener('click', () => {
+  function voiceStart() {
     if (!audioReady) initAudio();
-    if (listening) { try { if (native) AndroidVoice.stopListening(); else if (rec) rec.stop(); } catch (e) {} done(); return; }
+    if (listening) return;
     brainMicPrime(); // surface the permission prompt on first use
     listening = true; mic.textContent = '🔴';
     if (native) {
@@ -11416,7 +11491,21 @@ function brainVoiceInit() {
     }
     // no speech engine on this platform — capture a hum instead
     brainHumCapture().then(done, done);
+  }
+  function voiceStop() { if (!listening) return; try { if (native) AndroidVoice.stopListening(); else if (rec) rec.stop(); } catch (e) {} done(); }
+  mic.addEventListener('pointerdown', e => e.stopPropagation());
+  mic.addEventListener('click', () => { if (listening) voiceStop(); else voiceStart(); });
+  // PUSH-TO-TALK — hold Right Ctrl to talk, release to send. Ignored while typing
+  // in a text field so it never hijacks normal Ctrl shortcuts.
+  let pttHeld = false;
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'ControlRight' || pttHeld) return;
+    const t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+    pttHeld = true; e.preventDefault(); voiceStart();
   });
+  window.addEventListener('keyup', e => { if (e.code === 'ControlRight' && pttHeld) { pttHeld = false; e.preventDefault(); voiceStop(); } });
+  mic.title += ' · or hold Right Ctrl to talk';
 }
 setTimeout(brainVoiceInit, 800);
 console.log('Music Brain ready');
