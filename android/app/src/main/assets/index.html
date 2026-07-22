@@ -7469,20 +7469,25 @@ function parseBLEMIDI(dv) {
   }
 }
 async function initBluetoothMIDI() {
-  if (!navigator.bluetooth) {
-    // Android WebView has no Web Bluetooth, but Web MIDI still enumerates a
-    // BLE-MIDI controller once it's paired in the phone's Bluetooth settings.
-    if (navigator.requestMIDIAccess) {
-      toast('📶 Pair your MIDI controller in Android Bluetooth settings, then it appears here.');
-      initMIDI();
-    } else {
-      toast('Bluetooth MIDI needs a Bluetooth-capable build / Chrome.');
-    }
+  // ANDROID: the WebView has no Web Bluetooth, so a Korg/BLE controller can only
+  // be reached through the native MidiManager.openBluetoothDevice() path.
+  if (window.AndroidMidi && typeof window.AndroidMidi.scanBluetooth === 'function') {
+    nativeMidiOn = true;
+    try { window.AndroidMidi.enable(); } catch (e) {}       // USB devices too
+    try { window.AndroidMidi.scanBluetooth(); } catch (e) {}
+    toast('📶 Scanning for Korg / BLE MIDI — put the controller in pairing mode');
     return;
   }
-  try {
-    toast('📶 Scanning for Bluetooth MIDI…');
-    const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_MIDI_SERVICE] }], optionalServices: [BLE_MIDI_SERVICE] });
+  if (!navigator.bluetooth) {
+    if (window.AndroidMidi) { initNativeMIDI(); toast('📶 Native MIDI on — USB works; update the app for BLE scan'); return; }
+    toast('Bluetooth MIDI needs Web Bluetooth (desktop app / Chrome).');
+    return;
+  }
+  // DESKTOP / ELECTRON: some Korg units don't advertise the MIDI service UUID in
+  // their scan record, so accept all devices and treat the service as optional —
+  // the Electron chooser auto-picks the MIDI/Korg device.
+  const connectBLE = async (opts) => {
+    const dev = await navigator.bluetooth.requestDevice(opts);
     const server = await dev.gatt.connect();
     const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
     const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
@@ -7490,11 +7495,20 @@ async function initBluetoothMIDI() {
     ch.addEventListener('characteristicvaluechanged', e => parseBLEMIDI(e.target.value));
     dev.addEventListener('gattserverdisconnected', () => {
       const el = document.getElementById('midi-status'); if (el) el.textContent = '📶 BT MIDI disconnected';
-      toast('📶 ' + (dev.name || 'BT MIDI') + ' disconnected');
+      toast('📶 ' + (dev.name || 'BT MIDI') + ' disconnected — tap 📶 to reconnect');
     });
     if (!audioReady) initAudio();
     const el = document.getElementById('midi-status'); if (el) el.textContent = '🟢 BT: ' + (dev.name || 'MIDI device').slice(0, 32);
     toast('📶 Connected — ' + (dev.name || 'Bluetooth MIDI'));
+  };
+  try {
+    toast('📶 Scanning for Bluetooth MIDI…');
+    try {
+      await connectBLE({ filters: [{ services: [BLE_MIDI_SERVICE] }], optionalServices: [BLE_MIDI_SERVICE] });
+    } catch (e1) {
+      if (e1 && e1.name === 'NotFoundError') await connectBLE({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] });
+      else throw e1;
+    }
   } catch (err) {
     if (err && err.name === 'NotFoundError') toast('No Bluetooth MIDI device selected');
     else toast('Bluetooth MIDI failed: ' + (err && err.message || 'unavailable'));

@@ -35,6 +35,16 @@ function createWindow() {
     }
   });
 
+  // Web Bluetooth needs a device chooser — without this handler
+  // navigator.bluetooth.requestDevice() hangs and a Korg / BLE MIDI controller
+  // never connects. Auto-pick the MIDI device (Korg units first).
+  win.webContents.on('select-bluetooth-device', (event, devices, callback) => {
+    event.preventDefault();
+    const midi = devices.find(d => /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage/i.test(d.deviceName || ''));
+    const pick = midi || devices[0];
+    if (pick) callback(pick.deviceId); else callback('');
+  });
+
   const htmlPath = app.isPackaged
     ? path.join(process.resourcesPath, 'index.html')
     : path.join(__dirname, '../android/app/src/main/assets/index.html');
