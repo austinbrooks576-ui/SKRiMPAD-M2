@@ -785,9 +785,9 @@ body.vga-edition #se-themebar button:hover{background:#8be9ff!important;}
 .vga-nm{font-size:9px;font-weight:800;text-align:center;line-height:1.1;}
 .vga-cl{font-size:7px;color:#8792ab;text-align:center;}
 /* ===== SKRiMPAD STUDIO (DAW) ===== */
-#daw-modal{display:none;position:fixed;inset:0;z-index:5000;background:rgba(6,7,11,.96);}
+#daw-modal{display:none;position:fixed;inset:0;z-index:5000;background:#06070b;}
 #daw-modal.open{display:block;}
-body.se-active #daw-modal{background:rgba(var(--se-ink-rgb),.96);}
+body.se-active #daw-modal{background:rgb(var(--se-ink-rgb));}
 #daw-shell{position:absolute;inset:0;display:flex;flex-direction:column;color:#dfe6ff;font-family:system-ui,sans-serif;}
 body.se-active #daw-shell{color:var(--se-paper);font-family:var(--se-font);}
 #daw-top{display:flex;gap:6px;align-items:center;padding:8px 10px;background:#0e1018;border-bottom:1px solid #262b38;flex-wrap:wrap;}
@@ -1652,9 +1652,8 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
   <div id="help-card">
     <div style="display:flex;align-items:center;margin-bottom:8px"><b style="font-size:13px;letter-spacing:.06em">🖌 CUSTOMIZE</b><div style="flex:1"></div><button class="hbtn" id="customize-close">✕</button></div>
     <div style="font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">SKINS</div>
+    <div id="skin-list" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"></div>
     <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-      <button class="hbtn" data-skin="default">DEFAULT</button>
-      <button class="hbtn" data-skin="barebones">BARE BONES</button>
       <button class="hbtn" id="skin-import">📥 IMPORT (JSON)</button>
       <button class="hbtn" id="skin-export">📤 EXPORT</button>
     </div>
@@ -3250,9 +3249,10 @@ function noteFreq(note, octave) {
 function freqFromMidi(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
 
 let synthEnabled = true;
-function noteOn(midi) {
+function noteOn(midi, vel) {
   if (!audioReady) initAudio();
   if (!synthEnabled) return;   // synth power switch — keys go silent when off
+  vel = (vel == null) ? 1 : Math.max(0.05, Math.min(1, vel)); // velocity-sensitive keys (SMK-25)
   noteOff(midi);
 
   // Special keyboard modes bypass the standard synth engine
@@ -3261,15 +3261,16 @@ function noteOn(midi) {
 
   const freq = freqFromMidi(midi);
   const t = ctx.currentTime;
+  const bendCents = (synth.pitchBend || 0) * 100; // live pitch-bend wheel
 
   // Imported key sample takes over the voice, pitched from its root note
   if (synth.keySampleBuf) {
-    const rate = Math.pow(2, (midi - synth.keySampleRoot) / 12);
+    const rate = Math.pow(2, (midi - synth.keySampleRoot) / 12) * Math.pow(2, (synth.pitchBend || 0) / 12);
     const src = ctx.createBufferSource();
     src.buffer = synth.keySampleBuf; src.playbackRate.value = rate;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(1, t + synth.attack);
+    env.gain.linearRampToValueAtTime(vel, t + synth.attack);
     src.connect(env); env.connect(getOutput());
     src.start(t);
     synth.activeNotes.set(midi, { sample: src, env });
@@ -3300,6 +3301,7 @@ function noteOn(midi) {
 
   o1.frequency.value = f1;
   o2.frequency.value = f2;
+  o1.detune.value = bendCents; o2.detune.value = bendCents; // pitch-bend wheel
   o1g.gain.value = synth.o1Lev;
   o2g.gain.value = synth.o2Lev;
 
@@ -3332,10 +3334,10 @@ function noteOn(midi) {
     setTimeout(() => vibLFO.stop(), 30000);
   }
 
-  // Envelope
+  // Envelope (scaled by note velocity)
   env.gain.setValueAtTime(0, t);
-  env.gain.linearRampToValueAtTime(1, t + synth.attack);
-  env.gain.linearRampToValueAtTime(synth.sustain, t + synth.attack + synth.decay);
+  env.gain.linearRampToValueAtTime(vel, t + synth.attack);
+  env.gain.linearRampToValueAtTime(synth.sustain * vel, t + synth.attack + synth.decay);
 
   // Filter env
   if (synth.filtEnv !== 0) {
@@ -5005,23 +5007,74 @@ document.getElementById('customize-close').addEventListener('click', () => docum
 
 // SKINS — every color is a CSS variable, so a skin is just a variable map
 const SKIN_VARS = ['--bg','--surf','--surf2','--surf3','--bdr','--txt','--mute','--red','--orange','--yellow','--green','--teal','--blue','--purple','--pink','--lime','--kick','--snare','--hhat','--clap','--tom1','--tom2','--ride','--crash','--perc1','--perc2','--bass','--fx1','--fx2','--fx3','--fx4','--fx5'];
+// A skin is a full CSS-var palette. Build one from 8 accent + 4 chrome colors
+// so 20 new skins stay compact and consistent.
+function mkSkin(bg, surf, surf2, surf3, bdr, txt, mute, a) {
+  // a = [red,orange,yellow,green,teal,blue,purple,pink,lime]
+  return {
+    '--bg':bg,'--surf':surf,'--surf2':surf2,'--surf3':surf3,'--bdr':bdr,'--txt':txt,'--mute':mute,
+    '--red':a[0],'--orange':a[1],'--yellow':a[2],'--green':a[3],'--teal':a[4],'--blue':a[5],'--purple':a[6],'--pink':a[7],'--lime':a[8],
+    '--kick':a[0],'--snare':a[1],'--hhat':a[4],'--clap':a[7],'--tom1':a[2],'--tom2':a[3],'--ride':a[5],'--crash':a[8],'--perc1':a[6],'--perc2':a[1],'--bass':a[3],'--fx1':a[4],'--fx2':a[5],'--fx3':a[6],'--fx4':a[7],'--fx5':a[0]
+  };
+}
 const SKINS = {
-  default: null, // null = clear overrides, fall back to the stylesheet
-  barebones: {
+  'DEFAULT': null, // null = clear overrides, fall back to the stylesheet
+  'BARE BONES': {
     '--bg':'#0e0e0e','--surf':'#151515','--surf2':'#1c1c1c','--surf3':'#242424','--bdr':'#333','--txt':'#e0e0e0','--mute':'#6e6e6e',
     '--red':'#cfcfcf','--orange':'#bdbdbd','--yellow':'#d6d6d6','--green':'#efefef','--teal':'#cfcfcf','--blue':'#bdbdbd','--purple':'#d6d6d6','--pink':'#c4c4c4','--lime':'#e6e6e6',
     '--kick':'#efefef','--snare':'#d6d6d6','--hhat':'#bdbdbd','--clap':'#cfcfcf','--tom1':'#c4c4c4','--tom2':'#b0b0b0','--ride':'#d6d6d6','--crash':'#e6e6e6','--perc1':'#cfcfcf','--perc2':'#bdbdbd','--bass':'#efefef','--fx1':'#c4c4c4','--fx2':'#d6d6d6','--fx3':'#b0b0b0','--fx4':'#cfcfcf','--fx5':'#bdbdbd'
-  }
+  },
+  // ---- 20 built-in consumer skins, stored permanently with the app ----
+  'MIDNIGHT': mkSkin('#0a0e14','#111823','#16202e','#1d2a3a','#2a3a4e','#e6eefc','#5f7590',['#ff5c7a','#ff9d54','#ffd24a','#46e08a','#3fd6d0','#5aa8ff','#a97bff','#ff6fd0','#b6ff5a']),
+  'SUNSET': mkSkin('#1a0a10','#241017','#301620','#3d1d2a','#5a2a3a','#ffe8e0','#9a6a70',['#ff5a5a','#ff8a3c','#ffc93c','#ff6a9c','#ff4d7a','#ff9d6a','#c76aff','#ff7ac4','#ffd24a']),
+  'FOREST': mkSkin('#08120c','#0e1c14','#13271b','#1a3325','#264a35','#e6f5ea','#5f8a72',['#e05a5a','#8ad46a','#d6e04a','#3fd67a','#3fd6b0','#5ab0ff','#8a7bff','#ff8ac4','#b6ff5a']),
+  'OCEAN': mkSkin('#05101a','#0a1a2a','#0f2436','#153046','#204a66','#e0f2ff','#5f8aa8',['#ff6a6a','#ffa054','#ffe04a','#46e0b0','#3fd6ff','#4a9dff','#8a9dff','#6ad6ff','#b6ffe0']),
+  'ROSE GOLD': mkSkin('#1a1012','#241618','#301e20','#3d282a','#5a3a3c','#fbe8e6','#a07a78',['#e8788a','#f0a878','#f0d078','#d8a0a8','#e090a0','#c898d8','#d8a0d0','#f0b8c8','#e8d0a8']),
+  'VAPOR': mkSkin('#120a1e','#1a1030','#241642','#301e56','#48307a','#f0e6ff','#8a6fb0',['#ff6ec7','#ff9de0','#a5f3ff','#7affd6','#5ad1ff','#8a7bff','#c86aff','#ff8ae0','#b0ff8a']),
+  'MONO GREEN': mkSkin('#020604','#04120a','#061c0e','#0a2814','#0e3a1c','#8fffb0','#3a7a52',['#40ff80','#60ff90','#80ffa0','#40ff80','#40ffc0','#60ffb0','#a0ffa0','#80ffc0','#c0ffa0']),
+  'AMBER CRT': mkSkin('#0a0600','#140c02','#1c1204','#281a06','#3a2808','#ffcf7a','#8a6a30',['#ffb43c','#ffc860','#ffe08a','#ffb43c','#ffd070','#ffc050','#ffd890','#ffcf7a','#ffe0a0']),
+  'BUBBLEGUM': mkSkin('#1a0a16','#26101f','#33162a','#421d37','#5a2a4c','#ffe6f5','#a06f90',['#ff5aa8','#ff8ac4','#ffc0e0','#ff6ad0','#ff9de0','#c86aff','#ff7ad0','#ffb0e0','#ffd0f0']),
+  'TOXIC': mkSkin('#0a0f02','#131c04','#1c2806','#26380a','#3a5410','#e0ff9a','#7a9a40',['#b6ff2a','#d6ff3c','#f0ff5a','#8aff2a','#5aff8a','#3cffd6','#a0ff3c','#d0ff6a','#eaff8a']),
+  'ICE': mkSkin('#080e14','#101a24','#182634','#203446','#2e4a62','#e6f6ff','#6f90a8',['#7ad6ff','#a0e0ff','#c8f0ff','#7affe0','#5ad6ff','#8ab0ff','#b0c8ff','#c8e6ff','#e0f6ff']),
+  'MAGMA': mkSkin('#120402','#1e0804','#2a0c06','#3a1208','#54200c','#ffd8c0','#9a6040',['#ff3c1a','#ff6a2a','#ff9d3c','#ffca4a','#ff5a2a','#ff8a3c','#ff6a4a','#ffab6a','#ffe08a']),
+  'ULTRAVIOLET': mkSkin('#0a0418','#120826','#1a0c38','#24124e','#361c74','#ecd8ff','#8a6ab0',['#c83cff','#e05aff','#f08aff','#a05aff','#7a6aff','#5a8aff','#b06aff','#e08aff','#d0a0ff']),
+  'SLATE': mkSkin('#0e1013','#16191e','#1e222a','#282d37','#3a414e','#dfe4ec','#79818e',['#e06a6a','#e0956a','#e0c86a','#6ae095','#6ad6d0','#6a9de0','#956ae0','#e06ac8','#a0e06a']),
+  'CANDY CORN': mkSkin('#160c02','#221204','#301a06','#40260a','#5a3a10','#fff0d0','#a08050',['#ff5a2a','#ff8a3c','#ffd24a','#ffe06a','#ffb43c','#ff9d54','#ffc86a','#ffd88a','#ffe8a0']),
+  'DEEP SEA': mkSkin('#02080e','#051422','#082036','#0c2e4a','#124466','#c0e6ff','#4f7a9a',['#3cd0ff','#5ad6e0','#3ce0b0','#2ad68a','#2ac0ff','#3c9dff','#6a8aff','#5ad0ff','#8affe0']),
+  'PLASMA': mkSkin('#0e0212','#18041e','#22062c','#30083e','#48105e','#ffe0ff','#9a5fb0',['#ff2ad6','#ff5ae0','#ff8af0','#c82aff','#8a5aff','#5a8aff','#c85aff','#ff6ae0','#e08aff']),
+  'HONEY': mkSkin('#120e02','#1e1804','#2a2206','#3a300a','#544610','#fff0c0','#9a8040',['#ffb42a','#ffc84a','#ffe06a','#e0c83c','#ffd05a','#ffbf3c','#ffd87a','#ffe89a','#fff0b0']),
+  'NOIR': mkSkin('#060608','#0e0e12','#16161c','#202028','#30303a','#dcdce4','#70707e',['#ff4d5e','#c0c0cc','#d6d6e0','#e0e0ea','#a0d0d0','#8090c0','#a090c0','#c090b0','#c0d0a0']),
+  'CORAL REEF': mkSkin('#0a1214','#101f22','#162a2e','#1d383d','#284e54','#e6fbff','#5f8a90',['#ff6a8a','#ff9d6a','#ffd06a','#3fe0b0','#3fd6d0','#5ac0ff','#c86aff','#ff8ac4','#b6ffd0']),
+  'RETRO TERMINAL': mkSkin('#000803','#00140a','#001c0e','#002814','#00381c','#33ff66','#199944',['#00ff5a','#33ff77','#66ff99','#00ff5a','#00ffaa','#33ffcc','#66ffbb','#00ff88','#99ffaa'])
 };
-function applySkin(map) {
+// ---- Permanent skin storage: user-imported skins persist beside the built-ins ----
+function loadStoredSkins() {
+  try { const saved = JSON.parse(localStorage.getItem('skrimpad_skins') || '{}'); Object.assign(SKINS, saved); } catch (e) {}
+}
+function saveStoredSkin(name, map) {
+  try { const saved = JSON.parse(localStorage.getItem('skrimpad_skins') || '{}'); saved[name] = map; localStorage.setItem('skrimpad_skins', JSON.stringify(saved)); } catch (e) {}
+}
+loadStoredSkins();
+function applySkin(map, name) {
   const root = document.documentElement;
   SKIN_VARS.forEach(v => root.style.removeProperty(v));
   if (map) Object.entries(map).forEach(([k, v]) => { if (k.startsWith('--')) root.style.setProperty(k, v); });
-  drawWaveEditor();
+  if (name) { try { localStorage.setItem('skrimpad_skin_active', name); } catch (e) {} }
+  if (typeof drawWaveEditor === 'function') drawWaveEditor();
 }
-document.querySelectorAll('[data-skin]').forEach(btn => {
-  btn.addEventListener('click', () => { applySkin(SKINS[btn.dataset.skin]); toast('Skin: ' + btn.dataset.skin); });
-});
+function renderSkinButtons() {
+  const host = document.getElementById('skin-list'); if (!host) return;
+  host.innerHTML = '';
+  Object.keys(SKINS).forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'hbtn'; btn.textContent = name;
+    btn.addEventListener('click', () => { applySkin(SKINS[name], name); toast('Skin: ' + name); });
+    host.appendChild(btn);
+  });
+}
+renderSkinButtons();
+// restore the last-used skin on boot
+try { const last = localStorage.getItem('skrimpad_skin_active'); if (last && SKINS[last] !== undefined) applySkin(SKINS[last], last); } catch (e) {}
 document.getElementById('skin-import').addEventListener('click', () => {
   // Use Android native file picker if available
   if (typeof AndroidFileHandler !== 'undefined') {
@@ -5030,8 +5083,7 @@ document.getElementById('skin-import').addEventListener('click', () => {
       try {
         const binaryString = atob(base64Data);
         const jsonStr = new TextDecoder().decode(new Uint8Array(binaryString.split('').map(c => c.charCodeAt(0))));
-        applySkin(JSON.parse(jsonStr));
-        toast('Skin loaded');
+        installImportedSkin(JSON.parse(jsonStr), 'IMPORTED');
       } catch (err) { toast('Bad skin file — expected JSON of CSS variables'); }
     };
     AndroidFileHandler.pickFile('.json,application/json', '__skinImportCallback');
@@ -5042,12 +5094,22 @@ document.getElementById('skin-import').addEventListener('click', () => {
     inp.onchange = async e => {
       const file = e.target.files[0];
       if (!file) return;
-      try { applySkin(JSON.parse(await file.text())); toast('Skin loaded: ' + file.name.slice(0, 20)); }
+      try { installImportedSkin(JSON.parse(await file.text()), (file.name || 'IMPORTED').replace(/\.json$/i, '').slice(0, 20)); }
       catch (err) { toast('Bad skin file — expected JSON of CSS variables'); }
     };
     inp.click();
   }
 });
+// Store an imported skin permanently, add its button, and apply it.
+function installImportedSkin(map, baseName) {
+  let name = (baseName || 'IMPORTED').toUpperCase().trim() || 'IMPORTED';
+  let n = name, i = 2; while (SKINS[n] !== undefined) { n = name + ' ' + i++; } name = n;
+  SKINS[name] = map;
+  saveStoredSkin(name, map);
+  renderSkinButtons();
+  applySkin(map, name);
+  toast('Skin saved permanently: ' + name);
+}
 
 document.getElementById('skin-export').addEventListener('click', () => {
   const cs = getComputedStyle(document.documentElement);
@@ -7206,15 +7268,57 @@ function onMIDI(e) {
       const p = d1 - midiMap.padBase;
       if (p >= 0 && p < drumDefs.length) { playDrum(p, ctx.currentTime); return; }
     }
-    noteOn(d1);
+    lastPlayedMidi = d1;
+    noteOn(d1, d2 / 127); // velocity-sensitive
   } else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
-    if (midiMap.notes['n' + d1] === undefined && d1 >= midiMap.keySplit) noteOff(d1);
-  } else if (cmd === 0xb0) { // control change
-    if (d1 === 1) synth.filtCut = 100 + (d2 / 127) * 7900;
-    else if (d1 === 7 && typeof masterGain !== 'undefined' && masterGain) masterGain.gain.value = d2 / 127;
-    else if (d1 >= 20 && d1 < 20 + drumDefs.length) drumDefs[d1 - 20].vol = d2 / 127;
+    if (midiMap.notes['n' + d1] === undefined && d1 >= midiMap.keySplit) midiNoteOff(d1);
+  } else if (cmd === 0xe0) { // PITCH-BEND wheel — ±2 semitones
+    const bend = ((d2 << 7) | d1) - 8192;
+    synth.pitchBend = (bend / 8192) * (synth.pitchBendRange || 2);
+    const cents = synth.pitchBend * 100;
+    synth.activeNotes.forEach(n => {
+      try {
+        if (n.o1 && n.o1.detune) { n.o1.detune.setTargetAtTime(cents, ctx.currentTime, 0.005); n.o2.detune.setTargetAtTime(cents, ctx.currentTime, 0.005); }
+        else if (n.sample) n.sample.playbackRate.setTargetAtTime(n.sample.playbackRate.value * Math.pow(2, synth.pitchBend / 12) / (n._lastBend || 1), ctx.currentTime, 0.005);
+      } catch (e) {}
+    });
+  } else if (cmd === 0xc0) { // PROGRAM CHANGE — step through the key voices
+    if (typeof keyFilters !== 'undefined' && keyFilters.length) {
+      const f = keyFilters[d1 % keyFilters.length]; synth.keyMode = f;
+      if (typeof applyKeyMode === 'function') applyKeyMode(f);
+      if (typeof renderModeButtons === 'function') renderModeButtons();
+      toast('🎹 Program → ' + f.toUpperCase());
+    }
+  } else if (cmd === 0xd0) { // channel aftertouch → filter shimmer
+    synth.filtCut = 300 + (d1 / 127) * 7700;
+  } else if (cmd === 0xb0) { // CONTROL CHANGE
+    const v = d2 / 127;
+    if (midiCC[d1] != null) { drumDefs[midiCC[d1]] && (drumDefs[midiCC[d1]].vol = v); } // learned knob → pad
+    else if (d1 === 1) synth.filtCut = 100 + v * 7900;          // mod wheel → cutoff
+    else if (d1 === 74) synth.filtCut = 100 + v * 7900;          // standard cutoff knob
+    else if (d1 === 71) synth.filtRes = 0.5 + v * 17;            // standard resonance knob
+    else if (d1 === 73) synth.attack = v * 1.5;                  // attack knob
+    else if (d1 === 72) synth.release = 0.02 + v * 2;            // release knob
+    else if (d1 === 7 && typeof masterGain !== 'undefined' && masterGain) masterGain.gain.value = v; // volume knob
+    else if (d1 === 10) synth.pan = (v - 0.5) * 2;               // pan knob
+    else if (d1 === 91 && typeof fxChain !== 'undefined' && fxChain.reverbMix) fxChain.reverbMix.gain.value = v * 0.6; // reverb send
+    else if (d1 === 93 && typeof fxChain !== 'undefined' && fxChain.delayMix) fxChain.delayMix.gain.value = v * 0.6;   // delay send
+    else if (d1 === 64) { // SUSTAIN PEDAL
+      synth.sustainPedal = d2 >= 64;
+      if (!synth.sustainPedal && synth._pedalHeld) { synth._pedalHeld.forEach(m => noteOff(m)); synth._pedalHeld.clear(); }
+    }
+    else if (d1 === 123 || d1 === 120) allNotesOff();           // all-notes-off / all-sound-off
+    else if (d1 >= 20 && d1 < 20 + drumDefs.length) drumDefs[d1 - 20].vol = v; // per-pad faders
+    if (typeof buildMixer === 'function' && (d1 === 10 || (d1 >= 20 && d1 < 40))) try { buildMixer(); } catch (e) {}
   }
 }
+// Honour the sustain pedal — hold released keys until the pedal lifts.
+function midiNoteOff(midi) {
+  if (synth.sustainPedal) { (synth._pedalHeld || (synth._pedalHeld = new Set())).add(midi); return; }
+  noteOff(midi);
+}
+// A learn slot for mapping any knob CC → a pad fader (see MIDI-learn UI).
+let midiCC = {};
 // Parse a raw MIDI byte stream (USB/native bridge) into channel-voice messages,
 // honouring running status, and feed each into the shared onMIDI() path.
 let _midiRun = 0;
@@ -7621,6 +7725,128 @@ const SE_THEMES = {
     c1: '#0b0d26', c2: '#141a40', c3: '#060714', line: '#aab4ff', glow: '#f2f4ff', accent: '#7d8bff',
     ink: '#080a1c', paper: '#eef0ff', font: "'Georgia',serif",
     titles: { pads: '☽ DRUMS', seq: '☽ SEQUENCERS', keys: '☽ KEYS', mixer: '☽ MIXER', synth: '☽ SYNTH', fx: '☽ FX', lib: '☽ SANCTUM' }
+  },
+  // ===== 10 RETRO-GAME / VGA-FLAVOUR THEMES =====
+  gameboy: {
+    name: 'DMG Handheld', sub: '▓ 4-SHADE DOT MATRIX', glyph: '▓ ■ ▓', particles: 'galaga',
+    c1: '#0f1f0a', c2: '#16300f', c3: '#0a1607', line: '#9bbc0f', glow: '#e0f8b0', accent: '#306230',
+    ink: '#081206', paper: '#e0f8d0', font: "'Courier New',monospace",
+    titles: { pads: '■ DRUMS', seq: '■ SEQ', keys: '■ KEYS', mixer: '■ MIXER', synth: '■ SYNTH', fx: '■ FX', lib: '■ CART' }
+  },
+  cartridge64: {
+    name: 'Cartridge 64', sub: '◆ ANALOG STICK ERA', glyph: '◆ ▲ ◆', particles: 'galaga',
+    c1: '#0a0616', c2: '#140a2a', c3: '#060310', line: '#ff5a3c', glow: '#ffe23c', accent: '#3ca0ff',
+    ink: '#05030c', paper: '#fff0d0', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '◆ DRUMS', seq: '◆ SEQ', keys: '◆ KEYS', mixer: '◆ MIXER', synth: '◆ SYNTH', fx: '◆ FX', lib: '◆ SLOT' }
+  },
+  blastcity: {
+    name: 'Blast City', sub: '★ CANDY CAB', glyph: '★ ▶ ★', particles: 'galaga',
+    c1: '#04040c', c2: '#0a0820', c3: '#020208', line: '#00e0ff', glow: '#ff2ad6', accent: '#ffe23c',
+    ink: '#020208', paper: '#d0f8ff', font: "'Courier New',monospace",
+    titles: { pads: '★ DRUMS', seq: '★ SEQ', keys: '★ KEYS', mixer: '★ MIXER', synth: '★ SYNTH', fx: '★ FX', lib: '★ CREDITS' }
+  },
+  pixeldawn: {
+    name: 'Pixel Dawn', sub: '□ 8-BIT SUNRISE', glyph: '□ ▲ □', particles: 'galaga',
+    c1: '#180a1e', c2: '#2a1030', c3: '#0e0614', line: '#ff9d54', glow: '#ffe28a', accent: '#ff5a8c',
+    ink: '#0c0610', paper: '#fff0e0', font: "'Courier New',monospace",
+    titles: { pads: '□ DRUMS', seq: '□ SEQ', keys: '□ KEYS', mixer: '□ MIXER', synth: '□ SYNTH', fx: '□ FX', lib: '□ ROMS' }
+  },
+  crtsunset: {
+    name: 'CRT Sunset', sub: '▚ SCANLINE HAZE', glyph: '▚ ● ▚', particles: 'rain',
+    c1: '#1a0616', c2: '#2c0a22', c3: '#100410', line: '#ff6ad6', glow: '#ffd0f0', accent: '#5ad1ff',
+    ink: '#0c0410', paper: '#ffe6f8', font: "'Courier New',monospace",
+    titles: { pads: '▚ DRUMS', seq: '▚ SEQ', keys: '▚ KEYS', mixer: '▚ MIXER', synth: '▚ SYNTH', fx: '▚ FX', lib: '▚ TAPES' }
+  },
+  bitforest: {
+    name: 'Bit Forest', sub: '♣ OVERWORLD MAP', glyph: '♣ ▲ ♣', particles: 'spores',
+    c1: '#04140a', c2: '#082410', c3: '#020c06', line: '#3ddc84', glow: '#c8ffdd', accent: '#ffd24a',
+    ink: '#020c06', paper: '#e0ffe8', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '♣ DRUMS', seq: '♣ SEQ', keys: '♣ KEYS', mixer: '♣ MIXER', synth: '♣ SYNTH', fx: '♣ FX', lib: '♣ QUEST' }
+  },
+  lasergrid: {
+    name: 'Laser Grid', sub: '≡ VECTOR ARENA', glyph: '≡ ◆ ≡', particles: 'galaga',
+    c1: '#02040a', c2: '#04081a', c3: '#010206', line: '#00ffcc', glow: '#66ffff', accent: '#ff2a6a',
+    ink: '#010206', paper: '#c8fff0', font: "'Courier New',monospace",
+    titles: { pads: '≡ DRUMS', seq: '≡ SEQ', keys: '≡ KEYS', mixer: '≡ MIXER', synth: '≡ SYNTH', fx: '≡ FX', lib: '≡ VAULT' }
+  },
+  fighterko: {
+    name: 'Fighter K.O.', sub: '✊ ROUND ONE — FIGHT', glyph: '✊ ▶ ✊', particles: 'embers',
+    c1: '#160404', c2: '#280808', c3: '#0c0202', line: '#ff3c28', glow: '#ffd23c', accent: '#ff9d3c',
+    ink: '#0a0202', paper: '#ffe0d0', font: "'Courier New',monospace",
+    titles: { pads: '✊ DRUMS', seq: '✊ COMBO', keys: '✊ KEYS', mixer: '✊ MIXER', synth: '✊ SYNTH', fx: '✊ FX', lib: '✊ ROSTER' }
+  },
+  questpix: {
+    name: 'Quest Pixels', sub: '⚔ TURN-BASED PARTY', glyph: '⚔ ✦ ⚔', particles: 'stars',
+    c1: '#0a0a20', c2: '#141438', c3: '#060612', line: '#8ab0ff', glow: '#ffe9a8', accent: '#3ddc84',
+    ink: '#060612', paper: '#eaf0ff', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '⚔ DRUMS', seq: '⚔ SEQ', keys: '⚔ KEYS', mixer: '⚔ MIXER', synth: '⚔ SYNTH', fx: '⚔ SPELLS', lib: '⚔ INVENTORY' }
+  },
+  neonpuck: {
+    name: 'Neon Puck', sub: '◍ MAZE CHASE', glyph: '◍ ● ◍', particles: 'galaga',
+    c1: '#04040e', c2: '#080826', c3: '#020208', line: '#ffe23c', glow: '#ff2ad6', accent: '#00e0ff',
+    ink: '#020208', paper: '#fff8c8', font: "'Courier New',monospace",
+    titles: { pads: '◍ DRUMS', seq: '◍ SEQ', keys: '◍ KEYS', mixer: '◍ MIXER', synth: '◍ SYNTH', fx: '◍ FX', lib: '◍ MAZE' }
+  },
+  // ===== 10 ANIME / FANTASY / AESTHETIC THEMES =====
+  sakura: {
+    name: 'Sakura Drift', sub: '桜 PETAL SEASON', glyph: '桜 ✿ 桜', particles: 'petals', motif: 'petals',
+    c1: '#1e0c16', c2: '#331525', c3: '#140812', line: '#ffb3d1', glow: '#ffe3ee', accent: '#ff6f9c',
+    ink: '#140812', paper: '#ffeef6', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '桜 DRUMS', seq: '桜 SEQUENCERS', keys: '桜 KEYS', mixer: '桜 MIXER', synth: '桜 SYNTH', fx: '桜 FX', lib: '桜 GARDEN' }
+  },
+  oni: {
+    name: 'Oni Mask', sub: '鬼 CRIMSON WARD', glyph: '鬼 ▲ 鬼', particles: 'embers', motif: 'oni',
+    c1: '#1a0404', c2: '#2e0808', c3: '#100202', line: '#ff5a3c', glow: '#ffcf7a', accent: '#e0b878',
+    ink: '#0c0202', paper: '#ffe0d0', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '鬼 DRUMS', seq: '鬼 SEQUENCERS', keys: '鬼 KEYS', mixer: '鬼 MIXER', synth: '鬼 SYNTH', fx: '鬼 WARDS', lib: '鬼 SHRINE' }
+  },
+  shinobi: {
+    name: 'Shinobi Night', sub: '忍 SILENT BLADE', glyph: '忍 ▪ 忍', particles: 'rain', motif: 'shuriken',
+    c1: '#060a10', c2: '#0c141f', c3: '#04070c', line: '#5ad1ff', glow: '#c8f0ff', accent: '#ff3c5a',
+    ink: '#04070c', paper: '#dceefb', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '忍 DRUMS', seq: '忍 SEQUENCERS', keys: '忍 KEYS', mixer: '忍 MIXER', synth: '忍 SYNTH', fx: '忍 ARTS', lib: '忍 SCROLLS' }
+  },
+  celestial: {
+    name: 'Celestial Idol', sub: '✧ LIVE STAGE', glyph: '✧ ♡ ✧', particles: 'stars', motif: 'idol',
+    c1: '#120a28', c2: '#20114a', c3: '#0a0618', line: '#9ad1ff', glow: '#ffe9f6', accent: '#ff8ad0',
+    ink: '#0a0618', paper: '#f0eaff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '✧ DRUMS', seq: '✧ SEQUENCERS', keys: '✧ KEYS', mixer: '✧ MIXER', synth: '✧ SYNTH', fx: '✧ FX', lib: '✧ SETLIST' }
+  },
+  bloodmoon: {
+    name: 'Blood Moon', sub: '🜂 HUNTER’S NIGHT', glyph: '☾ ✦ ☾', particles: 'embers', motif: 'moon',
+    c1: '#160406', c2: '#28080c', c3: '#0c0204', line: '#ff4d5e', glow: '#ffb0b8', accent: '#d9a441',
+    ink: '#0c0204', paper: '#ffe0e4', font: "'Georgia',serif",
+    titles: { pads: '☾ DRUMS', seq: '☾ SEQUENCERS', keys: '☾ KEYS', mixer: '☾ MIXER', synth: '☾ SYNTH', fx: '☾ RITES', lib: '☾ VAULT' }
+  },
+  glacier: {
+    name: 'Glacier Spirit', sub: '❄ FROZEN EXPANSE', glyph: '❄ ✦ ❄', particles: 'stars', motif: 'crystal',
+    c1: '#061420', c2: '#0c2436', c3: '#040c14', line: '#8ce0ff', glow: '#e6faff', accent: '#7affe0',
+    ink: '#040c14', paper: '#e6faff', font: "'Trebuchet MS',system-ui,sans-serif",
+    titles: { pads: '❄ DRUMS', seq: '❄ SEQUENCERS', keys: '❄ KEYS', mixer: '❄ MIXER', synth: '❄ SYNTH', fx: '❄ FX', lib: '❄ VAULT' }
+  },
+  emberfox: {
+    name: 'Ember Fox', sub: '火 AUTUMN SPIRIT', glyph: '火 狐 火', particles: 'embers', motif: 'kitsune',
+    c1: '#1a0a04', c2: '#2e1206', c3: '#100602', line: '#ff9d3c', glow: '#ffd8a0', accent: '#ff5a2a',
+    ink: '#100602', paper: '#ffe8d0', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '火 DRUMS', seq: '火 SEQUENCERS', keys: '火 KEYS', mixer: '火 MIXER', synth: '火 SYNTH', fx: '火 FX', lib: '火 DEN' }
+  },
+  seraph: {
+    name: 'Seraph Wings', sub: '✝ RADIANT CHOIR', glyph: '✝ ✦ ✝', particles: 'stars', motif: 'wings',
+    c1: '#161020', c2: '#241a38', c3: '#0e0a16', line: '#ffe9a8', glow: '#fffbe6', accent: '#9ad1ff',
+    ink: '#0e0a16', paper: '#fffbe6', font: "'Times New Roman',Georgia,serif",
+    titles: { pads: '✝ DRUMS', seq: '✝ SEQUENCERS', keys: '✝ KEYS', mixer: '✝ MIXER', synth: '✝ SYNTH', fx: '✝ HYMNS', lib: '✝ ARCHIVE' }
+  },
+  abyssal: {
+    name: 'Abyssal Deep', sub: '🌊 LEVIATHAN DEPTHS', glyph: '≈ ◈ ≈', particles: 'spores', motif: 'kraken',
+    c1: '#02080f', c2: '#04141f', c3: '#01060a', line: '#2ad6ff', glow: '#8affe0', accent: '#8a5aff',
+    ink: '#01060a', paper: '#d0f4ff', font: "'Georgia',serif",
+    titles: { pads: '≈ DRUMS', seq: '≈ SEQUENCERS', keys: '≈ KEYS', mixer: '≈ MIXER', synth: '≈ SYNTH', fx: '≈ FX', lib: '≈ TRENCH' }
+  },
+  lotus: {
+    name: 'Jade Lotus', sub: '蓮 STILL WATERS', glyph: '蓮 ✿ 蓮', particles: 'petals', motif: 'lotus',
+    c1: '#06140e', c2: '#0c241a', c3: '#040c08', line: '#7fe0b0', glow: '#e0fff0', accent: '#ffd166',
+    ink: '#040c08', paper: '#e6fff2', font: "'Oswald','Arial Narrow',sans-serif",
+    titles: { pads: '蓮 DRUMS', seq: '蓮 SEQUENCERS', keys: '蓮 KEYS', mixer: '蓮 MIXER', synth: '蓮 SYNTH', fx: '蓮 FX', lib: '蓮 POND' }
   }
 };
 SE_THEMES.champloo.motif = 'dragon';
@@ -9629,8 +9855,16 @@ function vgaPokeSprite(s) {
   vgaLiveBlip(love ? 'love' : 'note');
   if (typeof toast === 'function') toast('👾 ' + ch.name + ' — ' + ch.cls);
 }
+// Any full-screen overlay open? Then the wandering characters must not eat
+// clicks meant for the DAW, roster, library or a settings modal.
+function vgaModalOpen() {
+  const daw = document.getElementById('daw-modal');
+  if (daw && daw.classList.contains('open')) return true;
+  const ids = ['vga-roster', 'lib-modal', 'customize-modal', 'edit-modal', 'sample-editor-modal', 'ai-modal', 'hw-map-modal', 'daw-libpick'];
+  return ids.some(id => { const m = document.getElementById(id); if (!m) return false; const st = getComputedStyle(m); return st.display !== 'none' && st.visibility !== 'hidden'; });
+}
 function vgaPointerDown(e) {
-  if (!VGA.on || VGA.drag) return;
+  if (!VGA.on || VGA.drag || vgaModalOpen()) return;
   const s = vgaHitSprite(e.clientX, e.clientY);
   if (!s) return; // not on a character — let the UI have the event
   VGA.drag = { s, offx: e.clientX - s.x, offy: e.clientY - s.y, sx: e.clientX, sy: e.clientY, moved: false };
