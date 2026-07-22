@@ -259,6 +259,10 @@ input[type=range]{width:100%;accent-color:var(--teal);height:20px;cursor:pointer
 #lib-modal.open{display:flex;}
 #lib-card{width:min(560px,94vw);max-height:86vh;overflow-y:auto;background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r3);padding:16px;}
 .lib-tab{padding:5px 12px;border-radius:14px;border:1px solid var(--bdr);background:var(--surf2);color:var(--mute);font-size:10px;font-weight:700;cursor:pointer;transition:all .12s;}
+/* drag-a-sound-onto-anything feedback */
+body.lib-dragging{cursor:copy;}
+.lib-sound[draggable]{cursor:grab;}
+.drop-hi{outline:2px dashed var(--teal,#3fd6d0) !important;outline-offset:-2px;box-shadow:0 0 0 3px rgba(63,214,208,.35) !important;}
 .lib-tab.on{background:var(--purple);color:#fff;border-color:var(--purple);}
 .lib-sound{padding:8px 10px;border-radius:var(--r2);border:1.5px solid var(--bdr);background:var(--surf2);color:var(--txt);font-size:10px;font-weight:700;cursor:pointer;text-align:center;transition:all .12s;position:relative;}
 .lib-sound:hover{border-color:var(--teal);color:var(--teal);}
@@ -4926,6 +4930,10 @@ function buildSoundLibGrid() {
       btn.className = 'lib-sound';
       const origin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
       btn.innerHTML = `<div>${s.name}</div>${origin}<div class="lib-sub">${soundMeta(s, libCategory)}</div>`;
+      // DRAG the bubble onto any pad / lane / DAW channel / keyboard to load it there
+      btn.draggable = true;
+      btn.addEventListener('dragstart', e => { libDragSound = s; document.body.classList.add('lib-dragging'); try { e.dataTransfer.setData('text/plain', s.name); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
+      btn.addEventListener('dragend', () => { libDragSound = null; document.body.classList.remove('lib-dragging'); document.querySelectorAll('.drop-hi').forEach(el => el.classList.remove('drop-hi')); });
       btn.addEventListener('click', e => {
         initAudio();
         if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
@@ -4967,6 +4975,60 @@ function buildSoundLibGrid() {
     });
   });
 }
+
+// ===== DRAG A LIBRARY BUBBLE ONTO ANYTHING (desktop) =====================
+// Drag any sound from the library and drop it on a pad, sequencer row, key lane,
+// the keyboard, a DAW channel/clip, or a mixer strip to load it there.
+let libDragSound = null;
+const LIB_DROP_SEL = '.pad, .seq-row, .seq-label, .seq-step, .lane-btn, #lane-voice, #key-seq, #keyboard-wrap, .mode-btn, .daw-head, .daw-lane, .daw-clip, .fader-strip, [data-fader]';
+function libDropTarget(node) { return node && node.closest ? node.closest(LIB_DROP_SEL) : null; }
+async function libResolveBuf(s) { if (!s) return null; if (s.buf) return s.buf; if (s.idbId && typeof libEnsureBuf === 'function') { try { return await libEnsureBuf(s); } catch (e) {} } return null; }
+function libDropToDrum(i, s, buf) {
+  if (i < 0 || i >= drumDefs.length) return;
+  const def = drumDefs[i];
+  if (buf) def.sampleBuf = buf; else if (s.fn) { def.sampleBuf = null; def.fn = s.fn; }
+  if (typeof buildMixer === 'function') try { buildMixer(); } catch (e) {}
+  toast('🎯 ' + s.name + ' → ' + def.name);
+}
+function libDropToLane(li, s, buf) {
+  if (!buf || typeof keyLanes === 'undefined' || li < 0 || li >= keyLanes.length) { if (!buf) toast('That one is a synth voice — drop it on a pad'); return; }
+  const L = keyLanes[li]; L.sampleBuf = buf; L.sampleRoot = 60; L.voice = 'sample'; L._detached = false;
+  if (li === curLane) { const lv = document.getElementById('lane-voice'); if (lv) lv.value = 'sample'; }
+  toast('🎯 ' + s.name + ' → lane ' + (li + 1));
+}
+function libDropToDawTrack(ti, s, buf) {
+  if (!buf || typeof DAW === 'undefined' || !DAW.tracks[ti]) { if (!buf) toast('Pick a sampled sound for the studio'); return; }
+  const tr = DAW.tracks[ti];
+  tr.instrument = { type: 'sampler', root: 60, buf, libRef: s.name };
+  if (!tr.clips.some(c => c.kind === 'audio')) { const beats = Math.max(1, Math.round(buf.duration / dawBeatSec())); tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf, rate: 1, libRef: s.name }); }
+  else tr.clips.forEach(c => { if (c.kind === 'audio') { c.buf = buf; c.libRef = s.name; } });
+  dawWireTrack(tr); dawRenderTimeline();
+  toast('🎯 ' + s.name + ' → ' + tr.name);
+}
+async function libDoDrop(targetEl) {
+  const s = libDragSound; if (!s || !targetEl) return;
+  const buf = await libResolveBuf(s);
+  const pad = targetEl.closest('.pad'); if (pad) { return libDropToDrum(+pad.dataset.idx, s, buf); }
+  const step = targetEl.closest('.seq-step'); if (step) { return libDropToDrum(+step.dataset.track, s, buf); }
+  const row = targetEl.closest('.seq-row'); if (row) { const st = row.querySelector('.seq-step'); if (st) return libDropToDrum(+st.dataset.track, s, buf); }
+  const clip = targetEl.closest('.daw-clip'); if (clip && buf) { const tr = DAW.tracks[+clip.dataset.tr]; const c = tr && tr.clips[+clip.dataset.ci]; if (c) { if (c.kind === 'audio') { c.buf = buf; c.libRef = s.name; } tr.instrument = { type: 'sampler', root: 60, buf, libRef: s.name }; dawWireTrack(tr); dawRenderTimeline(); toast('🎯 ' + s.name + ' → clip'); } return; }
+  const dh = targetEl.closest('.daw-head, .daw-lane'); if (dh) { return libDropToDawTrack(+dh.dataset.tr, s, buf); }
+  const laneBtn = targetEl.closest('.lane-btn'); if (laneBtn) { return libDropToLane(+laneBtn.dataset.lane, s, buf); }
+  if (targetEl.closest('#lane-voice') || targetEl.closest('#key-seq')) { return libDropToLane(curLane, s, buf); }
+  if (targetEl.closest('#keyboard-wrap') || targetEl.closest('.mode-btn')) { if (buf) { synth.keySampleBuf = buf; synth.keySampleRoot = 60; toast('🎯 ' + s.name + ' → keyboard'); } else toast('Pick a sampled sound for the keys'); return; }
+  const fader = targetEl.closest('[data-fader]'); if (fader) { return libDropToDrum(+fader.dataset.fader, s, buf); }
+}
+document.addEventListener('dragover', e => {
+  if (!libDragSound) return;
+  const t = libDropTarget(e.target);
+  if (t) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'copy'; } catch (x) {} if (!t.classList.contains('drop-hi')) { document.querySelectorAll('.drop-hi').forEach(el => el.classList.remove('drop-hi')); t.classList.add('drop-hi'); } }
+});
+document.addEventListener('drop', e => {
+  if (!libDragSound) return;
+  const t = libDropTarget(e.target);
+  if (t) { e.preventDefault(); libDoDrop(t); }
+  document.querySelectorAll('.drop-hi').forEach(el => el.classList.remove('drop-hi'));
+});
 
 document.getElementById('bnr-lib').addEventListener('click', () => {
   document.getElementById('lib-modal').classList.add('open');
@@ -9357,7 +9419,7 @@ function dawRenderTimeline() {
   heads.innerHTML = ''; lanes.innerHTML = ''; lanes.style.width = W + 'px';
   DAW.tracks.forEach((tr, ti) => {
     // mixer-strip head
-    const h = document.createElement('div'); h.className = 'daw-head'; h.style.height = DAW.rowH + 'px'; h.style.borderLeft = '4px solid ' + tr.color;
+    const h = document.createElement('div'); h.className = 'daw-head'; h.dataset.tr = ti; h.style.height = DAW.rowH + 'px'; h.style.borderLeft = '4px solid ' + tr.color;
     h.innerHTML =
       '<div class="daw-hname" title="rename">' + tr.name + '</div>' +
       '<div class="daw-hrow">' +
@@ -9381,7 +9443,7 @@ function dawRenderTimeline() {
     h.querySelector('.daw-pan').addEventListener('input', e => { tr.pan = parseFloat(e.target.value); dawApplyMix(tr); });
     heads.appendChild(h);
     // lane + clips
-    const lane = document.createElement('div'); lane.className = 'daw-lane'; lane.style.height = DAW.rowH + 'px'; lane.style.width = W + 'px';
+    const lane = document.createElement('div'); lane.className = 'daw-lane'; lane.dataset.tr = ti; lane.style.height = DAW.rowH + 'px'; lane.style.width = W + 'px';
     lane.addEventListener('dblclick', e => { // dbl-click empty lane = duplicate the nearest clip here
       if (e.target !== lane) return;
       const beat = Math.round((e.offsetX / DAW.pxPerBeat));
@@ -9389,7 +9451,7 @@ function dawRenderTimeline() {
       tr.clips.push(Object.assign({}, src, { start: beat, notes: src.notes })); dawRenderTimeline();
     });
     tr.clips.forEach((clip, ci) => {
-      const el = document.createElement('div'); el.className = 'daw-clip' + (clip.kind === 'audio' ? ' audio' : '');
+      const el = document.createElement('div'); el.className = 'daw-clip' + (clip.kind === 'audio' ? ' audio' : ''); el.dataset.tr = ti; el.dataset.ci = ci;
       el.style.left = (clip.start * DAW.pxPerBeat) + 'px'; el.style.width = (clip.len * DAW.pxPerBeat - 2) + 'px';
       el.style.background = 'linear-gradient(180deg,' + tr.color + 'cc,' + tr.color + '77)';
       el.innerHTML = '<canvas class="daw-clip-wave"></canvas><span class="daw-clip-lbl">' + (clip.kind === 'audio' ? '♪ ' : '▤ ') + (clip.notes ? clip.notes.length + ' notes' : 'audio') + '</span><span class="daw-clip-grip"></span>';
