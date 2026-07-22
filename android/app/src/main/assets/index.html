@@ -1683,6 +1683,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
     <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
       <label style="font-size:9px;color:var(--mute)">PAD BASE NOTE <input id="midi-padbase" type="number" min="0" max="96" value="36" style="width:44px;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:4px;padding:2px"></label>
       <label style="font-size:9px;color:var(--mute)">KEYS FROM NOTE <input id="midi-keysplit" type="number" min="0" max="96" value="48" style="width:44px;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);border-radius:4px;padding:2px"></label>
+      <label style="font-size:9px;color:var(--mute);display:flex;align-items:center;gap:4px" title="OFF (default): keys always play keys; drums only on channel-10 / learned notes. ON: low keys below the split trigger pads."><input id="midi-padsfromkeys" type="checkbox"> LOW KEYS = PADS</label>
     </div>
     <div class="lay-hint" style="margin-top:6px">MIDI: notes below the split fire pads, above play keys. CC1=filter · CC7=master vol · CC20-39=pad faders. LEARN: click, then press a pad in the app, then hit a MIDI key to bind it.</div>
     <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
@@ -7313,7 +7314,7 @@ async function aiToolCommand(ql) {
 // MIDI INPUT — plug in a keyboard/controller, notes + CC just work
 // =====================================================================
 let midiAccess = null, midiLearnArm = false;
-let midiMap = { padBase: 36, keySplit: 48, notes: {} };
+let midiMap = { padBase: 36, keySplit: 48, notes: {}, padsFromKeys: false };
 try { Object.assign(midiMap, JSON.parse(localStorage.getItem('skrimpad_midi') || '{}')); } catch (e) {}
 function saveMidi() { try { localStorage.setItem('skrimpad_midi', JSON.stringify(midiMap)); } catch (e) {} }
 function updateMidiStatus() {
@@ -7323,8 +7324,36 @@ function updateMidiStatus() {
   const names = [...midiAccess.inputs.values()].map(i => i.name).join(', ');
   el.textContent = midiAccess.inputs.size ? '🟢 ' + names.slice(0, 40) : 'No MIDI devices — plug one in';
 }
+// General-MIDI drum note → our pad index. Drum pads on a controller send these
+// on MIDI channel 10, independent of the key octave — that's why the mapping is
+// FIXED and channel-based instead of stealing low keys.
+const GM_DRUM_MAP = {
+  35: 0, 36: 0,           // bass drum → KICK
+  37: 9,                  // side stick → RIM
+  38: 1, 40: 1,           // snare → SNARE
+  39: 4,                  // hand clap → CLAP
+  41: 6, 43: 6, 45: 6,    // low toms → TOM L
+  42: 2, 44: 2,           // closed / pedal hat → HH CL
+  46: 3,                  // open hat → HH OP
+  47: 5, 48: 5, 50: 5,    // mid/high toms → TOM H
+  49: 8, 57: 8,           // crash → CRASH
+  51: 7, 53: 7, 59: 7,    // ride → RIDE
+  54: 11, 70: 11, 82: 11, // tambourine / shaker → SHAKER
+  56: 10,                 // cowbell → COWBELL
+  75: 13,                 // claves → CLAVE
+  60: 5, 61: 6, 62: 9, 63: 5, 64: 6, 67: 10, 68: 10 // congas/bongos/agogo → nearest voice
+};
+// Resolve a MIDI note to a drum pad, or -1 for "this is a key". Priority:
+// 1) an explicit learned binding, 2) channel-10 GM drums, 3) opt-in key-split.
+function midiPadFor(d1, chan) {
+  const b = midiMap.notes['n' + d1];
+  if (b !== undefined && b >= 0 && b < drumDefs.length) return b;
+  if (chan === 9 && GM_DRUM_MAP[d1] != null && GM_DRUM_MAP[d1] < drumDefs.length) return GM_DRUM_MAP[d1];
+  if (midiMap.padsFromKeys && d1 < midiMap.keySplit) { const p = d1 - midiMap.padBase; if (p >= 0 && p < drumDefs.length) return p; }
+  return -1;
+}
 function onMIDI(e) {
-  const [st, d1, d2] = e.data, cmd = st & 0xf0;
+  const [st, d1, d2] = e.data, cmd = st & 0xf0, chan = st & 0x0f;
   if (!audioReady) initAudio();
   if (cmd === 0x90 && d2 > 0) {
     if (padBindArm != null) { // universal bind: this MIDI note becomes the armed pad's trigger
@@ -7339,16 +7368,12 @@ function onMIDI(e) {
       const lb = document.getElementById('midi-learn'); if (lb) lb.textContent = 'MIDI LEARN: PAD';
       toast('🎹 Note ' + d1 + ' → ' + drumDefs[lastTouchedPad].name); return;
     }
-    const bound = midiMap.notes['n' + d1];
-    if (bound !== undefined) { playDrum(bound, ctx.currentTime); return; }
-    if (d1 < midiMap.keySplit) {
-      const p = d1 - midiMap.padBase;
-      if (p >= 0 && p < drumDefs.length) { playDrum(p, ctx.currentTime); return; }
-    }
+    const pad = midiPadFor(d1, chan);
+    if (pad >= 0) { playDrum(pad, ctx.currentTime); return; }
     lastPlayedMidi = d1;
     noteOn(d1, d2 / 127); // velocity-sensitive
   } else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
-    if (midiMap.notes['n' + d1] === undefined && d1 >= midiMap.keySplit) midiNoteOff(d1);
+    if (midiPadFor(d1, chan) < 0) midiNoteOff(d1); // pads are one-shot; keys (any octave) get a note-off
   } else if (cmd === 0xe0) { // PITCH-BEND wheel — ±2 semitones
     const bend = ((d2 << 7) | d1) - 8192;
     synth.pitchBend = (bend / 8192) * (synth.pitchBendRange || 2);
@@ -7483,14 +7508,31 @@ async function initBluetoothMIDI() {
     toast('📶 Pair the controller in Android Bluetooth settings first, then it connects here — scanning…');
     return;
   }
-  if (!navigator.bluetooth) {
-    if (window.AndroidMidi) { initNativeMIDI(); toast('📶 Native MIDI on — USB works; update the app for BLE scan'); return; }
-    toast('Bluetooth MIDI needs Web Bluetooth (desktop app / Chrome).');
+  // DESKTOP / WINDOWS: once a BLE MIDI controller is paired in the OS Bluetooth
+  // settings, Windows/macOS expose it as a normal MIDI port — the Web MIDI API
+  // sees it. That's far more reliable than Web Bluetooth GATT, so try it first.
+  if (navigator.requestMIDIAccess) {
+    toast('📶 Pair the controller in Windows Bluetooth settings — it appears here as a MIDI port. Enabling MIDI…');
+    initMIDI();
+    setTimeout(() => {
+      const n = midiAccess ? midiAccess.inputs.size : 0;
+      if (n > 0) { const el = document.getElementById('midi-status'); if (el && !/🟢/.test(el.textContent)) updateMidiStatus(); return; }
+      // nothing showed up — offer a direct Web Bluetooth GATT connect as a fallback
+      if (navigator.bluetooth) { toast('No MIDI port yet — trying a direct Bluetooth connect…'); bleGattConnect(); }
+      else toast('📶 No MIDI device found — pair the controller in Windows Bluetooth settings, then tap 📶 again');
+    }, 1800);
     return;
   }
-  // DESKTOP / ELECTRON: some Korg units don't advertise the MIDI service UUID in
-  // their scan record, so accept all devices and treat the service as optional —
-  // the Electron chooser auto-picks the MIDI/Korg device.
+  if (!navigator.bluetooth) {
+    toast('Bluetooth MIDI needs Web Bluetooth or Web MIDI (desktop app / Chrome).');
+    return;
+  }
+  bleGattConnect();
+}
+// Direct Web Bluetooth GATT — the fallback when the OS doesn't bridge BLE MIDI
+// into the MIDI subsystem. Some controllers don't advertise the MIDI service in
+// their scan record, so we accept all devices with the service optional.
+async function bleGattConnect() {
   const connectBLE = async (opts) => {
     const dev = await navigator.bluetooth.requestDevice(opts);
     const server = await dev.gatt.connect();
@@ -7534,6 +7576,8 @@ if (midiEnableBtn) {
   pb.value = midiMap.padBase; ks.value = midiMap.keySplit;
   pb.addEventListener('change', () => { midiMap.padBase = parseInt(pb.value) || 36; saveMidi(); });
   ks.addEventListener('change', () => { midiMap.keySplit = parseInt(ks.value) || 48; saveMidi(); });
+  const pk = document.getElementById('midi-padsfromkeys');
+  if (pk) { pk.checked = !!midiMap.padsFromKeys; pk.addEventListener('change', () => { midiMap.padsFromKeys = pk.checked; saveMidi(); toast(pk.checked ? 'Low keys now trigger pads' : 'Keys always play keys — drums on channel 10 / learned notes'); }); }
 }
 
 // ---- 🎛 HARDWARE MAPPING MENU — program MIDI notes + controller buttons per pad ----
