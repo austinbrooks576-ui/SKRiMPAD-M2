@@ -7179,6 +7179,7 @@ try { Object.assign(midiMap, JSON.parse(localStorage.getItem('skrimpad_midi') ||
 function saveMidi() { try { localStorage.setItem('skrimpad_midi', JSON.stringify(midiMap)); } catch (e) {} }
 function updateMidiStatus() {
   const el = document.getElementById('midi-status'); if (!el) return;
+  if (nativeMidiOn && !midiAccess) return; // native bridge manages its own status line
   if (!midiAccess) { el.textContent = 'MIDI off'; return; }
   const names = [...midiAccess.inputs.values()].map(i => i.name).join(', ');
   el.textContent = midiAccess.inputs.size ? '🟢 ' + names.slice(0, 40) : 'No MIDI devices — plug one in';
@@ -7214,16 +7215,60 @@ function onMIDI(e) {
     else if (d1 >= 20 && d1 < 20 + drumDefs.length) drumDefs[d1 - 20].vol = d2 / 127;
   }
 }
+// Parse a raw MIDI byte stream (USB/native bridge) into channel-voice messages,
+// honouring running status, and feed each into the shared onMIDI() path.
+let _midiRun = 0;
+function feedRawMIDI(bytes) {
+  if (!bytes || !bytes.length) return;
+  let i = 0;
+  while (i < bytes.length) {
+    let st = bytes[i] & 0xff;
+    if (st & 0x80) { i++; if (st >= 0xf8) continue; if (st >= 0xf0) { _midiRun = 0; while (i < bytes.length && !(bytes[i] & 0x80)) i++; continue; } _midiRun = st; }
+    else { st = _midiRun; if (!(st & 0x80)) { i++; continue; } }
+    const type = st & 0xf0;
+    const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
+    if (i + len > bytes.length) break;
+    const d = [st];
+    for (let k = 0; k < len; k++) d.push(bytes[i++] & 0xff);
+    onMIDI({ data: d });
+  }
+}
+// Native (Android WebView) MIDI bridge callbacks — the WebView has no Web MIDI,
+// so MidiManager forwards raw bytes here.
+let nativeMidiOn = false;
+window.onNativeMIDIMessage = function (arr) {
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch (e) { return; } }
+  if (!audioReady) initAudio();
+  feedRawMIDI(arr);
+};
+window.onNativeMIDIStatus = function (txt) { const el = document.getElementById('midi-status'); if (el) el.textContent = txt; };
+function initNativeMIDI() {
+  try {
+    window.AndroidMidi.enable();
+    nativeMidiOn = true;
+    const el = document.getElementById('midi-status'); if (el) el.textContent = '🎹 Native MIDI on — connect a USB / BT controller';
+    toast('🎹 Android MIDI ready — plug in a USB or paired BT controller');
+  } catch (e) { toast('Native MIDI failed: ' + (e && e.message || 'unavailable')); }
+}
 function initMIDI() {
-  if (!navigator.requestMIDIAccess) { toast('MIDI is not supported in this browser/app build'); return; }
-  navigator.requestMIDIAccess({ sysex: false }).then(acc => {
-    midiAccess = acc;
-    const hook = () => acc.inputs.forEach(inp => inp.onmidimessage = onMIDI);
-    hook();
-    acc.onstatechange = () => { hook(); updateMidiStatus(); };
-    updateMidiStatus();
-    toast('🎹 MIDI ready — ' + acc.inputs.size + ' device(s) connected');
-  }).catch(() => toast('MIDI access denied'));
+  if (navigator.requestMIDIAccess) {
+    navigator.requestMIDIAccess({ sysex: false }).then(acc => {
+      midiAccess = acc;
+      const hook = () => acc.inputs.forEach(inp => inp.onmidimessage = onMIDI);
+      hook();
+      acc.onstatechange = () => { hook(); updateMidiStatus(); };
+      updateMidiStatus();
+      toast('🎹 MIDI ready — ' + acc.inputs.size + ' device(s) connected');
+    }).catch(err => {
+      // Web MIDI exists but was denied — fall back to a native bridge if present
+      if (window.AndroidMidi) { initNativeMIDI(); return; }
+      toast('MIDI access denied' + (err && err.message ? ': ' + err.message : ''));
+    });
+    return;
+  }
+  // No Web MIDI (Android WebView, older Electron) — use the native bridge
+  if (window.AndroidMidi) { initNativeMIDI(); return; }
+  toast('MIDI is not supported in this browser/app build');
 }
 // ---- BLUETOOTH LE MIDI — pair a wireless controller via Web Bluetooth ----
 // The standard BLE-MIDI GATT service; we parse the packet stream ourselves and
