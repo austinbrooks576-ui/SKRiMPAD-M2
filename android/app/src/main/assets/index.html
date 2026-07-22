@@ -1925,7 +1925,10 @@ window.skrimpadOnResume = audioResumeFromBackground;
 
 function initAudio() {
   if (audioReady) return;
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // latencyHint:'interactive' asks for the smallest safe output buffer, so a
+  // MIDI note / pad hit reaches the speakers in a handful of milliseconds.
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = new AC(); }
   if (ctx.state === 'suspended') ctx.resume();
 
   masterComp = ctx.createDynamicsCompressor();
@@ -3566,13 +3569,31 @@ document.querySelectorAll('.tab').forEach(tab => {
   host.appendChild(x);
 })();
 
-// DRUM PADS — 3x3 grid with A/B/C banks (all 20 sounds stay live for the
-// sequencer/mixer; the bank just picks which 9 are under your fingers)
+// DRUM PADS — switchable grid (3x3 / 4x4 / 4x2) with A/B/C… banks. All sounds
+// stay live for the sequencer/mixer; a bank just picks which page is under
+// your fingers. Bank count follows the chosen page size.
 let padBank = 0;
-const PAD_BANK_SIZE = 9;
+const PAD_LAYOUTS = { '3x3': { cols: 3, size: 9 }, '4x4': { cols: 4, size: 16 }, '4x2': { cols: 4, size: 8 } };
+let padLayoutId = '3x3';
+try { const s = localStorage.getItem('skrimpad_padlayout'); if (s && PAD_LAYOUTS[s]) padLayoutId = s; } catch (e) {}
+function setPadLayout(id) { if (!PAD_LAYOUTS[id]) return; padLayoutId = id; try { localStorage.setItem('skrimpad_padlayout', id); } catch (e) {} padBank = 0; buildPads(); }
 function buildPads() {
   const grid = document.getElementById('pad-grid');
   grid.innerHTML = '';
+  const lay = PAD_LAYOUTS[padLayoutId] || PAD_LAYOUTS['3x3'];
+  const PAD_BANK_SIZE = lay.size;
+  grid.style.gridTemplateColumns = 'repeat(' + lay.cols + ',1fr)';
+  // layout switcher row
+  let layRow = document.getElementById('pad-layouts');
+  if (!layRow) { layRow = document.createElement('div'); layRow.id = 'pad-layouts'; layRow.style.cssText = 'display:flex;gap:5px;margin-bottom:6px'; grid.parentNode.insertBefore(layRow, grid); }
+  layRow.innerHTML = '';
+  Object.keys(PAD_LAYOUTS).forEach(id => {
+    const lb = document.createElement('button');
+    lb.className = 'bank-btn' + (id === padLayoutId ? ' on' : '');
+    lb.textContent = id.toUpperCase();
+    lb.addEventListener('click', () => setPadLayout(id));
+    layRow.appendChild(lb);
+  });
   let bankRow = document.getElementById('pad-banks');
   if (!bankRow) {
     bankRow = document.createElement('div');
@@ -3580,7 +3601,8 @@ function buildPads() {
     grid.parentNode.insertBefore(bankRow, grid);
   }
   bankRow.innerHTML = '';
-  const nBanks = Math.ceil(drumDefs.length / PAD_BANK_SIZE);
+  const nBanks = Math.max(1, Math.ceil(drumDefs.length / PAD_BANK_SIZE));
+  if (padBank >= nBanks) padBank = nBanks - 1;
   for (let b = 0; b < nBanks; b++) {
     const btn = document.createElement('button');
     btn.className = 'bank-btn' + (b === padBank ? ' on' : '');
@@ -3629,7 +3651,8 @@ function setSeqStep(ti, s, val) {
 
 function buildSequencer() {
   const grid = document.getElementById('seq-grid');
-  for (let ti = 0; ti < SEQ_TRACKS; ti++) {
+  grid.innerHTML = ''; // rebuildable — pads/lanes can be added or removed
+  for (let ti = 0; ti < drumDefs.length; ti++) {
     const row = document.createElement('div');
     row.className = 'seq-row';
     const label = document.createElement('div');
@@ -3650,6 +3673,36 @@ function buildSequencer() {
   }
 }
 
+// ---- ADD / DELETE a drum voice — a pad and its sequencer lane are the same
+// track (same index into drumDefs + seqPatterns), so they always stay attached.
+const NEW_PAD_COLORS = ['var(--teal)', 'var(--pink)', 'var(--lime)', 'var(--orange)', 'var(--purple)', 'var(--blue)'];
+let newPadCount = 0;
+function rebuildDrumUI() {
+  if (typeof buildPads === 'function') buildPads();
+  if (typeof buildSequencer === 'function') buildSequencer();
+  if (typeof buildMixer === 'function') try { buildMixer(); } catch (e) {}
+  // repaint any active steps after a rebuild
+  for (let t = 0; t < seqPatterns.length; t++) for (let s = 0; s < SEQ_STEPS; s++) if (seqPatterns[t][s]) setSeqStep(t, s, true);
+}
+function addDrumPad(afterIdx) {
+  const at = (afterIdx == null ? drumDefs.length - 1 : afterIdx) + 1;
+  const def = { name: 'NEW ' + (++newPadCount), color: NEW_PAD_COLORS[drumDefs.length % NEW_PAD_COLORS.length], fn: playClave, vol: 0.5 };
+  drumDefs.splice(at, 0, def);
+  seqPatterns.splice(at, 0, new Array(SEQ_STEPS).fill(false));
+  rebuildDrumUI();
+  toast('➕ Added pad + lane "' + def.name + '" — right-click it to load a sound');
+  return at;
+}
+function deleteDrumPad(idx) {
+  if (drumDefs.length <= 1) { toast('Keep at least one pad'); return; }
+  const nm = drumDefs[idx].name;
+  drumDefs.splice(idx, 1);
+  seqPatterns.splice(idx, 1);
+  if (lastTouchedPad >= drumDefs.length) lastTouchedPad = drumDefs.length - 1;
+  rebuildDrumUI();
+  toast('🗑 Removed "' + nm + '" (pad + lane)');
+}
+
 // SEQ ROW PROGRAMMER — right-click (or long-press) a pad or sequencer row
 const SEQ_PRESETS = [
   { label: '4 ON THE FLOOR', fill: s => s % 4 === 0 },
@@ -3666,6 +3719,14 @@ document.body.appendChild(ctxMenu);
 
 function openSeqMenu(ti, x, y) {
   ctxMenu.innerHTML = `<div class="ctx-title" style="color:${drumDefs[ti].color}">${drumDefs[ti].name} — PROGRAM ROW</div>`;
+  [['📚 ASSIGN FROM LIBRARY', () => dawLibPicker(pick => { if (pick.buf) { drumDefs[ti].sampleBuf = pick.buf; toast(drumDefs[ti].name + ' ← ' + pick.name); } })],
+   ['➕ ADD NEW LANE + PAD', () => addDrumPad(ti)],
+   ['🗑 DELETE THIS LANE + PAD', () => deleteDrumPad(ti)]].forEach(([label, act]) => {
+    const it = document.createElement('div'); it.className = 'ctx-item'; it.textContent = label;
+    it.addEventListener('click', () => { closeSeqMenu(); act(); });
+    ctxMenu.appendChild(it);
+  });
+  const dv = document.createElement('div'); dv.style.cssText = 'height:1px;background:var(--bdr);margin:2px 0'; ctxMenu.appendChild(dv);
   SEQ_PRESETS.forEach(p => {
     const it = document.createElement('div');
     it.className = 'ctx-item';
@@ -3819,7 +3880,10 @@ function openPadMenu(i, x, y) {
         const name = await uiPrompt('Rename pad', def.name);
         if (name && name.trim()) { def.name = name.trim().toUpperCase(); refreshDrumName(i); }
       } },
-    { label: def.sampleBuf ? 'REPLACE SAMPLE' : 'IMPORT SAMPLE (WAV/MP3/OGG)', act: () => {
+    { label: '📚 ASSIGN FROM LIBRARY (FULL)', act: () => {
+        dawLibPicker(pick => { if (pick.buf) { def.sampleBuf = pick.buf; toast(def.name + ' ← ' + pick.name); if (typeof buildMixer === 'function') try { buildMixer(); } catch (e) {} } else toast('Pick a sampled sound'); });
+      } },
+    { label: def.sampleBuf ? 'REPLACE SAMPLE (FILE)' : 'IMPORT SAMPLE (WAV/MP3/OGG)', act: () => {
         importAudioSample(buf => { def.sampleBuf = buf; }, def.name + ' sample');
       } },
     { label: def.sampleBuf2 ? 'REPLACE LAYER' : 'ADD LAYER SAMPLE (DUAL)', act: () => {
@@ -3839,6 +3903,9 @@ function openPadMenu(i, x, y) {
       delete kbMap[boundKey]; saveKbMap(); toast(def.name + ': key unbound');
     } });
   }
+  items.push({ divider: true });
+  items.push({ label: '➕ ADD NEW PAD + LANE', act: () => addDrumPad(i) });
+  items.push({ label: '🗑 DELETE THIS PAD + LANE', act: () => deleteDrumPad(i) });
   items.push({ divider: true });
   SEQ_PRESETS.forEach(p => items.push({ label: p.label, act: () => {
     for (let s = 0; s < SEQ_STEPS; s++) setSeqStep(i, s, !!p.fill(s));
@@ -6011,6 +6078,11 @@ function applyLaneVoice(val) {
 function openLaneVoiceMenu(x, y) {
   const sel = document.getElementById('lane-voice');
   ctxMenu.innerHTML = `<div class="ctx-title" style="color:var(--teal)">LANE ${curLane + 1} VOICE</div>`;
+  const libIt = document.createElement('div');
+  libIt.className = 'ctx-item'; libIt.textContent = '📚 ASSIGN FROM LIBRARY (FULL)';
+  libIt.addEventListener('click', () => { closeSeqMenu(); dawLibPicker(pick => { if (!pick.buf) { toast('Pick a sampled sound'); return; } keyLanes[curLane].sampleBuf = pick.buf; keyLanes[curLane].sampleRoot = 60; applyLaneVoice('sample'); toast('Lane ' + (curLane + 1) + ' ← ' + pick.name); }); });
+  ctxMenu.appendChild(libIt);
+  const div = document.createElement('div'); div.style.cssText = 'height:1px;background:var(--bdr);margin:2px 0'; ctxMenu.appendChild(div);
   [...sel.options].forEach(o => {
     const it = document.createElement('div');
     it.className = 'ctx-item' + (keyLanes[curLane].voice === o.value ? ' on' : '');
@@ -9146,7 +9218,7 @@ function dawLibPicker(onPick) {
     list.innerHTML = '';
     let n = 0;
     (typeof brainLibAll === 'function' ? brainLibAll() : []).forEach(it => {
-      if (n >= 80) return;
+      if (n >= 400) return; // effectively the full library; the search box narrows it
       if (q && !(String(it.s.name).toLowerCase().includes(q) || String(it.cat).toLowerCase().includes(q))) return;
       n++;
       const row = document.createElement('button');
@@ -9177,6 +9249,36 @@ function dawAddLibraryClip() {
     toast('📚 "' + pick.name + '" → new track + clip');
   });
 }
+// Per-channel LIBRARY: load any library sound onto THIS existing channel.
+function dawLibChannel(tr) {
+  dawLibPicker(pick => {
+    if (!pick.buf) { toast('That one is a synth voice — pick a sampled sound'); return; }
+    tr.instrument = { type: 'sampler', root: 60, buf: pick.buf, libRef: pick.name };
+    if (!tr.clips.some(c => c.kind === 'audio')) {
+      const beats = Math.max(1, Math.round(pick.buf.duration / dawBeatSec()));
+      tr.clips.push({ start: dawFreeSlot(tr), len: beats, kind: 'audio', buf: pick.buf, rate: 1, libRef: pick.name });
+    } else {
+      tr.clips.forEach(c => { if (c.kind === 'audio') { c.buf = pick.buf; c.libRef = pick.name; } });
+    }
+    dawWireTrack(tr); dawRenderTimeline();
+    toast('📚 "' + pick.name + '" → ' + tr.name);
+  });
+}
+// Per-channel SNIP: open the sample editor on the channel's sound; the trimmed
+// buffer flows back to the channel + its audio clips via ➤ USE THIS.
+function dawSnipChannel(tr) {
+  const audioClip = tr.clips.find(c => c.kind === 'audio');
+  const buf = (tr.instrument && tr.instrument.buf) || (audioClip && audioClip.buf);
+  if (!buf) { toast('No sample on this channel — load one with 📚 first'); return; }
+  window.__pendingApply = (b2) => {
+    if (!tr.instrument) tr.instrument = { type: 'sampler', root: 60 };
+    tr.instrument.type = 'sampler'; tr.instrument.buf = b2;
+    tr.clips.forEach(c => { if (c.kind === 'audio') { c.buf = b2; c.len = Math.max(1, Math.round(b2.duration / dawBeatSec())); } });
+    dawWireTrack(tr); dawRenderTimeline(); toast('✂ Snipped ' + tr.name);
+  };
+  openSampleEditor(buf, tr.name);
+  const ub = document.getElementById('edit-use'); if (ub) ub.style.display = '';
+}
 
 function dawRenderTimeline() {
   const heads = document.getElementById('daw-heads'), lanes = document.getElementById('daw-lanes'), ruler = document.getElementById('daw-ruler');
@@ -9196,7 +9298,9 @@ function dawRenderTimeline() {
     h.innerHTML =
       '<div class="daw-hname" title="rename">' + tr.name + '</div>' +
       '<div class="daw-hrow">' +
-        '<button class="daw-mini" data-a="rack" title="instrument + FX rack">🎛</button>' +
+        '<button class="daw-mini" data-a="lib" title="load a library sound onto this channel">📚</button>' +
+        '<button class="daw-mini" data-a="snip" title="snip / trim this channel’s sample">✂</button>' +
+        '<button class="daw-mini" data-a="rack" title="instrument + FX rack (edit + mix)">🎛</button>' +
         '<button class="daw-mini' + (tr.mute ? ' on-m' : '') + '" data-a="mute">M</button>' +
         '<button class="daw-mini' + (tr.solo ? ' on-s' : '') + '" data-a="solo">S</button>' +
         '<button class="daw-mini" data-a="del" title="delete track">🗑</button>' +
@@ -9204,6 +9308,8 @@ function dawRenderTimeline() {
       '<div class="daw-hrow"><input class="daw-vol" type="range" min="0" max="1" step="0.01" value="' + tr.vol + '" title="volume">' +
         '<input class="daw-pan" type="range" min="-1" max="1" step="0.02" value="' + tr.pan + '" title="pan"></div>';
     h.querySelector('.daw-hname').addEventListener('dblclick', async () => { const n = await uiPrompt('Track name', tr.name); if (n && n.trim()) { tr.name = n.trim().slice(0, 16); dawRenderTimeline(); } });
+    h.querySelector('[data-a=lib]').addEventListener('click', () => dawLibChannel(tr));
+    h.querySelector('[data-a=snip]').addEventListener('click', () => dawSnipChannel(tr));
     h.querySelector('[data-a=rack]').addEventListener('click', () => dawOpenRack(tr));
     h.querySelector('[data-a=mute]').addEventListener('click', () => { tr.mute = !tr.mute; dawApplyAllMix(); dawRenderTimeline(); });
     h.querySelector('[data-a=solo]').addEventListener('click', () => { tr.solo = !tr.solo; dawApplyAllMix(); dawRenderTimeline(); });
