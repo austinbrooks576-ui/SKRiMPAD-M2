@@ -1,6 +1,12 @@
 package com.firstriff.skrimpadm2
 
 import android.Manifest
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,6 +18,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelUuid
+import java.util.UUID
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -33,6 +41,10 @@ class MainActivity : AppCompatActivity() {
     private var midiManager: MidiManager? = null
     private val openMidiDevices = mutableListOf<MidiDevice>()
     private var midiCallback: MidiManager.DeviceCallback? = null
+    private var bleScanner: BluetoothLeScanner? = null
+    private var bleScanCb: ScanCallback? = null
+    private val BLE_PERMISSION_REQUEST = 1002
+    private val BLE_MIDI_UUID = UUID.fromString("03b80e5a-ede8-4b33-a751-6ce34ec4c700")
 
     // MIDI bridge — the WebView has no Web MIDI API, so USB / BLE controllers
     // are opened natively through android.media.midi and their raw bytes are
@@ -40,6 +52,8 @@ class MainActivity : AppCompatActivity() {
     inner class MidiBridge {
         @JavascriptInterface
         fun enable() { runOnUiThread { setupMidi() } }
+        @JavascriptInterface
+        fun scanBluetooth() { runOnUiThread { startBleMidiScan() } }
     }
 
     private fun jsMidiStatus(txt: String) {
@@ -68,23 +82,65 @@ class MainActivity : AppCompatActivity() {
     // stream its bytes to the WebView as a JSON int array.
     private fun openMidiInput(mm: MidiManager, info: MidiDeviceInfo) {
         if (info.outputPortCount <= 0) return
-        mm.openDevice(info, { device ->
-            if (device == null) return@openDevice
-            openMidiDevices.add(device)
-            val port = device.openOutputPort(0) ?: return@openDevice
-            port.connect(object : MidiReceiver() {
-                override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
-                    if (count <= 0) return
-                    val sb = StringBuilder("[")
-                    for (k in 0 until count) { if (k > 0) sb.append(','); sb.append(msg[offset + k].toInt() and 0xFF) }
-                    sb.append("]")
-                    val js = "window.onNativeMIDIMessage && onNativeMIDIMessage($sb)"
-                    runOnUiThread { webView.evaluateJavascript(js, null) }
-                }
-            })
-            val name = info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device"
-            jsMidiStatus("🟢 $name")
-        }, Handler(Looper.getMainLooper()))
+        val name = info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device"
+        mm.openDevice(info, { device -> attachMidiDevice(device, name) }, Handler(Looper.getMainLooper()))
+    }
+
+    // Shared for USB + BLE — connect a MidiReceiver to the device's output port.
+    private fun attachMidiDevice(device: MidiDevice?, name: String) {
+        if (device == null) { jsMidiStatus("Could not open $name"); return }
+        openMidiDevices.add(device)
+        val port = device.openOutputPort(0) ?: run { jsMidiStatus("$name has no MIDI out port"); return }
+        port.connect(object : MidiReceiver() {
+            override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
+                if (count <= 0) return
+                val sb = StringBuilder("[")
+                for (k in 0 until count) { if (k > 0) sb.append(','); sb.append(msg[offset + k].toInt() and 0xFF) }
+                sb.append("]")
+                val js = "window.onNativeMIDIMessage && onNativeMIDIMessage($sb)"
+                runOnUiThread { webView.evaluateJavascript(js, null) }
+            }
+        })
+        jsMidiStatus("🟢 $name")
+    }
+
+    // BLE MIDI (Korg microKEY Air / nanoKEY Studio / nanoKONTROL Studio, etc.) —
+    // Android never lists BLE controllers in getDevices(); we have to BLE-scan for
+    // the standard MIDI service then hand the BluetoothDevice to MidiManager.
+    private fun startBleMidiScan() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("BLE MIDI needs Android 6+"); return }
+        if (midiManager == null) midiManager = getSystemService(Context.MIDI_SERVICE) as? MidiManager
+        val mm = midiManager ?: run { jsMidiStatus("MIDI unavailable on this device"); return }
+        val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+        if (adapter == null || !adapter.isEnabled) { jsMidiStatus("Turn Bluetooth ON, then tap 📶 again"); return }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), BLE_PERMISSION_REQUEST)
+            jsMidiStatus("Grant Bluetooth permission, then tap 📶 again"); return
+        }
+        val scanner = adapter.bluetoothLeScanner ?: run { jsMidiStatus("BLE scan unavailable"); return }
+        bleScanner?.let { s -> bleScanCb?.let { try { s.stopScan(it) } catch (e: Exception) {} } }
+        val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(BLE_MIDI_UUID)).build()
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        bleScanner = scanner
+        bleScanCb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val dev = result.device ?: return
+                try { scanner.stopScan(this) } catch (e: Exception) {}
+                val nm = try { dev.name } catch (e: SecurityException) { null } ?: "BLE MIDI"
+                jsMidiStatus("📶 Connecting $nm…")
+                try { mm.openBluetoothDevice(dev, { device -> attachMidiDevice(device, nm) }, Handler(Looper.getMainLooper())) }
+                catch (e: Exception) { jsMidiStatus("BLE connect failed: ${e.message}") }
+            }
+            override fun onScanFailed(errorCode: Int) { jsMidiStatus("BLE scan failed ($errorCode)") }
+        }
+        jsMidiStatus("📶 Scanning for Korg / BLE MIDI…")
+        try { scanner.startScan(listOf(filter), settings, bleScanCb) } catch (e: Exception) { jsMidiStatus("BLE scan error: ${e.message}"); return }
+        // stop the scan after 15s to save battery if nothing pairs
+        Handler(Looper.getMainLooper()).postDelayed({
+            try { bleScanCb?.let { scanner.stopScan(it) } } catch (e: Exception) {}
+        }, 15000)
     }
 
     // Voice bridge — the WebView has no Web Speech API, so the AI console's
@@ -271,6 +327,12 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Microphone access denied — some loop features limited", Toast.LENGTH_SHORT).show()
                 }
             }
+        } else if (requestCode == BLE_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                startBleMidiScan() // permission just granted — start the BLE MIDI scan now
+            } else {
+                jsMidiStatus("Bluetooth permission denied — can’t scan for BLE MIDI")
+            }
         }
     }
 
@@ -305,6 +367,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         speech?.destroy()
         midiCallback?.let { midiManager?.unregisterDeviceCallback(it) }
+        bleScanCb?.let { cb -> try { bleScanner?.stopScan(cb) } catch (e: Exception) {} }
         openMidiDevices.forEach { try { it.close() } catch (e: Exception) {} }
         openMidiDevices.clear()
         webView.destroy()
