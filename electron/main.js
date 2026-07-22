@@ -43,11 +43,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // the AI console's voice input + hum-to-notes need the microphone —
-  // grant media requests so getUserMedia works from the packaged page
+  // Grant mic (voice/hum-to-notes) AND MIDI — Chromium gates Web MIDI behind a
+  // permission, so requestMIDIAccess() rejects without this and hardware
+  // controllers never connect on Windows.
+  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex'];
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
-    callback(permission === 'media' || permission === 'microphone' || permission === 'audioCapture');
+    callback(GRANTED.includes(permission));
   });
+  session.defaultSession.setPermissionCheckHandler((wc, permission) => GRANTED.includes(permission));
   createWindow();
 });
 
