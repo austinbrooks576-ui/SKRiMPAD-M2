@@ -31,6 +31,9 @@ jobs:
           cp android/app/src/main/assets/index.html electron/app/index.html
           cp android/app/src/main/assets/layout.json electron/app/layout.json
 
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json se ${{ github.run_number }}
+
       - name: Install dependencies
         run: |
           cd electron
@@ -41,34 +44,25 @@ jobs:
           cd electron
           npm run build:win
 
-      - name: Name the download files
-        shell: bash
-        run: |
-          cd electron/dist
-          n="${{ github.run_number }}"
-          for f in *.exe; do
-            case "$f" in
-              *Setup*) mv "$f" "SKRiMPAD SE Setup ${n} (Installer).exe";;
-              *)       mv "$f" "SKRiMPAD SE Setup ${n} (Portable).exe";;
-            esac
-          done
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: skrimpad-se-setup-${{ github.run_number }}-windows
           path: electron/dist/*.exe
 
+      # Ship installer + electron-updater metadata (latest-se.yml + .blockmap).
+      # SE has its own channel so it never cross-serves consumer/VGA builds; the
+      # .exe keeps electron-builder's name so it stays in sync with the yml.
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: se-win-v1.0.${{ github.run_number }}
           name: SKRiMPAD M2 — Special Edition Windows — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD M2 — **Special Edition** (Samurai Champloo HUD) for Windows
+            SKRiMPAD M2 — **Special Edition** (Samurai Champloo HUD) for Windows (v1.0.${{ github.run_number }})
 
-            - **`SKRiMPAD SE Setup ${{ github.run_number }} (Installer).exe`** — installs to Program Files with shortcuts
-            - **`SKRiMPAD SE Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere, no install needed
+            - **`SKRiMPAD M2 Setup 1.0.${{ github.run_number }}.exe`** — installs to Program Files with shortcuts
+            - **`SKRiMPAD M2 1.0.${{ github.run_number }}.exe`** — portable, runs from anywhere
 
             A standalone themed studio — boots straight into the HUD. SIX themes
             behind the 🎨 palette: Samurai Champloo, Space Dust, Cyberpunk,
@@ -76,9 +70,11 @@ jobs:
             floating BPM/volume pills, REVOLVE orbit (glass windows sweep behind
             the AI node), themed library + sample editor, katanas + dragon.
 
-            **Requirements:** Windows 10+ (64-bit)
+            Auto-update is built in, with a fail-safe roll-back. **Requirements:** Windows 10+ (64-bit)
           files: |
             electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
           draft: false
           prerelease: false
         env:

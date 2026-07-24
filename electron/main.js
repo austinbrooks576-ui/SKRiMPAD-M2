@@ -1,5 +1,13 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// electron-updater is optional in dev (no dep installed) — guard the require so
+// `npm start` still runs without it.
+let autoUpdater = null;
+try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { autoUpdater = null; }
+
+const REPO_RELEASES = 'https://github.com/austinbrooks576-ui/SKRiMPAD-M2/releases';
 
 // Audio must start clean and keep perfect time even when the window is
 // minimized or covered — throttled timers let the sequencer fall behind the
@@ -17,6 +25,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       backgroundThrottling: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
     title: 'SKRiMPAD',
     backgroundColor: '#0a0a0a',
@@ -62,7 +71,48 @@ function createWindow() {
     : path.join(__dirname, '../android/app/src/main/assets/index.html');
 
   win.loadFile(htmlPath);
+  wireUpdater(win);
 }
+
+// ---- AUTO-UPDATE + FAIL-SAFE ROLLBACK --------------------------------------
+// electron-updater pulls signed releases (latest.yml) from GitHub Releases,
+// downloads in the background, and installs on quit. The renderer decides when
+// to surface it (auto-update ON/OFF ghosted window) via the preload bridge.
+function wireUpdater(win) {
+  if (!autoUpdater) return;
+  // Per-edition channel so the three editions in one repo never cross-serve:
+  // an SE build only reads latest-se.yml, VGA latest-vga.yml, consumer latest.yml.
+  try { const ch = require('./package.json').skrimpadChannel; if (ch) autoUpdater.channel = ch; } catch (e) {}
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = true;   // needed so a rollback to an older tag can install
+  const send = (evt, info) => { if (win && !win.isDestroyed()) win.webContents.send('updater:event', evt, info); };
+  autoUpdater.on('update-available', i => send('available', i));
+  autoUpdater.on('update-not-available', i => send('none', i));
+  autoUpdater.on('download-progress', p => send('progress', p));
+  autoUpdater.on('update-downloaded', i => send('downloaded', i));
+  autoUpdater.on('error', e => send('error', { message: String((e && e.message) || e) }));
+  // one silent check shortly after launch
+  setTimeout(() => { try { autoUpdater.checkForUpdates(); } catch (e) {} }, 4000);
+}
+
+ipcMain.handle('updater:check', () => { try { return autoUpdater && autoUpdater.checkForUpdates(); } catch (e) { return null; } });
+ipcMain.handle('updater:install', () => { try { if (autoUpdater) autoUpdater.quitAndInstall(); } catch (e) {} });
+ipcMain.handle('updater:revert', (_e, good) => {
+  // Fail-safe rollback triggered when the renderer's boot self-test decides the
+  // current build is bad. Prefer relaunching an archived good installer; else
+  // open that version's release page so the stable build can be reinstalled.
+  try {
+    const local = path.join(app.getPath('userData'), 'installers', 'SKRiMPAD-' + good + '.exe');
+    if (fs.existsSync(local)) {
+      require('child_process').spawn(local, { detached: true, stdio: 'ignore' }).unref();
+      app.quit();
+      return;
+    }
+  } catch (e) {}
+  shell.openExternal(REPO_RELEASES + '/tag/v' + good);
+  app.quit();
+});
 
 app.whenReady().then(() => {
   // Grant mic (voice/hum-to-notes) AND MIDI — Chromium gates Web MIDI behind a

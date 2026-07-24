@@ -14,7 +14,9 @@
   "build": {
     "appId": "com.firstriff.studio",
     "productName": "SKRiMPAD M2",
-    "publish": [],
+    "publish": [
+      { "provider": "github", "owner": "austinbrooks576-ui", "repo": "SKRiMPAD-M2" }
+    ],
     "directories": {
       "output": "dist"
     },
@@ -40,6 +42,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^31.0.0",
