@@ -7578,26 +7578,34 @@ async function initBluetoothMIDI() {
     toast('📶 Pair the controller in Android Bluetooth settings first, then it connects here — scanning…');
     return;
   }
-  // DESKTOP / WINDOWS: Chromium's Web MIDI on Windows rides the legacy winmm
-  // stack, which does NOT expose BLE MIDI controllers as MIDI ports — only USB
-  // ones. So the reliable path for a WIRELESS controller is Web Bluetooth GATT,
-  // talking to the BLE-MIDI service directly. requestDevice() REQUIRES a live
-  // user gesture, so we must call it STRAIGHT FROM THIS CLICK — never from a
-  // setTimeout (that drops the activation and the chooser silently never opens,
-  // which is exactly why Windows "didn't recognise" the controller).
-  if (navigator.bluetooth) {
-    // also enable Web MIDI (fire-and-forget) so USB / OS-bridged ports still
-    // register; it needs no gesture and won't consume this one.
-    if (navigator.requestMIDIAccess) initMIDI();
-    toast('📶 Put the controller in pairing mode — pick it in the Bluetooth chooser…');
-    bleGattConnect();           // within the gesture → chooser appears
-    return;
-  }
-  // No Web Bluetooth (e.g. macOS, which DOES bridge BLE MIDI into Web MIDI) —
-  // fall back to Web MIDI: pair the controller in the OS first, it shows as a port.
-  if (navigator.requestMIDIAccess) {
-    toast('📶 Pair the controller in Bluetooth settings — it appears here as a MIDI port. Enabling MIDI…');
-    initMIDI();
+  // DESKTOP / WINDOWS. A wireless controller reaches us one of two ways:
+  //   (a) the OS / vendor driver already bridges it as a normal MIDI PORT. On
+  //       Windows the KORG BLE-MIDI driver does this — but it only transmits
+  //       once you hit CONNECT in the KORG BLE-MIDI control panel. When a port
+  //       exists we MUST use it and must NOT also grab the device over Web
+  //       Bluetooth GATT: a BLE device allows a single GATT link, so a second
+  //       connection fights the driver and neither side gets data.
+  //   (b) nothing bridges it → we open the BLE-MIDI service ourselves via GATT.
+  // Web MIDI is auto-enabled at boot (see below), so midiAccess is already
+  // populated here and we can branch synchronously — which keeps this click's
+  // user-activation intact for the GATT chooser (requestDevice needs a live
+  // gesture; a setTimeout would drop it and the chooser would silently never open).
+  if (navigator.requestMIDIAccess || navigator.bluetooth) {
+    if (navigator.requestMIDIAccess && !midiAccess) initMIDI();
+    const nIn = midiAccess ? midiAccess.inputs.size : 0;
+    if (nIn > 0) {
+      // already bridged as a MIDI port — hook it, don't touch GATT
+      midiAccess.inputs.forEach(inp => inp.onmidimessage = onMIDI);
+      updateMidiStatus();
+      toast('🎹 ' + nIn + ' MIDI port(s) connected. KORG on Windows: open the KORG BLE-MIDI panel and hit CONNECT so the port transmits.');
+      return;
+    }
+    if (navigator.bluetooth) {
+      toast('📶 No MIDI port yet — put the controller in pairing mode and pick it in the Bluetooth chooser…');
+      bleGattConnect();          // within the gesture → chooser appears
+      return;
+    }
+    toast('📶 No MIDI port — pair it (or open the KORG BLE-MIDI panel and CONNECT), then tap 📶 again.');
     return;
   }
   toast('Bluetooth MIDI needs Web Bluetooth or Web MIDI (desktop app / Chrome).');
@@ -7636,6 +7644,15 @@ async function bleGattConnect() {
 }
 const midiBtBtn = document.getElementById('midi-bt');
 if (midiBtBtn) midiBtBtn.addEventListener('click', initBluetoothMIDI);
+
+// Desktop app (Electron): the MIDI permission is pre-granted, so enable Web MIDI
+// automatically at boot. Any driver/OS-bridged port — a USB controller, or a
+// KORG BLE-MIDI endpoint once you CONNECT it in the KORG panel — gets hooked
+// with no button press, and re-hooks on hot-plug via onstatechange. (Browsers
+// would prompt, so this is Electron-only; the APK uses the native bridge.)
+if (navigator.requestMIDIAccess && /Electron/i.test(navigator.userAgent || '')) {
+  setTimeout(() => { try { if (!midiAccess) initMIDI(); } catch (e) {} }, 800);
+}
 
 const midiEnableBtn = document.getElementById('midi-enable');
 if (midiEnableBtn) {
