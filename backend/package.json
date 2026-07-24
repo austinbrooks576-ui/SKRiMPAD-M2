@@ -1,0 +1,16 @@
+{
+  "name": "scrimpad-backend",
+  "version": "1.0.0",
+  "description": "SKRiMPAD commerce backend — checkout, licensing, download gating (runs on the habitflow.ink backend).",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "stripe": "^16.2.0"
+  },
+  "engines": { "node": ">=18" }
+}

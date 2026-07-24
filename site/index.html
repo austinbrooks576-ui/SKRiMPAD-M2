@@ -315,6 +315,38 @@ async function startCheckout(edition){
 
 document.querySelectorAll('[data-buy]').forEach(b =>
   b.addEventListener('click', () => startCheckout(b.getAttribute('data-buy'))));
+
+// ---- thank-you / license delivery ----------------------------------------
+// The backend redirects buyers back to /thanks?license=…&edition=… (PayPal) or
+// /thanks?session=…&edition=… (Stripe). Show the key + downloads either way.
+(async function handleReturn(){
+  const q = new URLSearchParams(location.search);
+  const edition = q.get('edition');
+  let license = q.get('license');
+  const isThanks = /\/thanks/.test(location.pathname) || q.has('license') || q.has('session');
+  if (!isThanks || !edition) return;
+  // Stripe path returns a session id — ask the backend for the issued key.
+  if (!license && q.get('session')) {
+    try {
+      const r = await fetch(CONFIG.backend + '/license/by-session?session=' + encodeURIComponent(q.get('session')));
+      if (r.ok) license = (await r.json()).key;
+    } catch(e){}
+  }
+  const dl = k => CONFIG.backend + '/download?edition=' + edition + '&platform=' + k + (license ? '&key=' + encodeURIComponent(license) : '');
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(4,5,10,.86);backdrop-filter:blur(6px)';
+  ov.innerHTML =
+    '<div style="max-width:460px;width:100%;background:var(--card);border:1px solid var(--purple);border-radius:20px;padding:30px;text-align:center;box-shadow:0 24px 70px rgba(139,92,255,.3)">'+
+    '<div style="font-size:34px">🎉</div>'+
+    '<h2 style="font-size:24px;margin:10px 0 4px">You’re in.</h2>'+
+    '<p style="color:var(--mut);font-size:14px">SKRiMPAD <b>'+edition.toUpperCase()+'</b> is yours. Your license key'+(license?'':' is on its way to your email')+':</p>'+
+    (license?'<div style="margin:16px 0;font-family:ui-monospace,monospace;font-size:15px;letter-spacing:.04em;background:var(--card2);border:1px dashed var(--line);border-radius:12px;padding:14px;user-select:all">'+license+'</div>':'')+
+    '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:6px">'+
+    '<a class="btn primary" href="'+dl('win')+'">⬇ Windows</a>'+
+    '<a class="btn primary" href="'+dl('apk')+'">⬇ Android APK</a></div>'+
+    '<a href="/" style="display:inline-block;margin-top:18px;color:var(--mut);font-size:13px">← Back to site</a></div>';
+  document.body.appendChild(ov);
+})();
 </script>
 </body>
 </html>
