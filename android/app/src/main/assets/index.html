@@ -616,15 +616,23 @@ body.se-active #se-root{
 #se-root[data-theme=arcade] .se-motif,#se-root[data-theme=arcade] .se-wave{display:none;}
 
 /* theme picker bar (bottom) */
+/* max-height + scroll so 36 themes can never blanket the screen (and reach up
+   over the top bar's 🎨 toggle, which was the "menu won't close" bug on phones) */
 #se-themebar{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:66;flex-wrap:wrap;justify-content:center;max-width:96vw;
+  max-height:min(46vh,320px);overflow-y:auto;overscroll-behavior:contain;
   padding:5px 8px;border-radius:16px;background:rgba(var(--se-ink-rgb),.5);backdrop-filter:blur(5px);}
+#se-themebar .se-theme-close{width:24px;height:24px;flex-shrink:0;border-radius:12px;border:1px solid rgba(var(--se-line-rgb),.6);
+  background:rgba(var(--se-ink-rgb),.6);color:var(--se-glow);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  position:sticky;left:0;padding:0;}
+#se-themebar .se-theme-close:hover{background:var(--se-line);color:var(--se-ink);}
 .se-theme-btn{padding:5px 11px;border-radius:12px;border:1px solid rgba(var(--se-line-rgb),.5);background:rgba(var(--se-ink-rgb),.4);
   color:var(--se-glow);font-family:var(--se-font);font-size:11px;letter-spacing:.1em;cursor:pointer;transition:.12s;white-space:nowrap;}
 .se-theme-btn:hover{background:var(--se-line);color:var(--se-ink);}
 .se-theme-btn.on{background:var(--se-glow);color:var(--se-ink);border-color:var(--se-glow);box-shadow:0 0 14px rgba(var(--se-glow-rgb),.5);}
 
-/* top bar */
-#se-bar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;z-index:60;
+/* top bar — must sit ABOVE the theme bar (z 66) so the 🎨 toggle stays tappable
+   even when the theme bar is open and tall */
+#se-bar{position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;z-index:70;
   background:linear-gradient(180deg, rgba(var(--se-ink-rgb),.72), rgba(var(--se-ink-rgb),0));backdrop-filter:blur(3px);}
 #se-bar .se-title{font-family:var(--se-font);font-size:20px;letter-spacing:.28em;color:var(--se-glow);text-shadow:0 2px 8px rgba(0,0,0,.6);}
 #se-bar .se-title small{display:block;font-size:8px;letter-spacing:.36em;color:var(--se-paper);opacity:.7;margin-top:-2px;}
@@ -7570,26 +7578,29 @@ async function initBluetoothMIDI() {
     toast('📶 Pair the controller in Android Bluetooth settings first, then it connects here — scanning…');
     return;
   }
-  // DESKTOP / WINDOWS: once a BLE MIDI controller is paired in the OS Bluetooth
-  // settings, Windows/macOS expose it as a normal MIDI port — the Web MIDI API
-  // sees it. That's far more reliable than Web Bluetooth GATT, so try it first.
+  // DESKTOP / WINDOWS: Chromium's Web MIDI on Windows rides the legacy winmm
+  // stack, which does NOT expose BLE MIDI controllers as MIDI ports — only USB
+  // ones. So the reliable path for a WIRELESS controller is Web Bluetooth GATT,
+  // talking to the BLE-MIDI service directly. requestDevice() REQUIRES a live
+  // user gesture, so we must call it STRAIGHT FROM THIS CLICK — never from a
+  // setTimeout (that drops the activation and the chooser silently never opens,
+  // which is exactly why Windows "didn't recognise" the controller).
+  if (navigator.bluetooth) {
+    // also enable Web MIDI (fire-and-forget) so USB / OS-bridged ports still
+    // register; it needs no gesture and won't consume this one.
+    if (navigator.requestMIDIAccess) initMIDI();
+    toast('📶 Put the controller in pairing mode — pick it in the Bluetooth chooser…');
+    bleGattConnect();           // within the gesture → chooser appears
+    return;
+  }
+  // No Web Bluetooth (e.g. macOS, which DOES bridge BLE MIDI into Web MIDI) —
+  // fall back to Web MIDI: pair the controller in the OS first, it shows as a port.
   if (navigator.requestMIDIAccess) {
-    toast('📶 Pair the controller in Windows Bluetooth settings — it appears here as a MIDI port. Enabling MIDI…');
+    toast('📶 Pair the controller in Bluetooth settings — it appears here as a MIDI port. Enabling MIDI…');
     initMIDI();
-    setTimeout(() => {
-      const n = midiAccess ? midiAccess.inputs.size : 0;
-      if (n > 0) { const el = document.getElementById('midi-status'); if (el && !/🟢/.test(el.textContent)) updateMidiStatus(); return; }
-      // nothing showed up — offer a direct Web Bluetooth GATT connect as a fallback
-      if (navigator.bluetooth) { toast('No MIDI port yet — trying a direct Bluetooth connect…'); bleGattConnect(); }
-      else toast('📶 No MIDI device found — pair the controller in Windows Bluetooth settings, then tap 📶 again');
-    }, 1800);
     return;
   }
-  if (!navigator.bluetooth) {
-    toast('Bluetooth MIDI needs Web Bluetooth or Web MIDI (desktop app / Chrome).');
-    return;
-  }
-  bleGattConnect();
+  toast('Bluetooth MIDI needs Web Bluetooth or Web MIDI (desktop app / Chrome).');
 }
 // Direct Web Bluetooth GATT — the fallback when the OS doesn't bridge BLE MIDI
 // into the MIDI subsystem. Some controllers don't advertise the MIDI service in
@@ -8361,6 +8372,17 @@ function buildThemeBar() {
   // the consumer studio.
   const bar = document.getElementById('se-themebar'); if (!bar) return;
   bar.innerHTML = '';
+  // always-present ✕ so the picker can be dismissed even if the top-bar 🎨
+  // toggle ends up covered on a small screen
+  const close = document.createElement('button');
+  close.className = 'se-theme-close'; close.textContent = '✕'; close.title = 'Close theme picker';
+  close.addEventListener('click', () => {
+    seThemesHidden = true;
+    try { localStorage.setItem('skrimpad_themes_hidden', '1'); } catch (e) {}
+    applyThemeBarVis();
+    seToast('Theme options hidden');
+  });
+  bar.appendChild(close);
   Object.entries(SE_THEMES).forEach(([id, th]) => {
     const b = document.createElement('button');
     b.className = 'se-theme-btn' + (id === seThemeId ? ' on' : '');
