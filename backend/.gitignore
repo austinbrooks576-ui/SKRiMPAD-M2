@@ -1,0 +1,5 @@
+node_modules/
+.env
+data/
+play-service-account.json
+*.log
