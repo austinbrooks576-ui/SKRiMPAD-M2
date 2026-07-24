@@ -37,12 +37,24 @@ function createWindow() {
 
   // Web Bluetooth needs a device chooser — without this handler
   // navigator.bluetooth.requestDevice() hangs and a Korg / BLE MIDI controller
-  // never connects. Auto-pick the MIDI device (Korg units first).
+  // never connects. The event fires repeatedly as devices are discovered, so we
+  // WAIT for a MIDI-named controller rather than grabbing whatever appears first
+  // (which was often a phone/headset). If none is named within a few seconds we
+  // fall back to the first device found; if the list is still empty, cancel.
+  const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon/i;
+  let btCb = null, btDevs = [], btTimer = null;
   win.webContents.on('select-bluetooth-device', (event, devices, callback) => {
     event.preventDefault();
-    const midi = devices.find(d => /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage/i.test(d.deviceName || ''));
-    const pick = midi || devices[0];
-    if (pick) callback(pick.deviceId); else callback('');
+    btDevs = devices; btCb = callback;
+    const midi = devices.find(d => MIDI_RE.test(d.deviceName || ''));
+    if (midi) { if (btTimer) { clearTimeout(btTimer); btTimer = null; } btCb = null; callback(midi.deviceId); return; }
+    // no MIDI-named device yet — keep scanning; take the first found after 8s
+    if (btTimer) clearTimeout(btTimer);
+    btTimer = setTimeout(() => {
+      btTimer = null; if (!btCb) return;
+      const cb = btCb; btCb = null;
+      cb(btDevs[0] ? btDevs[0].deviceId : '');
+    }, 8000);
   });
 
   const htmlPath = app.isPackaged
