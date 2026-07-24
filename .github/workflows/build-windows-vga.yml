@@ -34,6 +34,9 @@ jobs:
       - name: Set VGA edition
         run: node scripts/set-edition.js electron/app/index.html vga
 
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json vga ${{ github.run_number }}
+
       - name: Install dependencies
         run: |
           cd electron
@@ -44,43 +47,35 @@ jobs:
           cd electron
           npm run build:win
 
-      - name: Name the download files
-        shell: bash
-        run: |
-          cd electron/dist
-          n="${{ github.run_number }}"
-          for f in *.exe; do
-            case "$f" in
-              *Setup*) mv "$f" "SKRiMPAD VGA Setup ${n} (Installer).exe";;
-              *)       mv "$f" "SKRiMPAD VGA Setup ${n} (Portable).exe";;
-            esac
-          done
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: skrimpad-vga-setup-${{ github.run_number }}-windows
           path: electron/dist/*.exe
 
+      # Ship installer + electron-updater metadata (latest-vga.yml + .blockmap)
+      # on the VGA channel so it never cross-serves the other editions.
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: vga-win-v1.0.${{ github.run_number }}
           name: SKRiMPAD VGA Windows — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD VGA — **Video Game Audio edition** for Windows
+            SKRiMPAD VGA — **Video Game Audio edition** for Windows (v1.0.${{ github.run_number }})
 
-            - **`SKRiMPAD VGA Setup ${{ github.run_number }} (Installer).exe`** — installs with shortcuts
-            - **`SKRiMPAD VGA Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere
+            - **`SKRiMPAD M2 Setup 1.0.${{ github.run_number }}.exe`** — installs with shortcuts
+            - **`SKRiMPAD M2 1.0.${{ github.run_number }}.exe`** — portable, runs from anywhere
 
             Original GB/GBC/GBA-style chiptune soundbytes in the library + a world
             of 40+ original named pixel characters that wander, dance and cheer to
             your music (👾 roster toggles each). Includes the full SKRiMPAD STUDIO
             DAW + plugin rack.
 
-            **Requirements:** Windows 10+ (64-bit)
+            Auto-update is built in, with a fail-safe roll-back. **Requirements:** Windows 10+ (64-bit)
           files: |
             electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
           draft: false
           prerelease: false
         env:

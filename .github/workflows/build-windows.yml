@@ -34,6 +34,9 @@ jobs:
       - name: Set consumer edition (hide Special Edition HUD)
         run: node scripts/set-edition.js electron/app/index.html consumer
 
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json consumer ${{ github.run_number }}
+
       - name: Install dependencies
         run: |
           cd electron
@@ -44,38 +47,32 @@ jobs:
           cd electron
           npm run build:win
 
-      - name: Name the download files
-        shell: bash
-        run: |
-          cd electron/dist
-          n="${{ github.run_number }}"
-          for f in *.exe; do
-            case "$f" in
-              *Setup*) mv "$f" "SKRiMPAD Setup ${n} (Installer).exe";;
-              *)       mv "$f" "SKRiMPAD Setup ${n} (Portable).exe";;
-            esac
-          done
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: skrimpad-setup-${{ github.run_number }}-windows
           path: electron/dist/*.exe
 
+      # Ship the installer AND the electron-updater metadata (latest.yml +
+      # .blockmap) so the in-app auto-updater can pull future builds. Do NOT
+      # rename the .exe — its name must match latest.yml or the updater 404s.
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: win-v1.0.${{ github.run_number }}
           name: SKRiMPAD M2 Windows — Setup ${{ github.run_number }}
           body: |
-            SKRiMPAD M2 — Consumer Edition for Windows
+            SKRiMPAD M2 — Consumer Edition for Windows (v1.0.${{ github.run_number }})
 
-            - **`SKRiMPAD Setup ${{ github.run_number }} (Installer).exe`** — installs to Program Files with shortcuts
-            - **`SKRiMPAD Setup ${{ github.run_number }} (Portable).exe`** — runs from anywhere, no install needed
+            - **`SKRiMPAD M2 Setup 1.0.${{ github.run_number }}.exe`** — installs to Program Files with shortcuts
+            - **`SKRiMPAD M2 1.0.${{ github.run_number }}.exe`** — portable, runs from anywhere
 
-            **Requirements:** Windows 10+ (64-bit)
+            Auto-update is built in — future versions install themselves (with a
+            fail-safe roll-back if a build won't start). **Requirements:** Windows 10+ (64-bit)
           files: |
             electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
           draft: false
           prerelease: false
         env:

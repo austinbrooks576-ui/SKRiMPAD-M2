@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1">
 <title>SKRiMPAD M2</title>
-<script>window.SKRIMPAD_EDITION='se';/*BUILD_EDITION*/</script>
+<script>window.SKRIMPAD_EDITION='se';/*BUILD_EDITION*/
+window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
 <style>
 :root{
   --bg:#0A0B0F;--surf:#12141A;--surf2:#1A1D25;--surf3:#222630;
@@ -1712,6 +1713,13 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
       <button class="hbtn" id="lib-clear-btn" style="color:var(--orange);border-color:var(--orange)">🗑 CLEAR SAVED SOUNDS</button>
       <span style="font-size:9px;color:var(--mute)">Sounds load on demand now, so a huge library can't crash the app — but you can still wipe it here.</span>
     </div>
+    <div style="margin-top:14px;font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--mute)">APP UPDATES</div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+      <button class="hbtn" id="update-check">⬇ CHECK FOR UPDATES</button>
+      <label style="font-size:9px;color:var(--mute);display:flex;align-items:center;gap:4px" title="ON: updates install automatically. OFF: a ghosted 'update available' card appears instead — you choose when."><input type="checkbox" id="update-auto" checked> AUTO-UPDATE</label>
+      <span id="update-info" style="font-size:9px;color:var(--mute)">…</span>
+    </div>
+    <div class="lay-hint" style="margin-top:4px">If an update ever fails to start, the app rolls back to the last version that worked.</div>
   </div>
 </div>
 
@@ -11681,6 +11689,137 @@ function brainVoiceInit() {
 }
 setTimeout(brainVoiceInit, 800);
 console.log('Music Brain ready');
+
+// ============================================================================
+// AUTO-UPDATE · FAIL-SAFE REVERT · GHOSTED UPDATE WINDOW
+// One layer for every edition + platform. Auto-update ON drives the installer;
+// OFF surfaces a low-profile "ghosted" update card (like a sign-out-to-update
+// button) that never blocks the app. A boot self-test rolls the build back to
+// the last-known-good version if a new one repeatedly fails to start.
+// ============================================================================
+(function () {
+  const VERSION = window.SKRIMPAD_VERSION || '1.0.0';
+  const EDITION = window.SKRIMPAD_EDITION || 'se';
+  const isElectron = /Electron/i.test(navigator.userAgent || '');
+  const platform = isElectron ? 'win' : (/Android/i.test(navigator.userAgent || '') ? 'apk' : 'web');
+  // CONFIG — where the release manifest lives. Served by scrimpad.ink (or its
+  // habitflow.ink backend). Shape:
+  //   { "version":"1.1.0", "notes":"…", "mandatory":false,
+  //     "downloads": { "se":{"win":"…","apk":"…"}, "consumer":{…}, "vga":{…}, "live":{…} } }
+  const MANIFEST_URL = window.SKRIMPAD_UPDATE_URL || 'https://scrimpad.ink/api/update.json';
+  const CHECK_EVERY = 6 * 60 * 60 * 1000;
+
+  const L = {
+    get auto() { try { return localStorage.getItem('skrimpad_autoupdate') !== '0'; } catch (e) { return true; } },   // default ON
+    set auto(v) { try { localStorage.setItem('skrimpad_autoupdate', v ? '1' : '0'); } catch (e) {} },
+    get good() { try { return localStorage.getItem('skrimpad_last_good') || VERSION; } catch (e) { return VERSION; } },
+    set good(v) { try { localStorage.setItem('skrimpad_last_good', v); } catch (e) {} },
+  };
+  const newer = (a, b) => {
+    const pa = String(a).split('.').map(n => parseInt(n) || 0), pb = String(b).split('.').map(n => parseInt(n) || 0);
+    for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false; }
+    return false;
+  };
+
+  // ---- GHOSTED WINDOW ------------------------------------------------------
+  function ghost(o, urgent) {
+    const old = document.getElementById('skrimpad-ghost'); if (old) old.remove();
+    const g = document.createElement('div'); g.id = 'skrimpad-ghost';
+    g.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483000;max-width:300px;padding:14px 16px;' +
+      'border-radius:14px;font-family:system-ui,-apple-system,sans-serif;color:#eaf2ff;' +
+      'background:rgba(14,16,26,' + (urgent ? '0.93' : '0.60') + ');-webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);' +
+      'border:1px solid rgba(' + (urgent ? '255,90,90' : '120,170,255') + ',0.5);box-shadow:0 12px 44px rgba(0,0,0,0.55);' +
+      'opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s;';
+    g.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:5px">' + o.title + '</div>' +
+      '<div style="font-size:12px;opacity:.85;line-height:1.4;margin-bottom:10px">' + o.msg + '</div>' +
+      '<div style="display:flex;gap:8px"><button id="sg-go" style="flex:1;padding:7px;border-radius:8px;border:0;cursor:pointer;' +
+      'background:' + (urgent ? '#ff5a5a' : '#4a7dff') + ';color:#fff;font-weight:700;font-size:12px">' + o.action + '</button>' +
+      '<button id="sg-x" style="padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#cdd;cursor:pointer;font-size:12px">Later</button></div>';
+    (document.body || document.documentElement).appendChild(g);
+    requestAnimationFrame(() => { g.style.opacity = '1'; g.style.transform = 'translateY(0)'; });
+    g.querySelector('#sg-go').onclick = () => { try { o.onAction && o.onAction(); } catch (e) {} };
+    g.querySelector('#sg-x').onclick = () => { g.style.opacity = '0'; setTimeout(() => g.remove(), 250); };
+    if (!urgent) setTimeout(() => { if (document.body.contains(g)) g.style.opacity = '0.5'; }, 12000);  // fades to low-profile
+    return g;
+  }
+
+  // ---- FAIL-SAFE BOOT GUARD -----------------------------------------------
+  // Drop a pending flag on boot; clear it once the app is healthy. If a later
+  // boot finds it still set for this version twice over, the build is bad → revert.
+  function guardStart() {
+    try {
+      const p = JSON.parse(localStorage.getItem('skrimpad_boot_pending') || 'null');
+      if (p && p.v === VERSION && (p.count || 0) >= 2 && L.good && L.good !== VERSION) {
+        ghost({ title: '⚠ Update unstable', msg: 'v' + VERSION + ' failed to start cleanly. Roll back to v' + L.good + '?',
+          action: 'Roll back', onAction: () => revert(L.good) }, true);
+      }
+      const count = (p && p.v === VERSION) ? (p.count || 0) + 1 : 1;
+      localStorage.setItem('skrimpad_boot_pending', JSON.stringify({ v: VERSION, count, ts: Date.now() }));
+    } catch (e) {}
+  }
+  function guardHealthy() { try { localStorage.removeItem('skrimpad_boot_pending'); L.good = VERSION; } catch (e) {} }
+  function revert(good) {
+    if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.revert) { window.skrimpadUpdater.revert(good); return; }
+    try { localStorage.removeItem('skrimpad_boot_pending'); } catch (e) {}
+    if (window.toast) toast('Rolling back to v' + good + '…');
+    location.reload();  // web/APK: clear the bad-boot loop; binary swap is the installer's job
+  }
+
+  // ---- UPDATE CHECK --------------------------------------------------------
+  async function check(manual) {
+    let m;
+    try { const r = await fetch(MANIFEST_URL, { cache: 'no-store' }); if (!r.ok) throw 0; m = await r.json(); }
+    catch (e) { if (manual && window.toast) toast('Update check failed — offline?'); return; }
+    if (!m || !m.version) return;
+    if (!newer(m.version, VERSION)) { if (manual && window.toast) toast('✓ You’re on the latest — v' + VERSION); return; }
+    const ed = (m.downloads && m.downloads[EDITION]) || {};
+    const dl = ed[platform] || ed.win || ed.apk || '';
+    const mandatory = !!m.mandatory;
+    if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.check) {
+      window.skrimpadUpdater.check();                 // native updater downloads + stages
+      if (!L.auto && !mandatory) ghost({ title: '✨ v' + m.version + ' available', msg: m.notes || 'Update when you’re ready.', action: 'Update', onAction: () => window.skrimpadUpdater.check() }, false);
+      return;
+    }
+    if (L.auto || mandatory) {
+      ghost({ title: '⬇ Update v' + m.version, msg: (m.notes || 'A new version is ready.') + (mandatory ? ' (required)' : ''),
+        action: 'Install', onAction: () => { if (dl) window.open(dl, '_blank'); } }, mandatory);
+    } else {
+      ghost({ title: '✨ v' + m.version + ' available', msg: m.notes || 'Update when you’re ready.',
+        action: 'Update', onAction: () => { if (dl) window.open(dl, '_blank'); } }, false);
+    }
+  }
+
+  // public API for the settings menu / AI console
+  window.skrimpadCheckUpdate = check;
+  window.skrimpadAutoUpdate = { get: () => L.auto, set: v => { L.auto = v; if (window.toast) toast('Auto-update ' + (v ? 'on' : 'off')); } };
+  window.SKRIMPAD_INFO = { version: VERSION, edition: EDITION, platform };
+
+  // native updater push events (Electron main → renderer)
+  if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.on) {
+    window.skrimpadUpdater.on((evt, info) => {
+      if (evt === 'available' && !L.auto) ghost({ title: '✨ v' + ((info && info.version) || 'new') + ' available', msg: 'Update when you’re ready.', action: 'Update', onAction: () => window.skrimpadUpdater.check() }, false);
+      if (evt === 'downloaded') ghost({ title: '✅ Update ready', msg: 'v' + ((info && info.version) || '') + ' installs on restart.', action: 'Restart now', onAction: () => window.skrimpadUpdater.install() }, false);
+    });
+  }
+
+  // ---- SETTINGS UI ---------------------------------------------------------
+  function wireSettings() {
+    const btn = document.getElementById('update-check');
+    const auto = document.getElementById('update-auto');
+    const info = document.getElementById('update-info');
+    if (info) info.textContent = 'v' + VERSION + ' · ' + EDITION.toUpperCase() + (isElectron ? ' · desktop' : platform === 'apk' ? ' · android' : '');
+    if (btn) btn.addEventListener('click', () => { if (window.toast) toast('Checking for updates…'); check(true); });
+    if (auto) { auto.checked = L.auto; auto.addEventListener('change', () => { L.auto = auto.checked; if (window.toast) toast('Auto-update ' + (auto.checked ? 'on' : 'off')); }); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireSettings); else wireSettings();
+
+  // ---- WIRE UP -------------------------------------------------------------
+  guardStart();
+  setTimeout(() => { if (window.audioReady || document.readyState === 'complete') guardHealthy(); else setTimeout(guardHealthy, 4000); }, 6000);
+  setTimeout(() => check(false), 5000);
+  setInterval(() => check(false), CHECK_EVERY);
+  console.log('Auto-update ready · v' + VERSION + ' · ' + EDITION + '/' + platform);
+})();
 
 </script>
 </body>
