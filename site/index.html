@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKRiMPAD — make music anywhere</title>
+<meta name="description" content="SKRiMPAD is a pocket-to-desktop music studio: drum pads, sequencers, a full DAW, an AI console, MIDI, and more. Four editions, one groove engine.">
+<style>
+  /* ====================================================================
+     scrimpad.ink — front-end. Self-contained, responsive, theme-aware.
+     Backend (checkout, licensing, download gating) lives on the
+     habitflow.ink API — see CONFIG at the bottom of this file. Every buy
+     button routes through CONFIG.backend; nothing is hard-wired here.
+     ==================================================================== */
+  :root{
+    --bg:#07080d; --bg2:#0c0e17; --card:#111421; --card2:#161a2b;
+    --ink:#eaf0ff; --mut:#9aa6c6; --line:#232842;
+    --pink:#ff3c9d; --cyan:#5ad1ff; --purple:#8b5cff; --gold:#ffcf5a; --green:#39e6a0;
+    --grad:linear-gradient(120deg,var(--pink),var(--purple) 45%,var(--cyan));
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 22px}
+
+  /* ---- nav ---- */
+  header{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);
+    background:rgba(7,8,13,.72);border-bottom:1px solid var(--line)}
+  nav{display:flex;align-items:center;gap:22px;height:62px}
+  .logo{font-weight:900;letter-spacing:.14em;font-size:19px}
+  .logo b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  nav .sp{flex:1}
+  nav a.nl{color:var(--mut);font-size:13px;font-weight:600;letter-spacing:.03em}
+  nav a.nl:hover{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:11px;font-weight:800;
+    font-size:13px;letter-spacing:.02em;cursor:pointer;border:1px solid transparent;transition:.16s;white-space:nowrap}
+  .btn.primary{background:var(--grad);color:#0a0713;box-shadow:0 8px 30px rgba(139,92,255,.35)}
+  .btn.primary:hover{transform:translateY(-1px);box-shadow:0 12px 38px rgba(139,92,255,.5)}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--purple)}
+
+  /* ---- hero ---- */
+  .hero{position:relative;padding:88px 0 70px;text-align:center;overflow:hidden}
+  .hero .glow{position:absolute;inset:-30% 0 auto 0;height:640px;z-index:0;filter:blur(70px);opacity:.5;
+    background:radial-gradient(40% 50% at 22% 30%,rgba(255,60,157,.6),transparent 70%),
+      radial-gradient(42% 52% at 78% 22%,rgba(90,209,255,.5),transparent 72%),
+      radial-gradient(46% 50% at 55% 70%,rgba(139,92,255,.55),transparent 72%)}
+  .hero>.wrap{position:relative;z-index:1}
+  .kick{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.22em;color:var(--cyan);
+    border:1px solid var(--line);border-radius:999px;padding:6px 14px;margin-bottom:22px;background:rgba(90,209,255,.06)}
+  h1{font-size:clamp(38px,7vw,72px);line-height:1.02;font-weight:900;letter-spacing:-.02em}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{max-width:620px;margin:22px auto 0;color:var(--mut);font-size:clamp(15px,2.4vw,19px)}
+  .cta{display:flex;gap:13px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+  .platforms{margin-top:22px;color:var(--mut);font-size:12px;letter-spacing:.05em}
+
+  /* ---- section ---- */
+  section{padding:64px 0}
+  .eyebrow{text-align:center;font-size:12px;font-weight:800;letter-spacing:.2em;color:var(--purple)}
+  h2{text-align:center;font-size:clamp(26px,4.5vw,40px);font-weight:900;letter-spacing:-.01em;margin-top:8px}
+  .lede{text-align:center;color:var(--mut);max-width:600px;margin:14px auto 0}
+
+  /* ---- feature grid ---- */
+  .feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:44px}
+  .fcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .fcard .ic{font-size:24px}
+  .fcard h3{font-size:16px;margin:12px 0 6px;font-weight:800}
+  .fcard p{color:var(--mut);font-size:13.5px}
+
+  /* ---- pricing ---- */
+  .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:46px;align-items:stretch}
+  .tier{position:relative;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px 22px;display:flex;flex-direction:column}
+  .tier.feat-tier{border-color:var(--purple);box-shadow:0 0 0 1px var(--purple),0 20px 60px rgba(139,92,255,.22)}
+  .tier .tag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--grad);color:#0a0713;
+    font-size:10px;font-weight:900;letter-spacing:.12em;padding:4px 12px;border-radius:999px}
+  .tier .ed{font-size:12px;font-weight:800;letter-spacing:.16em;color:var(--mut)}
+  .tier .nm{font-size:22px;font-weight:900;margin-top:4px}
+  .tier .nm .accent{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tier .price{font-size:40px;font-weight:900;margin:14px 0 2px;letter-spacing:-.02em}
+  .tier .price small{font-size:14px;color:var(--mut);font-weight:700}
+  .tier .free{color:var(--green)}
+  .tier ul{list-style:none;margin:16px 0 22px;display:flex;flex-direction:column;gap:9px}
+  .tier li{font-size:13.5px;color:var(--ink);display:flex;gap:9px;align-items:flex-start}
+  .tier li::before{content:"◆";color:var(--cyan);font-size:10px;margin-top:5px}
+  .tier li.dim{color:var(--mut)}.tier li.dim::before{content:"○";color:var(--line)}
+  .tier .buy{margin-top:auto;width:100%;justify-content:center}
+  .tier .pays{margin-top:10px;text-align:center;font-size:11px;color:var(--mut)}
+
+  /* ---- steps ---- */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:44px}
+  .step{background:var(--card2);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .step .n{font-size:12px;font-weight:900;color:var(--purple);letter-spacing:.1em}
+  .step h3{font-size:16px;margin:8px 0 6px}
+  .step p{color:var(--mut);font-size:13px}
+
+  /* ---- faq ---- */
+  .faq{max-width:760px;margin:44px auto 0}
+  details{border:1px solid var(--line);border-radius:13px;padding:2px 18px;margin-bottom:10px;background:var(--card)}
+  summary{cursor:pointer;font-weight:700;padding:15px 0;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";color:var(--purple);font-size:20px;font-weight:400}
+  details[open] summary::after{content:"–"}
+  details p{color:var(--mut);font-size:14px;padding:0 0 16px}
+
+  /* ---- footer ---- */
+  footer{border-top:1px solid var(--line);padding:40px 0;color:var(--mut);font-size:13px}
+  .frow{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+  footer a:hover{color:var(--ink)}
+
+  @media (prefers-color-scheme:light){
+    :root[data-theme=auto]{--bg:#f6f7fb;--bg2:#fff;--card:#fff;--card2:#f1f3fa;--ink:#12152a;--mut:#5a6486;--line:#e3e7f2}
+  }
+  :root[data-theme=light]{--bg:#f6f7fb;--bg2:#fff;--card:#fff;--card2:#f1f3fa;--ink:#12152a;--mut:#5a6486;--line:#e3e7f2}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap"><nav>
+    <div class="logo">SKRiM<b>PAD</b></div>
+    <div class="sp"></div>
+    <a class="nl" href="#features">Features</a>
+    <a class="nl" href="#pricing">Editions</a>
+    <a class="nl" href="#faq">FAQ</a>
+    <a class="btn primary" href="#pricing">Get SKRiMPAD</a>
+  </nav></div>
+</header>
+
+<div class="hero">
+  <div class="glow"></div>
+  <div class="wrap">
+    <span class="kick">POCKET TO DESKTOP · ONE GROOVE ENGINE</span>
+    <h1>Make a beat<br>the second it <span class="g">hits you.</span></h1>
+    <p class="sub">Drum pads, floating sequencers, a full DAW, a talking AI console, MIDI + Bluetooth controllers, and a library that follows you everywhere. SKRiMPAD is a whole studio that boots in a second — on your phone or your desktop.</p>
+    <div class="cta">
+      <a class="btn primary" href="#pricing">Choose your edition</a>
+      <a class="btn ghost" data-buy="live">▶ Try Live — free</a>
+    </div>
+    <div class="platforms">Android APK · Windows 10/11 · runs in the browser</div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">WHAT'S INSIDE</div>
+    <h2>A real studio, not a toy</h2>
+    <p class="lede">Every edition shares the same engine. Pay more, unlock more of it.</p>
+    <div class="feat">
+      <div class="fcard"><div class="ic">🥁</div><h3>Pads &amp; sequencers</h3><p>Switchable 3×3 / 4×4 / 4×2 pad layouts, banks A/B/C, add or delete pads and lanes, step-sequence every voice.</p></div>
+      <div class="fcard"><div class="ic">🎚️</div><h3>Full DAW</h3><p>Timeline, per-channel snip / edit / mix, plugin rack — EQ, comp, reverb, delay, filter, distortion — and bounce to WAV.</p></div>
+      <div class="fcard"><div class="ic">🤖</div><h3>AI console</h3><p>Tell it what you want in plain words — "make a drill beat at 140", "what's in C minor", "warm up the synth" — and it does it.</p></div>
+      <div class="fcard"><div class="ic">🎹</div><h3>MIDI &amp; Bluetooth</h3><p>USB and wireless controllers, low-latency input, drum-pad channel mapping, MIDI-learn any pad or key.</p></div>
+      <div class="fcard"><div class="ic">🎨</div><h3>Skins &amp; themes</h3><p>Dozens of built-in looks plus import your own JSON skins — stored permanently beside the defaults.</p></div>
+      <div class="fcard"><div class="ic">⬇️</div><h3>Auto-update</h3><p>New versions install themselves, with a fail-safe roll-back if a build ever won't start. Set it and forget it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="eyebrow">PICK YOUR TIER</div>
+    <h2>Four editions</h2>
+    <p class="lede">Start free. Upgrade whenever you want more voices, more looks, or the full themed HUD.</p>
+    <div class="tiers">
+
+      <div class="tier">
+        <div class="ed">LIVE</div>
+        <div class="nm">SKRiMPAD Live</div>
+        <div class="price free">Free</div>
+        <ul>
+          <li>Core pads + sequencer</li>
+          <li>Live jam performance mode</li>
+          <li>Runs in the browser</li>
+          <li class="dim">DAW &amp; plugin rack</li>
+          <li class="dim">Premium skins</li>
+        </ul>
+        <button class="btn ghost buy" data-buy="live">Launch free</button>
+        <div class="pays">No account needed</div>
+      </div>
+
+      <div class="tier">
+        <div class="ed">CONSUMER</div>
+        <div class="nm">SKRiMPAD <span class="accent">Studio</span></div>
+        <div class="price">$3</div>
+        <ul>
+          <li>Everything in Live</li>
+          <li>Full DAW + plugin rack</li>
+          <li>Pad banks A/B/C</li>
+          <li>MIDI + Bluetooth controllers</li>
+          <li>20+ importable skins</li>
+        </ul>
+        <button class="btn primary buy" data-buy="consumer">Buy — $3</button>
+        <div class="pays">Card · PayPal · Google Play</div>
+      </div>
+
+      <div class="tier">
+        <div class="ed">VGA</div>
+        <div class="nm">SKRiMPAD <span class="accent">VGA</span></div>
+        <div class="price">$6</div>
+        <ul>
+          <li>Everything in Studio</li>
+          <li>Chiptune GB/GBC/GBA library</li>
+          <li>40+ pixel characters that dance</li>
+          <li>32-bit retro UI skin</li>
+          <li>10 exclusive VGA skins</li>
+        </ul>
+        <button class="btn primary buy" data-buy="vga">Buy — $6</button>
+        <div class="pays">Card · PayPal · Google Play</div>
+      </div>
+
+      <div class="tier feat-tier">
+        <div class="tag">FLAGSHIP</div>
+        <div class="ed">SPECIAL EDITION</div>
+        <div class="nm">SKRiMPAD <span class="accent">SE</span></div>
+        <div class="price">$9</div>
+        <ul>
+          <li>Everything in VGA</li>
+          <li>Themed HUD — boots into the console</li>
+          <li>Six palettes behind the 🎨 picker</li>
+          <li>REVOLVE orbit + AI centrepiece</li>
+          <li>Access to every skin &amp; theme</li>
+        </ul>
+        <button class="btn primary buy" data-buy="se">Buy — $9</button>
+        <div class="pays">Card · PayPal · Google Play</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">HOW IT WORKS</div>
+    <h2>From click to beat in a minute</h2>
+    <div class="steps">
+      <div class="step"><div class="n">01</div><h3>Pick an edition</h3><p>Live is free. Paid editions unlock through card, PayPal or Google Play.</p></div>
+      <div class="step"><div class="n">02</div><h3>Get your key</h3><p>Purchases return a license key and your download for Android or Windows.</p></div>
+      <div class="step"><div class="n">03</div><h3>Install &amp; make</h3><p>Open it, hit a pad, talk to the AI. Updates land automatically from here on.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="background:var(--bg2);border-top:1px solid var(--line)">
+  <div class="wrap">
+    <div class="eyebrow">GOOD TO KNOW</div>
+    <h2>Questions</h2>
+    <div class="faq">
+      <details open><summary>What do I actually get when I buy?</summary><p>A license key plus downloads for your platform — an Android APK and a Windows installer (or portable build). One purchase covers both.</p></details>
+      <details><summary>Which devices are supported?</summary><p>Android phones and tablets, Windows 10/11 (64-bit), and any modern browser for the Live edition.</p></details>
+      <details><summary>Do updates cost extra?</summary><p>No. Every edition auto-updates for free, and rolls back on its own if an update ever fails to start.</p></details>
+      <details><summary>Can I use my MIDI keyboard?</summary><p>Yes — USB and Bluetooth LE controllers both work, with MIDI-learn to map any pad or key. Paid editions only.</p></details>
+      <details><summary>How do refunds work?</summary><p>Reach out through the support link in the footer and we'll sort it out.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap frow">
+    <div class="logo" style="font-size:16px">SKRiM<b>PAD</b></div>
+    <div class="sp" style="flex:1"></div>
+    <a href="#features">Features</a>
+    <a href="#pricing">Editions</a>
+    <a href="#faq">FAQ</a>
+    <a href="mailto:support@scrimpad.ink">Support</a>
+    <div style="width:100%;margin-top:14px;opacity:.7">© <span id="yr"></span> SKRiMPAD · scrimpad.ink · made with First Riff Method</div>
+  </div>
+</footer>
+
+<script>
+// =====================================================================
+// CONFIG — fill these in with the real values from your backend. The
+// account attachments (Stripe / PayPal / Google Play / licensing) live
+// on the habitflow.ink backend; this page only calls into it. Nothing
+// here charges anyone — each buy button hands off to your checkout.
+// =====================================================================
+const CONFIG = {
+  backend: 'https://habitflow.ink/api/scrimpad',   // <- your API base
+  liveUrl: 'https://scrimpad.ink/app',             // <- hosted Live edition
+  // Per-edition checkout. Point each at your Stripe Payment Link / PayPal
+  // button / Play listing, OR leave as 'api' to create a session server-side.
+  checkout: {
+    consumer: { price: 3, mode: 'api' },
+    vga:      { price: 6, mode: 'api' },
+    se:       { price: 9, mode: 'api' },
+  },
+};
+
+const YEAR = new Date().getFullYear();
+document.getElementById('yr').textContent = YEAR;
+
+async function startCheckout(edition){
+  if (edition === 'live') { location.href = CONFIG.liveUrl; return; }
+  const c = CONFIG.checkout[edition];
+  if (!c) return;
+  // Direct link mode: a Stripe Payment Link / PayPal button / Play URL string.
+  if (typeof c === 'string') { location.href = c; return; }
+  if (c.mode && c.mode.startsWith('http')) { location.href = c.mode; return; }
+  // API mode: ask the backend to open a checkout session for this edition.
+  try {
+    const r = await fetch(CONFIG.backend + '/checkout', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ edition, price: c.price })
+    });
+    if (!r.ok) throw 0;
+    const { url } = await r.json();
+    if (url) { location.href = url; return; }
+    throw 0;
+  } catch(e){
+    // backend not wired yet — fail gracefully so the page never looks broken
+    alert('Checkout for the ' + edition.toUpperCase() + ' edition ($' + c.price + ') isn’t connected yet.\nConnect the habitflow.ink backend to go live.');
+  }
+}
+
+document.querySelectorAll('[data-buy]').forEach(b =>
+  b.addEventListener('click', () => startCheckout(b.getAttribute('data-buy'))));
+</script>
+</body>
+</html>
