@@ -5,62 +5,104 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SKRiMPAD x LIVE x</title>
   <style>
-    :root { color-scheme: dark; }
-    html, body { margin: 0; min-height: 100%; background: #0e1116; color: #cdd6e0;
+    :root { color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
       font-family: 'Oswald', 'Arial Narrow', sans-serif; }
-    #app { display: flex; flex-direction: column; align-items: center; min-height: 100vh;
-      padding: 20px; box-sizing: border-box; gap: 16px; }
-    #chrome { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 960px;
-      justify-content: space-between; flex-wrap: wrap; }
-    .brand { font-size: 12px; letter-spacing: .22em; color: #5b6774; text-transform: uppercase; }
-    #picker { display: flex; gap: 8px; flex-wrap: wrap; }
-    .hbtn { appearance: none; border: 1.4px solid #5b6774; background: transparent; color: #cdd6e0;
+    #app { display: flex; flex-direction: column; min-height: 100vh; padding: 14px; box-sizing: border-box; gap: 12px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .brand { font-size: 12px; letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
+    .hbtn { appearance: none; border: 1.4px solid var(--mut); background: transparent; color: var(--ink);
       font: 800 10px/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .1em; text-transform: uppercase;
-      padding: 8px 12px; border-radius: 6px; cursor: pointer; }
-    .hbtn:hover { border-color: #4bd6c8; color: #4bd6c8; }
-    #bt { border-color: #4bd6c8; color: #4bd6c8; }
-    #sync { appearance: none; border: 1.5px solid #4bd6c8; background: transparent; color: #4bd6c8;
-      font: 800 12px/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .18em; text-transform: uppercase;
-      padding: 10px 16px; border-radius: 8px; cursor: pointer; transition: background .08s, color .08s, transform .08s; }
-    #sync:active, #sync.flash { background: #4bd6c8; color: #0e1116; transform: scale(.97); }
-    #sync .sub { display: block; font-size: 8px; letter-spacing: .1em; opacity: .7; margin-top: 3px; }
-    /* one board per connected device, stacked */
-    #stage { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; }
-    .board { width: 100%; max-width: 640px; }
-    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #4bd6c8;
-      padding: 3px 2px 5px; opacity: .85; }
+      padding: 8px 11px; border-radius: 6px; cursor: pointer; }
+    .hbtn:hover { border-color: var(--acc); color: var(--acc); }
+    .hbtn.on { background: var(--acc); color: var(--bg); border-color: var(--acc); }
+    #rec.on { background: #e0484f; border-color: #e0484f; color: #fff; }
+    #play.on { background: var(--acc); border-color: var(--acc); color: var(--bg); }
+    #transport { border: 1px solid #222c38; border-radius: 10px; padding: 8px 10px; }
+    #transport .sep { width: 1px; height: 20px; background: #222c38; }
+    #bpm { width: 54px; background: var(--pan); border: 1px solid #2a3441; color: var(--ink);
+      font: 800 12px 'Oswald'; padding: 6px; border-radius: 5px; text-align: center; }
+    label.mini { font-size: 8px; letter-spacing: .12em; color: var(--mut); text-transform: uppercase; }
+    #beat { display: flex; gap: 4px; }
+    #beat i { width: 8px; height: 8px; border-radius: 50%; background: #263040; display: inline-block; }
+    #beat i.on { background: var(--acc); }
+    #sync { border: 1.5px solid var(--acc); color: var(--acc); }
+    #sync.flash { background: var(--acc); color: var(--bg); }
+    #main { display: flex; gap: 14px; align-items: flex-start; flex: 1; }
+    #lib { width: 210px; flex: none; border: 1px solid #222c38; border-radius: 10px; padding: 10px; }
+    #lib h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: .18em; color: var(--acc); text-transform: uppercase; }
+    #drop { border: 1.4px dashed #2a3441; border-radius: 8px; padding: 14px 8px; text-align: center;
+      font-size: 10px; color: var(--mut); cursor: pointer; }
+    #drop.hot { border-color: var(--acc); color: var(--acc); }
+    #libList { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow: auto; }
+    #libList li { font-size: 10px; padding: 6px 7px; margin-bottom: 4px; background: var(--pan);
+      border: 1px solid #222c38; border-radius: 5px; cursor: grab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #libhint { font-size: 9px; color: var(--mut); margin-top: 8px; line-height: 1.5; }
+    #stage { display: flex; flex-direction: column; align-items: center; gap: 18px; flex: 1; }
+    .board { width: 100%; max-width: 620px; }
+    .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
+    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
     .board-b svg { max-width: 100%; height: auto; }
-    #empty { color: #5b6774; font-size: 12px; letter-spacing: .1em; margin-top: 40px; }
-    #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      background: #141a22; border: 1px solid #2a3441; color: #cdd6e0; font-size: 11px;
-      padding: 9px 15px; border-radius: 8px; opacity: 0; transition: opacity .2s;
-      pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
+    #empty { color: var(--mut); font-size: 12px; margin: 30px auto; }
+    #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--pan);
+      border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
+      opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
     #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <div id="app">
-    <div id="chrome">
+    <div class="row" id="chrome">
       <span class="brand">SKRiMPADxLIVEx</span>
-      <span id="picker">
-        <button class="hbtn" data-dev="smk25">+ SMK-25</button>
-        <button class="hbtn" data-dev="k61">+ 61-KEY</button>
-        <button class="hbtn" id="clear">CLEAR</button>
-      </span>
-      <span style="display:flex; gap:10px;">
-        <button class="hbtn" id="bt" title="Connect a Bluetooth-MIDI controller">📶 BT</button>
-        <button id="sync" title="Snap beat &amp; note timing to the grid (momentary — one-shot, then releases)">
-          ⟳ SYNC<span class="sub">align beat + note</span>
-        </button>
-      </span>
+      <button class="hbtn" data-dev="smk25">+ SMK-25</button>
+      <button class="hbtn" data-dev="k61">+ 61-KEY</button>
+      <button class="hbtn" id="clear">CLEAR</button>
+      <span style="flex:1"></span>
+      <button class="hbtn" id="bt" style="border-color:var(--acc);color:var(--acc)">📶 BT</button>
     </div>
-    <div id="stage"></div>
-    <div id="empty">No controllers connected — plug one in, tap 📶 BT, or add a demo board above.</div>
+
+    <div class="row" id="transport">
+      <button class="hbtn" id="rec">● REC</button>
+      <button class="hbtn" id="play">▶ PLAY</button>
+      <button class="hbtn" id="stop">■ STOP</button>
+      <button class="hbtn" id="export">⭳ EXPORT</button>
+      <span class="sep"></span>
+      <label class="mini">BPM</label><input id="bpm" type="number" min="40" max="300" value="100" />
+      <label class="mini">BARS</label>
+      <select id="bars" class="bpm" style="background:var(--pan);color:var(--ink);border:1px solid #2a3441;border-radius:5px;padding:6px">
+        <option>1</option><option selected>2</option><option>4</option><option>8</option>
+      </select>
+      <button class="hbtn" id="metro">🕩 METRO</button>
+      <span class="sep"></span>
+      <button id="sync" class="hbtn">⟳ SYNC</button>
+      <span class="sep"></span>
+      <label class="mini">VOL</label><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+      <span style="flex:1"></span>
+      <span id="beat"></span>
+    </div>
+
+    <div id="main">
+      <div id="lib">
+        <h3>蔵 Library</h3>
+        <div id="drop">⬇ Drop audio / .zip<br>or tap to browse</div>
+        <input id="file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.zip" multiple hidden />
+        <ul id="libList"></ul>
+        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.</div>
+      </div>
+      <div id="stage"></div>
+    </div>
+    <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
   </div>
   <div id="toast"></div>
 
   <script>
 (() => {
+  var __defProp = Object.defineProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
   // src/core/profiles.js
   var CLASSES = Object.freeze({
     KEYBOARD: "keyboard",
@@ -544,10 +586,10 @@
     });
     return { w: Math.max(0, x - WHEEL_GAP), h: WHEEL_H + 14 };
   }
-  function drawTransport(parent, transport, theme) {
+  function drawTransport(parent, transport2, theme) {
     const glyph = { play: "\u25B6", stop: "\u25A0", rec: "\u25CF" };
     let x = 0;
-    transport.forEach((name, i) => {
+    transport2.forEach((name, i) => {
       const gr = g(parent, x, 0);
       el("rect", {
         x: 0,
@@ -909,9 +951,9 @@
     }
     function handleMidi(ev) {
       const { cmd, chan, d1, d2 } = ev;
-      const noteOn = cmd === 144 && d2 > 0;
+      const noteOn2 = cmd === 144 && d2 > 0;
       const noteOff = cmd === 128 || cmd === 144 && d2 === 0;
-      if (noteOn) {
+      if (noteOn2) {
         if (chan === 9) {
           flash(padEl(d1));
           onAction && onAction({ type: "pad", note: d1, vel: d2, bank: state.padBank });
@@ -952,8 +994,8 @@
     function setBank(which) {
       const k = which + "Bank";
       state[k] ^= 1;
-      const btn2 = q(`[data-role="button"][data-name="${which}B"]`);
-      if (btn2) btn2.setAttribute("stroke-width", state[k] ? "2.6" : "1.4");
+      const btn = q(`[data-role="button"][data-name="${which}B"]`);
+      if (btn) btn.setAttribute("stroke-width", state[k] ? "2.6" : "1.4");
       onAction && onAction({ type: "bank", which, value: state[k] });
       return state[k];
     }
@@ -1240,35 +1282,662 @@
     return { syncPorts, routeMidi, routeGamepad, addDemoBoard, clear, boards, renderBoard };
   }
 
-  // src/.boot.entry.js
-  var stage = document.getElementById("stage");
-  var empty = document.getElementById("empty");
-  var toastEl = document.getElementById("toast");
-  var toastT = null;
-  function toast(msg) {
-    toastEl.textContent = msg;
-    toastEl.classList.add("show");
-    if (toastT) clearTimeout(toastT);
-    toastT = setTimeout(() => toastEl.classList.remove("show"), 4200);
+  // src/core/audio.js
+  var audio_exports = {};
+  __export(audio_exports, {
+    bufferToWav: () => bufferToWav,
+    clearSample: () => clearSample,
+    context: () => context,
+    createVoices: () => createVoices,
+    download: () => download,
+    freqFromMidi: () => freqFromMidi,
+    initAudio: () => initAudio,
+    isReady: () => isReady,
+    noteOn: () => noteOn,
+    output: () => output,
+    playNoteShot: () => playNoteShot,
+    playPad: () => playPad,
+    renderLoopToWav: () => renderLoopToWav,
+    setMasterVolume: () => setMasterVolume,
+    setSample: () => setSample
+  });
+  var freqFromMidi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  var ctx = null;
+  var master = null;
+  var ready = false;
+  var samples = /* @__PURE__ */ Object.create(null);
+  function isReady() {
+    return ready;
   }
+  function context() {
+    return ctx;
+  }
+  function initAudio() {
+    if (ready) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try {
+      ctx = new AC({ latencyHint: "interactive" });
+    } catch (e) {
+      ctx = new AC();
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -6;
+    comp.knee.value = 6;
+    comp.ratio.value = 3;
+    comp.attack.value = 3e-3;
+    comp.release.value = 0.25;
+    master = ctx.createGain();
+    master.gain.value = 0.8;
+    master.connect(comp);
+    comp.connect(ctx.destination);
+    ready = true;
+    return ctx;
+  }
+  function output() {
+    return master;
+  }
+  function setMasterVolume(v) {
+    if (master) master.gain.value = Math.max(0, Math.min(1, v));
+  }
+  function setSample(role, id, buffer) {
+    samples[role + ":" + id] = buffer;
+  }
+  function clearSample(role, id) {
+    delete samples[role + ":" + id];
+  }
+  var noiseCache = /* @__PURE__ */ new WeakMap();
+  function noise(c) {
+    let b = noiseCache.get(c);
+    if (b) return b;
+    b = c.createBuffer(1, c.sampleRate * 0.5, c.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noiseCache.set(c, b);
+    return b;
+  }
+  function createVoices(c, out) {
+    const env = (g2, t, a, d, peak) => {
+      g2.gain.setValueAtTime(1e-4, t);
+      g2.gain.exponentialRampToValueAtTime(peak, t + a);
+      g2.gain.exponentialRampToValueAtTime(1e-4, t + a + d);
+    };
+    function kick(t, o, v) {
+      const osc = c.createOscillator(), g2 = c.createGain();
+      osc.frequency.setValueAtTime(150, t);
+      osc.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      env(g2, t, 4e-3, 0.4, 0.9 * v);
+      osc.connect(g2);
+      g2.connect(o);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    }
+    function snare(t, o, v) {
+      const n = c.createBufferSource(), ng = c.createGain(), hp = c.createBiquadFilter();
+      n.buffer = noise(c);
+      hp.type = "highpass";
+      hp.frequency.value = 1400;
+      env(ng, t, 2e-3, 0.18, 0.7 * v);
+      n.connect(hp);
+      hp.connect(ng);
+      ng.connect(o);
+      n.start(t);
+      n.stop(t + 0.25);
+      const osc = c.createOscillator(), og = c.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = 190;
+      env(og, t, 2e-3, 0.12, 0.4 * v);
+      osc.connect(og);
+      og.connect(o);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+    function hat(t, o, v, open) {
+      const n = c.createBufferSource(), g2 = c.createGain(), hp = c.createBiquadFilter();
+      n.buffer = noise(c);
+      hp.type = "highpass";
+      hp.frequency.value = 7e3;
+      env(g2, t, 1e-3, open ? 0.3 : 0.05, 0.35 * v);
+      n.connect(hp);
+      hp.connect(g2);
+      g2.connect(o);
+      n.start(t);
+      n.stop(t + (open ? 0.35 : 0.08));
+    }
+    function clap(t, o, v) {
+      const n = c.createBufferSource(), g2 = c.createGain(), bp = c.createBiquadFilter();
+      n.buffer = noise(c);
+      bp.type = "bandpass";
+      bp.frequency.value = 1200;
+      bp.Q.value = 1.2;
+      env(g2, t, 2e-3, 0.15, 0.5 * v);
+      n.connect(bp);
+      bp.connect(g2);
+      g2.connect(o);
+      n.start(t);
+      n.stop(t + 0.2);
+    }
+    function tom(t, o, v, f) {
+      const osc = c.createOscillator(), g2 = c.createGain();
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.6, t + 0.2);
+      env(g2, t, 4e-3, 0.3, 0.7 * v);
+      osc.connect(g2);
+      g2.connect(o);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    }
+    const DRUMS = [
+      kick,
+      snare,
+      (t, o, v) => hat(t, o, v, false),
+      (t, o, v) => hat(t, o, v, true),
+      clap,
+      (t, o, v) => tom(t, o, v, 180),
+      (t, o, v) => tom(t, o, v, 110),
+      (t, o, v) => hat(t, o, v, true)
+    ];
+    function sampleVoice(buf, t, o, v, rate) {
+      const s = c.createBufferSource(), g2 = c.createGain();
+      s.buffer = buf;
+      s.playbackRate.value = rate || 1;
+      g2.gain.value = v;
+      s.connect(g2);
+      g2.connect(o);
+      s.start(t);
+      return { s, g: g2 };
+    }
+    function scheduleTone(midi, vel, t, dur) {
+      const v = Math.max(0.06, (vel || 100) / 127) * 0.34;
+      const smp = samples["key:" + midi];
+      if (smp) {
+        sampleVoice(smp, t, out, v * 2, 1);
+        return;
+      }
+      const g2 = c.createGain(), o1 = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter();
+      o1.type = "sawtooth";
+      o2.type = "square";
+      o2.detune.value = -9;
+      const f = freqFromMidi(midi);
+      o1.frequency.value = f;
+      o2.frequency.value = f;
+      lp.type = "lowpass";
+      lp.frequency.value = Math.min(9e3, f * 7);
+      g2.gain.setValueAtTime(1e-4, t);
+      g2.gain.exponentialRampToValueAtTime(v, t + 8e-3);
+      g2.gain.exponentialRampToValueAtTime(Math.max(1e-4, v * 0.6), t + 0.1);
+      g2.gain.exponentialRampToValueAtTime(1e-4, t + Math.max(0.12, dur));
+      o1.connect(lp);
+      o2.connect(lp);
+      lp.connect(g2);
+      g2.connect(out);
+      o1.start(t);
+      o2.start(t);
+      o1.stop(t + dur + 0.1);
+      o2.stop(t + dur + 0.1);
+    }
+    function scheduleDrum(index, vel, t) {
+      const v = Math.max(0.15, (vel || 110) / 127);
+      const smp = samples["pad:" + index];
+      if (smp) {
+        sampleVoice(smp, t, out, v, 1);
+        return;
+      }
+      (DRUMS[index % DRUMS.length] || kick)(t, out, v);
+    }
+    return { scheduleTone, scheduleDrum, sampleVoice };
+  }
+  var liveVoices = null;
+  function voices() {
+    if (!ready) initAudio();
+    if (!liveVoices) liveVoices = createVoices(ctx, master);
+    return liveVoices;
+  }
+  function noteOn(midi, vel = 100) {
+    if (!ready) initAudio();
+    const smp = samples["key:" + midi];
+    const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
+    if (smp) {
+      const h = voices().sampleVoice(smp, t, master, v * 2, 1);
+      return { release() {
+        try {
+          h.s.stop(ctx.currentTime + 0.3);
+        } catch (e) {
+        }
+      } };
+    }
+    const g2 = ctx.createGain(), o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), lp = ctx.createBiquadFilter();
+    o1.type = "sawtooth";
+    o2.type = "square";
+    o2.detune.value = -9;
+    const f = freqFromMidi(midi);
+    o1.frequency.value = f;
+    o2.frequency.value = f;
+    lp.type = "lowpass";
+    lp.frequency.value = Math.min(9e3, f * 7);
+    g2.gain.setValueAtTime(1e-4, t);
+    g2.gain.exponentialRampToValueAtTime(v, t + 0.01);
+    o1.connect(lp);
+    o2.connect(lp);
+    lp.connect(g2);
+    g2.connect(master);
+    o1.start(t);
+    o2.start(t);
+    return {
+      release() {
+        const rt = ctx.currentTime;
+        g2.gain.cancelScheduledValues(rt);
+        g2.gain.setTargetAtTime(1e-4, rt, 0.08);
+        o1.stop(rt + 0.6);
+        o2.stop(rt + 0.6);
+      }
+    };
+  }
+  function playPad(index, vel = 110) {
+    if (!ready) initAudio();
+    voices().scheduleDrum(index, vel, ctx.currentTime);
+  }
+  function playNoteShot(midi, vel = 100, dur = 0.3) {
+    if (!ready) initAudio();
+    voices().scheduleTone(midi, vel, ctx.currentTime, dur);
+  }
+  function bufferToWav(buf) {
+    const nCh = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
+    const bytes = 44 + n * nCh * 2, ab = new ArrayBuffer(bytes), v = new DataView(ab);
+    const ws = (o2, s) => {
+      for (let i = 0; i < s.length; i++) v.setUint8(o2 + i, s.charCodeAt(i));
+    };
+    ws(0, "RIFF");
+    v.setUint32(4, bytes - 8, true);
+    ws(8, "WAVE");
+    ws(12, "fmt ");
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, nCh, true);
+    v.setUint32(24, sr, true);
+    v.setUint32(28, sr * nCh * 2, true);
+    v.setUint16(32, nCh * 2, true);
+    v.setUint16(34, 16, true);
+    ws(36, "data");
+    v.setUint32(40, n * nCh * 2, true);
+    let o = 44;
+    const ch = [];
+    for (let c = 0; c < nCh; c++) ch.push(buf.getChannelData(c));
+    for (let i = 0; i < n; i++) for (let c = 0; c < nCh; c++) {
+      const x = Math.max(-1, Math.min(1, ch[c][i]));
+      v.setInt16(o, x < 0 ? x * 32768 : x * 32767, true);
+      o += 2;
+    }
+    return new Blob([ab], { type: "audio/wav" });
+  }
+  async function renderLoopToWav(events, lengthSec, sampleRate = 44100) {
+    const oc = new OfflineAudioContext(2, Math.max(1, Math.ceil(lengthSec * sampleRate)), sampleRate);
+    const g2 = oc.createGain();
+    g2.gain.value = 0.8;
+    g2.connect(oc.destination);
+    const vx = createVoices(oc, g2);
+    for (const e of events) {
+      if (e.type === "pad") vx.scheduleDrum(e.index, e.vel, e.pos);
+      else vx.scheduleTone(e.note, e.vel, e.pos, e.dur || 0.35);
+    }
+    const buf = await oc.startRendering();
+    return bufferToWav(buf);
+  }
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3e3);
+  }
+
+  // src/core/transport.js
+  function createTransport({ onState, onBeat } = {}) {
+    let bpm = 100, beatsPerBar = 4, bars = 2;
+    let playing = false, recording = false, metronome = false;
+    let events = [];
+    let vx = null, anchor = 0, schedIter = 0, timer = null;
+    const openNotes = /* @__PURE__ */ new Map();
+    const totalBeats = () => bars * beatsPerBar;
+    const beatDur = () => 60 / bpm;
+    const loopLenSec = () => totalBeats() * beatDur();
+    const now = () => context() ? context().currentTime : 0;
+    const posBeats = () => {
+      const T = totalBeats();
+      return ((now() - anchor) / beatDur() % T + T) % T;
+    };
+    function emit() {
+      onState && onState({ playing, recording, metronome, bpm, bars, beatsPerBar, events: events.length });
+    }
+    function click(t, accent) {
+      const c = context(), o = c.createOscillator(), g2 = c.createGain();
+      o.frequency.value = accent ? 1600 : 1e3;
+      g2.gain.setValueAtTime(1e-4, t);
+      g2.gain.exponentialRampToValueAtTime(accent ? 0.5 : 0.28, t + 1e-3);
+      g2.gain.exponentialRampToValueAtTime(1e-4, t + 0.05);
+      o.connect(g2);
+      g2.connect(output());
+      o.start(t);
+      o.stop(t + 0.06);
+    }
+    function scheduler() {
+      if (!playing) return;
+      const c = context();
+      if (!c) return;
+      const bd = beatDur(), L = loopLenSec(), t0 = c.currentTime, AHEAD = 0.25;
+      while (anchor + schedIter * L < t0 + AHEAD) {
+        const base = anchor + schedIter * L;
+        if (metronome) for (let b = 0; b < totalBeats(); b++) click(base + b * bd, b % beatsPerBar === 0);
+        for (const e of events) {
+          const t = base + e.pos * bd;
+          if (t >= t0 - 0.02) {
+            if (e.type === "pad") vx.scheduleDrum(e.index, e.vel, t);
+            else vx.scheduleTone(e.note, e.vel, t, e.dur || 0.4);
+          }
+        }
+        schedIter++;
+      }
+      const T = totalBeats(), p = posBeats();
+      onBeat && onBeat(Math.floor(p), T, p / T);
+    }
+    function startClock() {
+      initAudio();
+      vx = createVoices(context(), output());
+      anchor = context().currentTime + 0.08;
+      schedIter = 0;
+      playing = true;
+      if (timer) clearInterval(timer);
+      timer = setInterval(scheduler, 25);
+      emit();
+    }
+    function play() {
+      if (!playing) startClock();
+    }
+    function stop() {
+      playing = false;
+      recording = false;
+      openNotes.clear();
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      emit();
+    }
+    function toggleRecord() {
+      if (!playing) {
+        startClock();
+        recording = true;
+      } else recording = !recording;
+      if (!recording) openNotes.clear();
+      emit();
+    }
+    function clear() {
+      events = [];
+      openNotes.clear();
+      emit();
+    }
+    function toggleMetronome() {
+      metronome = !metronome;
+      emit();
+      return metronome;
+    }
+    function setBpm(v) {
+      bpm = Math.max(40, Math.min(300, v | 0));
+      emit();
+    }
+    function setBars(n) {
+      bars = Math.max(1, Math.min(8, n | 0));
+      emit();
+    }
+    function recordNoteOn(note, vel) {
+      if (!recording || !playing) return;
+      const ev = { type: "note", note, vel: vel || 100, pos: posBeats(), dur: 0.4 };
+      events.push(ev);
+      openNotes.set(note, ev);
+    }
+    function recordNoteOff(note) {
+      const ev = openNotes.get(note);
+      if (!ev) return;
+      const held2 = (posBeats() - ev.pos) * beatDur();
+      ev.dur = Math.max(0.08, (held2 % loopLenSec() + loopLenSec()) % loopLenSec());
+      openNotes.delete(note);
+    }
+    function recordPad(index, vel) {
+      if (!recording || !playing) return;
+      events.push({ type: "pad", index, vel: vel || 110, pos: posBeats() });
+    }
+    function quantize(grid = 0.25) {
+      const T = totalBeats();
+      for (const e of events) e.pos = Math.round(e.pos / grid) * grid % T;
+      emit();
+    }
+    async function exportWav() {
+      if (!events.length) return null;
+      const bd = beatDur();
+      const evs = events.map((e) => ({ ...e, pos: e.pos * bd }));
+      const blob = await renderLoopToWav(evs, loopLenSec());
+      download(blob, "skrimpad-livex-loop-" + Math.round(bpm) + "bpm.wav");
+      return blob;
+    }
+    return {
+      play,
+      stop,
+      toggleRecord,
+      clear,
+      toggleMetronome,
+      setBpm,
+      setBars,
+      recordNoteOn,
+      recordNoteOff,
+      recordPad,
+      quantize,
+      exportWav,
+      state: () => ({ playing, recording, metronome, bpm, bars, events: events.length }),
+      events: () => events
+    };
+  }
+
+  // src/core/library.js
+  var AUDIO_EXT = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|wma|caf|au)$/i;
+  function createLibrary({ onChange } = {}) {
+    const items = [];
+    async function decode(arrayBuffer, name) {
+      initAudio();
+      try {
+        const buf = await context().decodeAudioData(arrayBuffer);
+        const it = { name: name || "sample-" + (items.length + 1), buffer: buf };
+        items.push(it);
+        onChange && onChange(items);
+        return it;
+      } catch (e) {
+        console.warn("[library] could not decode", name, e && e.message);
+        return null;
+      }
+    }
+    async function inflateRaw(u8) {
+      const ds = new DecompressionStream("deflate-raw");
+      const stream = new Blob([u8]).stream().pipeThrough(ds);
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    async function importZip(ab) {
+      const dv = new DataView(ab), u8 = new Uint8Array(ab), added = [];
+      let eo = -1;
+      for (let i = ab.byteLength - 22; i >= 0; i--) {
+        if (dv.getUint32(i, true) === 101010256) {
+          eo = i;
+          break;
+        }
+      }
+      if (eo < 0) return added;
+      const count = dv.getUint16(eo + 10, true);
+      let p = dv.getUint32(eo + 16, true);
+      for (let n = 0; n < count; n++) {
+        if (dv.getUint32(p, true) !== 33639248) break;
+        const method = dv.getUint16(p + 10, true);
+        const compSize = dv.getUint32(p + 20, true);
+        const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), commentLen = dv.getUint16(p + 32, true);
+        const lho = dv.getUint32(p + 42, true);
+        const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
+        p += 46 + nameLen + extraLen + commentLen;
+        if (!AUDIO_EXT.test(name)) continue;
+        const lNameLen = dv.getUint16(lho + 26, true), lExtra = dv.getUint16(lho + 28, true);
+        const dataStart = lho + 30 + lNameLen + lExtra;
+        const comp = u8.subarray(dataStart, dataStart + compSize);
+        let raw;
+        if (method === 0) raw = comp;
+        else if (method === 8) raw = await inflateRaw(comp);
+        else continue;
+        const copy = raw.slice().buffer;
+        const it = await decode(copy, name.split("/").pop());
+        if (it) added.push(it);
+      }
+      return added;
+    }
+    async function importFiles(fileList) {
+      const added = [];
+      for (const f of Array.from(fileList)) {
+        const lower = (f.name || "").toLowerCase();
+        if (lower.endsWith(".zip")) added.push(...await importZip(await f.arrayBuffer()));
+        else if (AUDIO_EXT.test(lower) || (f.type || "").startsWith("audio")) {
+          const it = await decode(await f.arrayBuffer(), f.name);
+          if (it) added.push(it);
+        }
+      }
+      return added;
+    }
+    function assign(item, role, id) {
+      if (item && item.buffer) {
+        setSample(role, id, item.buffer);
+        onChange && onChange(items);
+      }
+    }
+    return { importFiles, assign, items: () => items };
+  }
+
+  // src/.boot.entry.js
+  var $ = (s) => document.querySelector(s);
+  var stage = $("#stage");
+  var empty = $("#empty");
+  var toastEl = $("#toast");
+  var toastT = null;
+  var toast = (m) => {
+    toastEl.textContent = m;
+    toastEl.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => toastEl.classList.remove("show"), 3800);
+  };
   var refreshEmpty = () => {
     empty.style.display = manager.boards.size ? "none" : "";
   };
+  var held = /* @__PURE__ */ new Map();
+  var transport = createTransport({
+    onState: (s) => {
+      $("#rec").classList.toggle("on", s.recording);
+      $("#play").classList.toggle("on", s.playing);
+      $("#metro").classList.toggle("on", s.metronome);
+    },
+    onBeat: (beat, total, frac) => {
+      const dots = $("#beat").children;
+      for (let i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i === beat % dots.length);
+    }
+  });
+  for (let i = 0; i < 4; i++) $("#beat").appendChild(document.createElement("i"));
   var manager = createDeviceManager({
     stage,
     litColor: "#4bd6c8",
     renderOpts: { maxWidth: 560 },
     onAction: (board, a) => {
-      window.__lastAction = { sig: board.sig, ...a };
       if (a.type === "octnav") {
         const kb = board.lastSvg && board.lastSvg.__keyboard || {};
         const max = Math.max(0, (kb.whiteTotal || 0) - (kb.visibleWhites || 0));
         board.startWhite = Math.max(0, Math.min(board.startWhite + a.dir * 7, max));
         manager.renderBoard(board);
+        return;
+      }
+      if (a.type === "noteon") {
+        const v = noteOn(a.note, a.vel);
+        held.set(board.sig + ":" + a.note, v);
+        transport.recordNoteOn(a.note, a.vel);
+      } else if (a.type === "noteoff") {
+        const k = board.sig + ":" + a.note;
+        const v = held.get(k);
+        if (v) {
+          v.release();
+          held.delete(k);
+        }
+        transport.recordNoteOff(a.note);
+      } else if (a.type === "pad") {
+        const pi = padIndexFor(board, a);
+        playPad(pi, a.vel);
+        transport.recordPad(pi, a.vel);
+      } else if (a.type === "transport") {
+        if (a.name === "play") transport.play();
+        else if (a.name === "stop") transport.stop();
+        else if (a.name === "rec") transport.toggleRecord();
       }
     }
   });
+  function padIndexFor(board, a) {
+    if (a.index != null) return a.index;
+    const el2 = board.body.querySelector('[data-role="pad"][data-note="' + a.note + '"]');
+    return el2 ? +el2.getAttribute("data-index") : 0;
+  }
   window.__manager = manager;
+  window.__transport = transport;
+  window.__audio = audio_exports;
+  var lib = createLibrary({
+    onChange: (items) => {
+      const ul = $("#libList");
+      ul.innerHTML = "";
+      items.forEach((it, i) => {
+        const li = document.createElement("li");
+        li.textContent = it.name;
+        li.draggable = true;
+        li.dataset.idx = i;
+        li.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/livex-sample", String(i)));
+        ul.appendChild(li);
+      });
+    }
+  });
+  $("#drop").addEventListener("click", () => $("#file").click());
+  $("#file").addEventListener("change", async (e) => {
+    const n = (await lib.importFiles(e.target.files)).length;
+    if (n) toast(n + " sound(s) added");
+  });
+  ["dragenter", "dragover"].forEach((ev) => $("#drop").addEventListener(ev, (e) => {
+    e.preventDefault();
+    $("#drop").classList.add("hot");
+  }));
+  ["dragleave", "drop"].forEach((ev) => $("#drop").addEventListener(ev, () => $("#drop").classList.remove("hot")));
+  $("#drop").addEventListener("drop", async (e) => {
+    e.preventDefault();
+    const n = (await lib.importFiles(e.dataTransfer.files)).length;
+    if (n) toast(n + " sound(s) added");
+  });
+  stage.addEventListener("dragover", (e) => {
+    if (e.target.closest && e.target.closest("[data-drop]")) e.preventDefault();
+  });
+  stage.addEventListener("drop", async (e) => {
+    const t = e.target.closest && e.target.closest("[data-drop]");
+    if (!t) return;
+    e.preventDefault();
+    const role = t.getAttribute("data-role");
+    const id = role === "pad" ? +t.getAttribute("data-index") : +t.getAttribute("data-note");
+    let item = null;
+    if (e.dataTransfer.files && e.dataTransfer.files.length) item = (await lib.importFiles(e.dataTransfer.files))[0];
+    else {
+      const idx = e.dataTransfer.getData("text/livex-sample");
+      if (idx !== "") item = lib.items()[+idx];
+    }
+    if (item) {
+      lib.assign(item, role, id);
+      t.setAttribute("fill", "#4bd6c8");
+      setTimeout(() => t.removeAttribute("fill"), 220);
+      toast("\u201C" + item.name + "\u201D \u2192 " + role + " " + id);
+    }
+  });
   var demo = {
     smk25: () => {
       const p = PATTERNS.find((x) => /smk/.test(String(x.test))).base("SMK25");
@@ -1281,36 +1950,45 @@
     manager.addDemoBoard(demo[b.dataset.dev]());
     refreshEmpty();
   }));
-  document.getElementById("clear").addEventListener("click", () => {
+  $("#clear").addEventListener("click", () => {
     manager.clear();
     refreshEmpty();
   });
-  window.__simMidi = (portId, status, d1, d2) => manager.routeMidi({ port: { id: portId }, status, d1, d2, cmd: status & 240, chan: status & 15 });
-  var io = createMidiIO({
-    onEvent: (ev) => manager.routeMidi(ev),
-    onPorts: (inputs) => {
-      manager.syncPorts(inputs).then(refreshEmpty);
-    }
+  $("#rec").addEventListener("click", () => transport.toggleRecord());
+  $("#play").addEventListener("click", () => transport.play());
+  $("#stop").addEventListener("click", () => transport.stop());
+  $("#export").addEventListener("click", async () => {
+    toast("Rendering loop\u2026");
+    const b = await transport.exportWav();
+    toast(b ? "Exported WAV \u2713" : "Nothing recorded yet");
   });
-  io.start().then((m) => console.info("[SKRiMPADxLIVEx] MIDI mode:", m.mode)).catch(() => {
+  $("#metro").addEventListener("click", () => transport.toggleMetronome());
+  $("#bpm").addEventListener("change", (e) => transport.setBpm(+e.target.value));
+  $("#bars").addEventListener("change", (e) => transport.setBars(+e.target.value));
+  $("#vol").addEventListener("input", (e) => setMasterVolume(+e.target.value));
+  var sync = $("#sync");
+  sync.addEventListener("click", () => {
+    initAudio();
+    transport.quantize();
+    sync.classList.add("flash");
+    setTimeout(() => sync.classList.remove("flash"), 140);
+    toast("Quantized to grid");
   });
-  window.__io = io;
+  var io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
+  io.start().then((m) => console.info("[LIVEx] MIDI:", m.mode)).catch(() => {
+  });
   createGamepad({ onButton: (i) => manager.routeGamepad(i) }).start();
-  document.getElementById("bt").addEventListener("click", async () => {
+  $("#bt").addEventListener("click", async () => {
     try {
       const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || "BT: " + s.mode) });
-      if (r.mode === "port") toast(r.count + " MIDI port(s) live. KORG on Windows: press CONNECT in the KORG BLE-MIDI panel.");
-      else if (r.mode === "gatt") toast("\u{1F4F6} Connected: " + (r.device || "BLE MIDI"));
+      if (r.mode === "port") toast(r.count + " MIDI port(s). KORG: press CONNECT in the KORG BLE-MIDI panel.");
+      else if (r.mode === "gatt") toast("Connected: " + (r.device || "BLE MIDI"));
     } catch (e) {
-      toast("\u{1F4F6} " + (e && e.message || "no device selected"));
+      toast("\u{1F4F6} " + (e && e.message || "no device"));
     }
   });
-  var btn = document.getElementById("sync");
-  btn.addEventListener("click", () => {
-    btn.classList.add("flash");
-    setTimeout(() => btn.classList.remove("flash"), 140);
-    console.info("[SKRiMPADxLIVEx] SYNC \u2014 beat+note timing re-aligned (one-shot).");
-  });
+  window.addEventListener("pointerdown", () => initAudio(), { once: true });
+  window.__sim = (portId, s, d1, d2) => manager.routeMidi({ port: { id: portId }, status: s, d1, d2, cmd: s & 240, chan: s & 15 });
   refreshEmpty();
 })();
 

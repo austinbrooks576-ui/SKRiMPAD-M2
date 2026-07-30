@@ -5,57 +5,93 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SKRiMPAD x LIVE x</title>
   <style>
-    :root { color-scheme: dark; }
-    html, body { margin: 0; min-height: 100%; background: #0e1116; color: #cdd6e0;
+    :root { color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
       font-family: 'Oswald', 'Arial Narrow', sans-serif; }
-    #app { display: flex; flex-direction: column; align-items: center; min-height: 100vh;
-      padding: 20px; box-sizing: border-box; gap: 16px; }
-    #chrome { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 960px;
-      justify-content: space-between; flex-wrap: wrap; }
-    .brand { font-size: 12px; letter-spacing: .22em; color: #5b6774; text-transform: uppercase; }
-    #picker { display: flex; gap: 8px; flex-wrap: wrap; }
-    .hbtn { appearance: none; border: 1.4px solid #5b6774; background: transparent; color: #cdd6e0;
+    #app { display: flex; flex-direction: column; min-height: 100vh; padding: 14px; box-sizing: border-box; gap: 12px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .brand { font-size: 12px; letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
+    .hbtn { appearance: none; border: 1.4px solid var(--mut); background: transparent; color: var(--ink);
       font: 800 10px/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .1em; text-transform: uppercase;
-      padding: 8px 12px; border-radius: 6px; cursor: pointer; }
-    .hbtn:hover { border-color: #4bd6c8; color: #4bd6c8; }
-    #bt { border-color: #4bd6c8; color: #4bd6c8; }
-    #sync { appearance: none; border: 1.5px solid #4bd6c8; background: transparent; color: #4bd6c8;
-      font: 800 12px/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .18em; text-transform: uppercase;
-      padding: 10px 16px; border-radius: 8px; cursor: pointer; transition: background .08s, color .08s, transform .08s; }
-    #sync:active, #sync.flash { background: #4bd6c8; color: #0e1116; transform: scale(.97); }
-    #sync .sub { display: block; font-size: 8px; letter-spacing: .1em; opacity: .7; margin-top: 3px; }
-    /* one board per connected device, stacked */
-    #stage { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; }
-    .board { width: 100%; max-width: 640px; }
-    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #4bd6c8;
-      padding: 3px 2px 5px; opacity: .85; }
+      padding: 8px 11px; border-radius: 6px; cursor: pointer; }
+    .hbtn:hover { border-color: var(--acc); color: var(--acc); }
+    .hbtn.on { background: var(--acc); color: var(--bg); border-color: var(--acc); }
+    #rec.on { background: #e0484f; border-color: #e0484f; color: #fff; }
+    #play.on { background: var(--acc); border-color: var(--acc); color: var(--bg); }
+    #transport { border: 1px solid #222c38; border-radius: 10px; padding: 8px 10px; }
+    #transport .sep { width: 1px; height: 20px; background: #222c38; }
+    #bpm { width: 54px; background: var(--pan); border: 1px solid #2a3441; color: var(--ink);
+      font: 800 12px 'Oswald'; padding: 6px; border-radius: 5px; text-align: center; }
+    label.mini { font-size: 8px; letter-spacing: .12em; color: var(--mut); text-transform: uppercase; }
+    #beat { display: flex; gap: 4px; }
+    #beat i { width: 8px; height: 8px; border-radius: 50%; background: #263040; display: inline-block; }
+    #beat i.on { background: var(--acc); }
+    #sync { border: 1.5px solid var(--acc); color: var(--acc); }
+    #sync.flash { background: var(--acc); color: var(--bg); }
+    #main { display: flex; gap: 14px; align-items: flex-start; flex: 1; }
+    #lib { width: 210px; flex: none; border: 1px solid #222c38; border-radius: 10px; padding: 10px; }
+    #lib h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: .18em; color: var(--acc); text-transform: uppercase; }
+    #drop { border: 1.4px dashed #2a3441; border-radius: 8px; padding: 14px 8px; text-align: center;
+      font-size: 10px; color: var(--mut); cursor: pointer; }
+    #drop.hot { border-color: var(--acc); color: var(--acc); }
+    #libList { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow: auto; }
+    #libList li { font-size: 10px; padding: 6px 7px; margin-bottom: 4px; background: var(--pan);
+      border: 1px solid #222c38; border-radius: 5px; cursor: grab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #libhint { font-size: 9px; color: var(--mut); margin-top: 8px; line-height: 1.5; }
+    #stage { display: flex; flex-direction: column; align-items: center; gap: 18px; flex: 1; }
+    .board { width: 100%; max-width: 620px; }
+    .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
+    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
     .board-b svg { max-width: 100%; height: auto; }
-    #empty { color: #5b6774; font-size: 12px; letter-spacing: .1em; margin-top: 40px; }
-    #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      background: #141a22; border: 1px solid #2a3441; color: #cdd6e0; font-size: 11px;
-      padding: 9px 15px; border-radius: 8px; opacity: 0; transition: opacity .2s;
-      pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
+    #empty { color: var(--mut); font-size: 12px; margin: 30px auto; }
+    #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--pan);
+      border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
+      opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
     #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <div id="app">
-    <div id="chrome">
+    <div class="row" id="chrome">
       <span class="brand">SKRiMPADxLIVEx</span>
-      <span id="picker">
-        <button class="hbtn" data-dev="smk25">+ SMK-25</button>
-        <button class="hbtn" data-dev="k61">+ 61-KEY</button>
-        <button class="hbtn" id="clear">CLEAR</button>
-      </span>
-      <span style="display:flex; gap:10px;">
-        <button class="hbtn" id="bt" title="Connect a Bluetooth-MIDI controller">📶 BT</button>
-        <button id="sync" title="Snap beat &amp; note timing to the grid (momentary — one-shot, then releases)">
-          ⟳ SYNC<span class="sub">align beat + note</span>
-        </button>
-      </span>
+      <button class="hbtn" data-dev="smk25">+ SMK-25</button>
+      <button class="hbtn" data-dev="k61">+ 61-KEY</button>
+      <button class="hbtn" id="clear">CLEAR</button>
+      <span style="flex:1"></span>
+      <button class="hbtn" id="bt" style="border-color:var(--acc);color:var(--acc)">📶 BT</button>
     </div>
-    <div id="stage"></div>
-    <div id="empty">No controllers connected — plug one in, tap 📶 BT, or add a demo board above.</div>
+
+    <div class="row" id="transport">
+      <button class="hbtn" id="rec">● REC</button>
+      <button class="hbtn" id="play">▶ PLAY</button>
+      <button class="hbtn" id="stop">■ STOP</button>
+      <button class="hbtn" id="export">⭳ EXPORT</button>
+      <span class="sep"></span>
+      <label class="mini">BPM</label><input id="bpm" type="number" min="40" max="300" value="100" />
+      <label class="mini">BARS</label>
+      <select id="bars" class="bpm" style="background:var(--pan);color:var(--ink);border:1px solid #2a3441;border-radius:5px;padding:6px">
+        <option>1</option><option selected>2</option><option>4</option><option>8</option>
+      </select>
+      <button class="hbtn" id="metro">🕩 METRO</button>
+      <span class="sep"></span>
+      <button id="sync" class="hbtn">⟳ SYNC</button>
+      <span class="sep"></span>
+      <label class="mini">VOL</label><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" />
+      <span style="flex:1"></span>
+      <span id="beat"></span>
+    </div>
+
+    <div id="main">
+      <div id="lib">
+        <h3>蔵 Library</h3>
+        <div id="drop">⬇ Drop audio / .zip<br>or tap to browse</div>
+        <input id="file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.zip" multiple hidden />
+        <ul id="libList"></ul>
+        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.</div>
+      </div>
+      <div id="stage"></div>
+    </div>
+    <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
   </div>
   <div id="toast"></div>
 
@@ -64,72 +100,121 @@
     import { createMidiIO } from './core/midi-io.js';
     import { createGamepad } from './core/gamepad.js';
     import { createDeviceManager } from './core/device-manager.js';
+    import { createTransport } from './core/transport.js';
+    import { createLibrary } from './core/library.js';
+    import * as audio from './core/audio.js';
 
-    const stage = document.getElementById('stage');
-    const empty = document.getElementById('empty');
-    const toastEl = document.getElementById('toast');
+    const $ = (s) => document.querySelector(s);
+    const stage = $('#stage'), empty = $('#empty'), toastEl = $('#toast');
     let toastT = null;
-    function toast(msg) {
-      toastEl.textContent = msg; toastEl.classList.add('show');
-      if (toastT) clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 4200);
-    }
+    const toast = (m) => { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 3800); };
     const refreshEmpty = () => { empty.style.display = manager.boards.size ? 'none' : ''; };
 
-    // multi-device manager — one board per physical controller, all live at once
+    // held key voices for note-off release
+    const held = new Map();
+
+    // ---- transport ----
+    const transport = createTransport({
+      onState: (s) => {
+        $('#rec').classList.toggle('on', s.recording);
+        $('#play').classList.toggle('on', s.playing);
+        $('#metro').classList.toggle('on', s.metronome);
+      },
+      onBeat: (beat, total, frac) => {
+        const dots = $('#beat').children;
+        for (let i = 0; i < dots.length; i++) dots[i].classList.toggle('on', i === beat % dots.length);
+      },
+    });
+    // beat dots (one per beat in a bar)
+    for (let i = 0; i < 4; i++) $('#beat').appendChild(document.createElement('i'));
+
+    // ---- device manager: route input → schematic + sound + looper ----
     const manager = createDeviceManager({
       stage, litColor: '#4bd6c8', renderOpts: { maxWidth: 560 },
       onAction: (board, a) => {
-        window.__lastAction = { sig: board.sig, ...a };
         if (a.type === 'octnav') {
           const kb = (board.lastSvg && board.lastSvg.__keyboard) || {};
           const max = Math.max(0, (kb.whiteTotal || 0) - (kb.visibleWhites || 0));
           board.startWhite = Math.max(0, Math.min(board.startWhite + a.dir * 7, max));
-          manager.renderBoard(board);
+          manager.renderBoard(board); return;
         }
-        // transport / notes / cc hook into the (future) loop + sound engine here
+        if (a.type === 'noteon') { const v = audio.noteOn(a.note, a.vel); held.set(board.sig + ':' + a.note, v); transport.recordNoteOn(a.note, a.vel); }
+        else if (a.type === 'noteoff') { const k = board.sig + ':' + a.note; const v = held.get(k); if (v) { v.release(); held.delete(k); } transport.recordNoteOff(a.note); }
+        else if (a.type === 'pad') { const pi = padIndexFor(board, a); audio.playPad(pi, a.vel); transport.recordPad(pi, a.vel); }
+        else if (a.type === 'transport') { if (a.name === 'play') transport.play(); else if (a.name === 'stop') transport.stop(); else if (a.name === 'rec') transport.toggleRecord(); }
       },
     });
-    window.__manager = manager;
+    // resolve a pad action to its pad index: MIDI/tap carry the GM note → look up the
+    // matching pad element's data-index on that board; fall back to any index it carried.
+    function padIndexFor(board, a) {
+      if (a.index != null) return a.index;
+      const el = board.body.querySelector('[data-role="pad"][data-note="' + a.note + '"]');
+      return el ? +el.getAttribute('data-index') : 0;
+    }
+    window.__manager = manager; window.__transport = transport; window.__audio = audio;
 
-    // demo profiles (no hardware needed for preview)
+    // ---- library ----
+    const lib = createLibrary({
+      onChange: (items) => {
+        const ul = $('#libList'); ul.innerHTML = '';
+        items.forEach((it, i) => {
+          const li = document.createElement('li'); li.textContent = it.name; li.draggable = true; li.dataset.idx = i;
+          li.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/livex-sample', String(i)));
+          ul.appendChild(li);
+        });
+      },
+    });
+    $('#drop').addEventListener('click', () => $('#file').click());
+    $('#file').addEventListener('change', async (e) => { const n = (await lib.importFiles(e.target.files)).length; if (n) toast(n + ' sound(s) added'); });
+    ['dragenter', 'dragover'].forEach((ev) => $('#drop').addEventListener(ev, (e) => { e.preventDefault(); $('#drop').classList.add('hot'); }));
+    ['dragleave', 'drop'].forEach((ev) => $('#drop').addEventListener(ev, () => $('#drop').classList.remove('hot')));
+    $('#drop').addEventListener('drop', async (e) => { e.preventDefault(); const n = (await lib.importFiles(e.dataTransfer.files)).length; if (n) toast(n + ' sound(s) added'); });
+
+    // ---- drop a sample onto a pad/key ----
+    stage.addEventListener('dragover', (e) => { if (e.target.closest && e.target.closest('[data-drop]')) e.preventDefault(); });
+    stage.addEventListener('drop', async (e) => {
+      const t = e.target.closest && e.target.closest('[data-drop]'); if (!t) return;
+      e.preventDefault();
+      const role = t.getAttribute('data-role');
+      const id = role === 'pad' ? +t.getAttribute('data-index') : +t.getAttribute('data-note');
+      let item = null;
+      if (e.dataTransfer.files && e.dataTransfer.files.length) item = (await lib.importFiles(e.dataTransfer.files))[0];
+      else { const idx = e.dataTransfer.getData('text/livex-sample'); if (idx !== '') item = lib.items()[+idx]; }
+      if (item) { lib.assign(item, role, id); t.setAttribute('fill', '#4bd6c8'); setTimeout(() => t.removeAttribute('fill'), 220); toast('“' + item.name + '” → ' + role + ' ' + id); }
+    });
+
+    // ---- demo boards ----
     const demo = {
-      smk25: () => { const p = PATTERNS.find(x => /smk/.test(String(x.test))).base('SMK25'); p.portName = 'SMK25'; return p; },
+      smk25: () => { const p = PATTERNS.find((x) => /smk/.test(String(x.test))).base('SMK25'); p.portName = 'SMK25'; return p; },
       k61: () => makeProfile({ id: 'k61', class: CLASSES.KEYBOARD, portName: 'GENERIC 61', keys: { count: 61, firstNote: 36 }, wheels: ['pitch', 'mod'] }),
     };
-    document.querySelectorAll('[data-dev]').forEach(b => b.addEventListener('click', () => {
-      manager.addDemoBoard(demo[b.dataset.dev]()); refreshEmpty();
-    }));
-    document.getElementById('clear').addEventListener('click', () => { manager.clear(); refreshEmpty(); });
+    document.querySelectorAll('[data-dev]').forEach((b) => b.addEventListener('click', () => { manager.addDemoBoard(demo[b.dataset.dev]()); refreshEmpty(); }));
+    $('#clear').addEventListener('click', () => { manager.clear(); refreshEmpty(); });
 
-    // test hook: route a simulated MIDI triple to a specific board's port
-    window.__simMidi = (portId, status, d1, d2) =>
-      manager.routeMidi({ port: { id: portId }, status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f });
+    // ---- transport bar ----
+    $('#rec').addEventListener('click', () => transport.toggleRecord());
+    $('#play').addEventListener('click', () => transport.play());
+    $('#stop').addEventListener('click', () => transport.stop());
+    $('#export').addEventListener('click', async () => { toast('Rendering loop…'); const b = await transport.exportWav(); toast(b ? 'Exported WAV ✓' : 'Nothing recorded yet'); });
+    $('#metro').addEventListener('click', () => transport.toggleMetronome());
+    $('#bpm').addEventListener('change', (e) => transport.setBpm(+e.target.value));
+    $('#bars').addEventListener('change', (e) => transport.setBars(+e.target.value));
+    $('#vol').addEventListener('input', (e) => audio.setMasterVolume(+e.target.value));
+    const sync = $('#sync');
+    sync.addEventListener('click', () => { audio.initAudio(); transport.quantize(); sync.classList.add('flash'); setTimeout(() => sync.classList.remove('flash'), 140); toast('Quantized to grid'); });
 
-    // ---- LIVE INPUT: connect + display ALL devices ----
-    const io = createMidiIO({
-      onEvent: (ev) => manager.routeMidi(ev),
-      onPorts: (inputs) => { manager.syncPorts(inputs).then(refreshEmpty); },
-    });
-    io.start().then(m => console.info('[SKRiMPADxLIVEx] MIDI mode:', m.mode)).catch(() => {});
-    window.__io = io;
+    // ---- live input (all devices) ----
+    const io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
+    io.start().then((m) => console.info('[LIVEx] MIDI:', m.mode)).catch(() => {});
     createGamepad({ onButton: (i) => manager.routeGamepad(i) }).start();
-
-    // Bluetooth: use the driver-bridged MIDI port if present; only GATT otherwise.
-    document.getElementById('bt').addEventListener('click', async () => {
-      try {
-        const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || ('BT: ' + s.mode)) });
-        if (r.mode === 'port') toast(r.count + ' MIDI port(s) live. KORG on Windows: press CONNECT in the KORG BLE-MIDI panel.');
-        else if (r.mode === 'gatt') toast('📶 Connected: ' + (r.device || 'BLE MIDI'));
-      } catch (e) { toast('📶 ' + (e && e.message || 'no device selected')); }
+    $('#bt').addEventListener('click', async () => {
+      try { const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || ('BT: ' + s.mode)) }); if (r.mode === 'port') toast(r.count + ' MIDI port(s). KORG: press CONNECT in the KORG BLE-MIDI panel.'); else if (r.mode === 'gatt') toast('Connected: ' + (r.device || 'BLE MIDI')); }
+      catch (e) { toast('📶 ' + (e && e.message || 'no device')); }
     });
 
-    // One-shot SYNC: correct timing once, then take its hands off. Momentary, not a toggle.
-    const btn = document.getElementById('sync');
-    btn.addEventListener('click', () => {
-      btn.classList.add('flash'); setTimeout(() => btn.classList.remove('flash'), 140);
-      console.info('[SKRiMPADxLIVEx] SYNC — beat+note timing re-aligned (one-shot).');
-    });
-
+    // unlock audio on first gesture
+    window.addEventListener('pointerdown', () => audio.initAudio(), { once: true });
+    window.__sim = (portId, s, d1, d2) => manager.routeMidi({ port: { id: portId }, status: s, d1, d2, cmd: s & 0xf0, chan: s & 0x0f });
     refreshEmpty();
   </script>
 </body>

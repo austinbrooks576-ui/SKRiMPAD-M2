@@ -72,15 +72,18 @@ jobs:
             Playing it **lights up the board**; every element is drop- and tap-able.
             Connects to and displays **all** attached controllers at once.
 
+            Playing it **makes sound** — polyphonic synth on the keys, a synthesized
+            drum kit on the pads, or your own samples: drop any WAV / MP3 / FLAC / OGG /
+            AIFF / M4A (or a **.zip** pack) onto a pad or key from the library. Arm
+            **● REC** and it captures a **loop** you can overdub; **Play / Stop**, a
+            **metronome + BPM**, one-shot **SYNC** quantize, and **Export** the loop to a
+            WAV. Displays and connects to **all** attached controllers at once.
+
             **Bluetooth MIDI is fixed** — on Windows it uses the KORG driver-bridged
             MIDI port instead of fighting it over GATT (a BLE device allows one GATT
             link). KORG note: open the KORG BLE-MIDI panel and press CONNECT so the
-            port transmits. Web MIDI is auto-enabled at boot.
-
-            Early build — controller identification, schematic, live input mapping, and
-            multi-device are in; the sound engine + loop/transport (record/play/export,
-            BPM, metronome) land next. Auto-update with fail-safe rollback is built in.
-            **Requires:** Windows 10+ (64-bit).
+            port transmits. Web MIDI is auto-enabled at boot. Auto-update with fail-safe
+            rollback is built in. **Requires:** Windows 10+ (64-bit).
           files: |
             electron/dist/*.exe
             electron/dist/latest*.yml

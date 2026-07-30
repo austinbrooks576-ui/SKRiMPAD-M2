@@ -33,8 +33,10 @@ node livex/tools/bundle.js
 cp livex/dist/index.html android/app/src/main/assets/index.html
 ```
 
-## Status
+## Status — functional
 
-Controller identification, learning, schematic rendering, live input mapping, and
-multi-device are in. Next: WebAudio sound engine + loop/transport (record / play /
-export loop, BPM meter, metronome) and wiring the one-shot SYNC to the quantizer.
+Controller identification + learning, schematic rendering, live input mapping,
+multi-device, the fixed Bluetooth path, **sound** (synth keys + drum pads + your
+samples), the **loop machine** (record / overdub / play / stop, metronome, BPM,
+one-shot SYNC quantize), and **Export loop → WAV** are all in and verified.
+`core/audio.js` · `core/transport.js` · `core/library.js` carry the sound + loop stack.

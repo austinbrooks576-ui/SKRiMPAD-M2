@@ -63,8 +63,11 @@ jobs:
             **all** attached controllers at once. BLE MIDI goes through the native
             Android MIDI bridge.
 
-            Early build — identification, schematic, live mapping, and multi-device are
-            in; sound engine + loop/transport (record/play/export, BPM, metronome) next.
+            Playing it **makes sound** — polyphonic synth keys, a synth drum kit on the
+            pads, or your own samples (drop WAV / MP3 / FLAC / OGG / AIFF / M4A or a .zip
+            pack onto a pad/key). Arm **● REC** to capture and overdub a **loop**;
+            Play / Stop, metronome + BPM, one-shot **SYNC** quantize, and **Export** the
+            loop to a WAV.
 
             **Install:** Download `SKRiMPAD LIVEx Setup ${{ github.run_number }}.apk`,
             enable "Install unknown apps" in Android settings, then open to install.

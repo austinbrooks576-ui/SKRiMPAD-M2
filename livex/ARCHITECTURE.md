@@ -118,3 +118,16 @@ The library is format-agnostic — drop or import any of these; drop straight on
 | `decodeAudioData` universal import + `AUDIO_EXT` | `.mid/.midi` file parser |
 | `importZipData` ZIP pack import | — |
 | `bufferToWav` + `<a download>` export | — |
+
+## v1 — sound + loop (implemented)
+
+- `core/audio.js` — WebAudio engine: synth key voices, synthesized drum pads,
+  library-sample playback; voice factory reused by the OfflineAudioContext WAV
+  export (`bufferToWav` from SKRiMPAD M2).
+- `core/library.js` — universal decode (WAV/MP3/FLAC/OGG/AIFF/M4A…), `.zip`
+  sample-pack import via native `DecompressionStream`, assign sample → pad/key.
+- `core/transport.js` — lookahead-scheduled loop machine: Record / overdub / Play /
+  Stop / Clear, metronome, BPM + bars (events stored in beats so tempo stays
+  musical), one-shot **quantize** (wired to SYNC), **Export loop → WAV**.
+- Live input (MIDI/gamepad/tap) → lights the schematic **and** plays sound; hits are
+  captured into the loop while REC is armed. Verified end-to-end in-browser.
