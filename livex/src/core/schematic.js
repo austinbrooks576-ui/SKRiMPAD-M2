@@ -140,7 +140,12 @@ function drawPads(parent, pads, theme) {
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const LEGEND_H = 30; // space above the keybed for the two printed label rows
+const LEGEND_H = 38; // space above the keybed for the printed label rows
+// Legend baselines. Labels sit at EVERY key centre — white and black centres are
+// only half a key apart, so a single baseline makes wide words ("SWING+", "TEMPO-")
+// collide. Staggering accidentals onto their own baseline gives each row a full
+// key-width of space and keeps the printed legend readable at any board size.
+const LEG_TOP_W = 10, LEG_TOP_B = 17.5, LEG_BOT_W = 27, LEG_BOT_B = 34.5;
 
 function octOf(note) { return Math.floor(note / 12) - 1; } // MIDI: C4=60 → octave 4
 
@@ -187,9 +192,18 @@ function drawKeyboard(parent, keys, theme, targetWidth, opts = {}) {
     else { const x = wi * wkW; vw.push({ ...nd, x }); cx = x + wkW / 2; wi++; }
     labels.push({ cx, black: nd.black, top: nd.i < 12 ? NOTE_NAMES[nd.note % 12] : (scch[nd.i] || ''), bot: arp[nd.i] || '' });
   }
+  // Font scales with key width so long words still fit; accidentals drop to their
+  // own baseline so neighbouring labels can never overlap.
+  const legFont = Math.max(4.6, Math.min(6.6, wkW * 0.2));
   labels.forEach((l) => {
-    if (l.top) { const t = label(parent, l.cx, 11, l.top, l.black ? acc : theme.ink, 6.6); t.setAttribute('letter-spacing', '0'); }
-    if (l.bot) { const t = label(parent, l.cx, 23, l.bot, theme.mute, 6.6); t.setAttribute('letter-spacing', '0'); }
+    if (l.top) {
+      const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, legFont);
+      t.setAttribute('letter-spacing', '0');
+    }
+    if (l.bot) {
+      const t = label(parent, l.cx, l.black ? LEG_BOT_B : LEG_BOT_W, l.bot, theme.mute, legFont);
+      t.setAttribute('letter-spacing', '0');
+    }
   });
   vw.forEach((k) => el('rect', {
     x: k.x, y: LEGEND_H, width: wkW, height: wkH, rx: 3,

@@ -5,6 +5,7 @@ on:
     branches: [claude/skrimpad-livex]
     paths:
       - 'electron/**'
+      - 'livex/**'
       - 'android/app/src/main/assets/index.html'
       - 'android/app/src/main/assets/layout.json'
       - '.github/workflows/build-windows-livex.yml'
@@ -24,12 +25,22 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Copy app to electron
+      # Build the REAL LIVEx app: bundle src/ (ES modules) into one self-contained
+      # index.html — Electron can't `import` modules over file://. Previously this
+      # copied SKRiMPAD M2's index.html, which shipped the wrong app entirely.
+      - name: Bundle LIVEx app
         shell: bash
         run: |
+          node livex/tools/bundle.js
           mkdir -p electron/app
-          cp android/app/src/main/assets/index.html electron/app/index.html
-          cp android/app/src/main/assets/layout.json electron/app/layout.json
+          cp livex/dist/index.html electron/app/index.html
+          grep -q 'SKRiMPAD x LIVE x' electron/app/index.html || { echo "::error::bundled app is not LIVEx"; exit 1; }
+
+      - name: Stamp app version
+        shell: bash
+        run: |
+          sed -i "s/window.SKRIMPAD_VERSION='[^']*';\/\*BUILD_VERSION\*\//window.SKRIMPAD_VERSION='1.0.${{ github.run_number }}';\/\*BUILD_VERSION\*\//" electron/app/index.html
+          grep -o "SKRIMPAD_VERSION='[^']*'" electron/app/index.html | head -1
 
       - name: Prep release version + update channel
         run: node scripts/prep-electron-release.js electron/package.json livex ${{ github.run_number }}

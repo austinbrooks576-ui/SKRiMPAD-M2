@@ -56,7 +56,6 @@ export async function recall(input) {
   const db = await load();
   const rec = db[sig];
   if (!rec) return null;
-  rec.profile.lastSeen = Date.now?.() ? undefined : undefined; // (host stamps time; kept host-side)
   return { ...rec.profile, portName: (input && input.name) || rec.profile.portName, learned: true };
 }
 

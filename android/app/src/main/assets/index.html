@@ -4,10 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SKRiMPAD x LIVE x</title>
+  <script>window.SKRIMPAD_EDITION='livex';/*BUILD_EDITION*/
+window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   <style>
     :root { color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22; }
+    /* border-box everywhere: panels use width:100% + padding + border, which
+       overflows a phone viewport under the default content-box sizing. */
+    *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
-      font-family: 'Oswald', 'Arial Narrow', sans-serif; }
+      font-family: 'Oswald', 'Arial Narrow', sans-serif; overflow-x: hidden; }
     #app { display: flex; flex-direction: column; min-height: 100vh; padding: 14px; box-sizing: border-box; gap: 12px; }
     .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .brand { font-size: 12px; letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
@@ -48,6 +53,19 @@
       border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
       opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
     #toast.show { opacity: 1; }
+
+    /* PHONE: the fixed 210px library would squeeze the schematic into a postage
+       stamp on a 412px screen. Stack instead — the board takes the full width
+       (it is the instrument; it must stay playable), library drops underneath. */
+    @media (max-width: 760px) {
+      #app { padding: 8px; gap: 8px; }
+      #main { flex-direction: column; gap: 10px; }
+      #stage { order: 1; width: 100%; flex: 0 0 auto; gap: 10px; }
+      #lib { order: 2; width: 100%; }
+      #libList { max-height: 24vh; }
+      #transport { padding: 6px 8px; gap: 7px; }
+      .board { max-width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -58,6 +76,8 @@
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
+      <button class="hbtn" id="upd" title="Check for updates now">⬇ v1.0.0</button>
+      <button class="hbtn" id="updauto" title="Auto-update: ON installs updates itself; OFF shows a quiet update card instead">AUTO</button>
       <button class="hbtn" id="bt" style="border-color:var(--acc);color:var(--acc)">📶 BT</button>
     </div>
 
@@ -103,7 +123,7 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
-  // src/core/profiles.js
+  // livex/src/core/profiles.js
   var CLASSES = Object.freeze({
     KEYBOARD: "keyboard",
     PADS: "pads",
@@ -292,8 +312,9 @@
     s = s.replace(/midi(in|out)\d*/g, " ");
     s = s.replace(/\((?:bluetooth\s+)?midi(?:\s+(?:in|out))?\)/g, " ");
     s = s.replace(/[()\[\]]/g, " ");
-    s = s.replace(/\bv\d\b/g, " ");
+    s = s.replace(/\bv\d+\b/g, " ");
     s = s.replace(/[^a-z0-9]+/g, "");
+    s = s.replace(/v\d+$/, "");
     const mfr = String(manufacturer).toLowerCase().replace(/[^a-z0-9]+/g, "");
     return (s || "device") + (mfr ? ":" + mfr : "");
   }
@@ -304,12 +325,13 @@
     console.info("[SKRiMPADxLIVEx] unrecognized controller \u2014 seed a pattern for:", { name, manufacturer });
   }
 
-  // src/core/midi-io.js
+  // livex/src/core/midi-io.js
   var BLE_MIDI_SERVICE = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
   var BLE_MIDI_CHAR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
   function createMidiIO({ onEvent, onPorts } = {}) {
     let access = null;
     let bleStatus = 0;
+    let bleName = "BLE MIDI";
     const emit = (data, port) => {
       if (!data || data.length < 1) return;
       const [status, d1 = 0, d2 = 0] = data;
@@ -319,11 +341,26 @@
     function listInputs() {
       return access ? [...access.inputs.values()] : [];
     }
-    async function start() {
+    let startPromise = null;
+    function start() {
+      return startPromise = startPromise || _start();
+    }
+    async function _start() {
       if (typeof window !== "undefined" && window.AndroidMidi) {
-        window.__livexNativeMidi = (bytes) => emit(bytes, { name: "native", native: true });
+        let nativeName = "MIDI DEVICE";
+        window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), { id: "native", name: nativeName, native: true });
+        window.onNativeMIDIStatus = (txt) => {
+          const m = String(txt || "").match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
+          if (m) nativeName = m[1].trim();
+          onPorts && onPorts(listInputs());
+        };
+        window.__livexNativeMidi = window.onNativeMIDIMessage;
         try {
           window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
         } catch (e) {
         }
         return { mode: "native" };
@@ -359,13 +396,25 @@
         const len = type === 192 || type === 208 ? 1 : 2;
         const d = [bleStatus];
         for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 128); k++) d.push(bytes[i++]);
-        if (d.length >= len + 1) emit(d, { name: "ble", ble: true });
+        if (d.length >= len + 1) emit(d, { id: "ble", name: bleName, ble: true });
       }
     }
     function inputCount() {
       return access ? access.inputs.size : 0;
     }
     async function connectBluetooth({ onStatus } = {}) {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+        onStatus && onStatus({ mode: "native", hint: "Pair the controller in Android Bluetooth settings \u2014 scanning\u2026" });
+        return { mode: "native" };
+      }
       if (!access && typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
         await start();
       }
@@ -401,6 +450,7 @@
           dev = await navigator.bluetooth.requestDevice({ filters: KNOWN.map((namePrefix) => ({ namePrefix })), optionalServices: [BLE_MIDI_SERVICE] }).catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
         } else throw e;
       }
+      if (dev && dev.name) bleName = dev.name;
       const attach = async () => {
         const server = await dev.gatt.connect();
         const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
@@ -420,7 +470,7 @@
     return { start, listInputs, inputCount, connectBluetooth, connectBLE, access: () => access, _emit: emit };
   }
 
-  // src/core/gamepad.js
+  // livex/src/core/gamepad.js
   function createGamepad({ onButton, onAxis, onConnect, onDisconnect } = {}) {
     let running = false;
     const prev = [];
@@ -457,7 +507,7 @@
     return { start, stop };
   }
 
-  // src/styles/theme.js
+  // livex/src/styles/theme.js
   var DEFAULT_THEME = Object.freeze({
     class: "blueprint",
     bg: "#0e1116",
@@ -524,7 +574,7 @@
     return `#${toHex(r)}${toHex(g2)}${toHex(b)}`;
   }
 
-  // src/core/schematic.js
+  // livex/src/core/schematic.js
   var SVG = "http://www.w3.org/2000/svg";
   var BLACK_PCS = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
   var P = 26;
@@ -704,7 +754,11 @@
     return { w: cols * (PAD + PAD_GAP) - PAD_GAP, h: rows * (PAD + PAD_GAP) - PAD_GAP };
   }
   var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  var LEGEND_H = 30;
+  var LEGEND_H = 38;
+  var LEG_TOP_W = 10;
+  var LEG_TOP_B = 17.5;
+  var LEG_BOT_W = 27;
+  var LEG_BOT_B = 34.5;
   function octOf(note) {
     return Math.floor(note / 12) - 1;
   }
@@ -752,13 +806,14 @@
       }
       labels.push({ cx, black: nd.black, top: nd.i < 12 ? NOTE_NAMES[nd.note % 12] : scch[nd.i] || "", bot: arp[nd.i] || "" });
     }
+    const legFont = Math.max(4.6, Math.min(6.6, wkW * 0.2));
     labels.forEach((l) => {
       if (l.top) {
-        const t = label(parent, l.cx, 11, l.top, l.black ? acc : theme.ink, 6.6);
+        const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, legFont);
         t.setAttribute("letter-spacing", "0");
       }
       if (l.bot) {
-        const t = label(parent, l.cx, 23, l.bot, theme.mute, 6.6);
+        const t = label(parent, l.cx, l.black ? LEG_BOT_B : LEG_BOT_W, l.bot, theme.mute, legFont);
         t.setAttribute("letter-spacing", "0");
       }
     });
@@ -913,6 +968,20 @@
     svg.__keyboard = kb.windowed ? { windowed: true, startWhite: kb.startWhite, visibleWhites: kb.visibleWhites, whiteTotal: kb.whiteTotal } : { windowed: false, whiteTotal: kb.whiteTotal || 0 };
     return svg;
   }
+  function fitHint(svg) {
+    var _a, _b, _c, _d;
+    const w = +svg.getAttribute("width") || ((_b = (_a = svg.viewBox) == null ? void 0 : _a.baseVal) == null ? void 0 : _b.width) || 1;
+    const h = +svg.getAttribute("height") || ((_d = (_c = svg.viewBox) == null ? void 0 : _c.baseVal) == null ? void 0 : _d.height) || 1;
+    const aspect = w / h;
+    return {
+      w,
+      h,
+      aspect,
+      orientation: aspect >= 1.15 ? "landscape" : "portrait",
+      // ScreenOrientation plugin lock value the Android shell should apply
+      lock: aspect >= 1.15 ? "landscape" : "portrait"
+    };
+  }
   function squareish(n) {
     const c = Math.ceil(Math.sqrt(n));
     return [Math.ceil(n / c), c];
@@ -922,7 +991,7 @@
     return (_a = [36, 38, 42, 46, 37, 39, 49, 51][i]) != null ? _a : 36 + i;
   }
 
-  // src/core/router.js
+  // livex/src/core/router.js
   function createRouter({ container, profile, litColor = "#4bd6c8", onAction, onWindow } = {}) {
     const state = { knobBank: 0, padBank: 0, octave: 0, transpose: 0 };
     const q = (sel) => container.querySelector(sel);
@@ -1019,7 +1088,7 @@
     return { handleMidi, handleGamepadButton, setBank, wire, flash, lightOn, lightOff, state };
   }
 
-  // src/core/devicecache.js
+  // livex/src/core/devicecache.js
   var STORE_KEY = "skrimpadx.devices.v1";
   var storage = defaultStorage();
   function defaultStorage() {
@@ -1057,12 +1126,10 @@
     }
   }
   async function recall(input) {
-    var _a;
     const sig = deviceSignature(input && input.name, input && input.manufacturer);
     const db = await load();
     const rec = db[sig];
     if (!rec) return null;
-    rec.profile.lastSeen = ((_a = Date.now) == null ? void 0 : _a.call(Date)) ? void 0 : void 0;
     return { ...rec.profile, portName: input && input.name || rec.profile.portName, learned: true };
   }
   async function remember(input, profile, meta = {}) {
@@ -1081,7 +1148,7 @@
     return db[sig];
   }
 
-  // src/core/identify.js
+  // livex/src/core/identify.js
   async function identifyDevice(input, { probeMs = 4e3, onReady } = {}) {
     const learned = await recall(input);
     if (learned) {
@@ -1185,10 +1252,21 @@
     for (const k of [25, 32, 37, 49, 61, 76, 88]) if (span <= k) return k;
     return 88;
   }
+  function identifyGamepad(gp) {
+    return makeProfile({
+      id: "gamepad",
+      class: CLASSES.GAMEPAD,
+      source: "gamepad",
+      portName: gp && gp.id || "Gamepad",
+      pads: { count: gp && gp.buttons && gp.buttons.length || 16, layout: [0, 0], channel: 10 },
+      confidence: gp && gp.mapping === "standard" ? 0.9 : 0.6
+    });
+  }
 
-  // src/core/device-manager.js
+  // livex/src/core/device-manager.js
   var BLACK = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
-  function createDeviceManager({ stage: stage2, litColor = "#4bd6c8", renderOpts = {}, onAction } = {}) {
+  var PROBE_MS = 4e3;
+  function createDeviceManager({ stage: stage2, litColor = "#4bd6c8", renderOpts = {}, onAction, onBoards, onFit } = {}) {
     const boards = /* @__PURE__ */ new Map();
     function makeContainer(sig, title) {
       const wrap = document.createElement("div");
@@ -1208,6 +1286,11 @@
       b.body.innerHTML = "";
       b.lastSvg = renderSchematic(b.profile, { ...renderOpts, startWhite: b.startWhite });
       b.body.appendChild(b.lastSvg);
+      const head = b.wrap.querySelector(".board-h");
+      if (head) head.textContent = b.profile.portName || b.profile.id || b.sig;
+      b.fit = fitHint(b.lastSvg);
+      b.wrap.dataset.fit = b.fit.orientation;
+      if (onFit) onFit(b.fit, b);
       if (!b.router) {
         b.router = createRouter({
           container: b.body,
@@ -1227,11 +1310,28 @@
       b.startWhite = Math.max(0, Math.min(wi - Math.floor(kb.visibleWhites / 2), kb.whiteTotal - kb.visibleWhites));
       renderBoard(b);
     }
+    function armProbe(b, inputLike) {
+      b.probe = createProbe(b.profile, {});
+      if (b.probeTimer) clearTimeout(b.probeTimer);
+      b.probeTimer = setTimeout(async () => {
+        b.probeTimer = null;
+        const before = JSON.stringify(strip(b.profile));
+        b.probe.refine();
+        try {
+          await remember(inputLike || { name: b.profile.portName }, b.profile);
+        } catch (e) {
+        }
+        if (JSON.stringify(strip(b.profile)) !== before) renderBoard(b);
+        b.probe = null;
+      }, PROBE_MS);
+    }
+    const strip = (p) => ({ c: p.class, k: p.keys, pd: p.pads, w: p.wheels, kn: p.knobs });
     function addBoard(sig, profile, portIds, live = true) {
       const { wrap, body } = makeContainer(sig, profile.portName || profile.id);
-      const b = { sig, profile, wrap, body, router: null, startWhite: 0, ports: new Set(portIds || []), live };
+      const b = { sig, profile, wrap, body, router: null, startWhite: 0, ports: new Set(portIds || []), live, probe: null, probeTimer: null };
       renderBoard(b);
       boards.set(sig, b);
+      onBoards && onBoards(boards);
       return b;
     }
     async function syncPorts(inputs) {
@@ -1246,43 +1346,99 @@
           boards.get(sig).ports = new Set(ports.map((p) => p.id));
           continue;
         }
-        const { profile } = await identifyDevice(ports[0]);
+        const { profile, learned } = await identifyDevice(ports[0]);
         profile.portName = ports[0].name;
-        addBoard(sig, profile, ports.map((p) => p.id));
+        const b = addBoard(sig, profile, ports.map((p) => p.id));
+        if (!learned) armProbe(b, ports[0]);
       }
       for (const sig of [...boards.keys()]) {
         const b = boards.get(sig);
-        if (b.live && !bySig.has(sig)) {
+        if (b.live && !b.adhoc && b.profile.class !== CLASSES.GAMEPAD && !bySig.has(sig)) {
+          if (b.probeTimer) clearTimeout(b.probeTimer);
           b.wrap.remove();
           boards.delete(sig);
+          onBoards && onBoards(boards);
         }
       }
+    }
+    function ensureAdhocBoard(ev) {
+      const name = ev.port && ev.port.name || "MIDI DEVICE";
+      const sig = "adhoc:" + deviceSignature(name);
+      let b = boards.get(sig);
+      if (!b) {
+        const profile = identifyMidiInput({ name });
+        profile.portName = name;
+        profile.source = ev.port && ev.port.ble ? "ble" : ev.port && ev.port.native ? "midi" : profile.source;
+        b = addBoard(sig, profile, [ev.port && ev.port.id].filter(Boolean));
+        b.adhoc = true;
+        armProbe(b, { name });
+      }
+      return b;
     }
     function routeMidi(ev) {
       const pid = ev.port && ev.port.id;
       if (pid) {
-        for (const b of boards.values()) if (b.ports.has(pid)) {
-          b.router.handleMidi(ev);
-          return;
+        for (const b of boards.values()) {
+          if (b.ports.has(pid)) {
+            if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+            b.router.handleMidi(ev);
+            return;
+          }
         }
       }
-      for (const b of boards.values()) b.router.handleMidi(ev);
+      if (ev.port && (ev.port.native || ev.port.ble)) {
+        const b = ensureAdhocBoard(ev);
+        if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+        b.router.handleMidi(ev);
+        return;
+      }
+      for (const b of boards.values()) {
+        if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+        b.router.handleMidi(ev);
+      }
     }
-    function routeGamepad(i) {
-      for (const b of boards.values()) b.router.handleGamepadButton(i);
+    function addGamepadBoard(gp) {
+      const sig = "gp:" + (gp.index != null ? gp.index : 0);
+      if (boards.has(sig)) return boards.get(sig);
+      const profile = identifyGamepad(gp);
+      const b = addBoard(sig, profile, [sig]);
+      b.gamepad = true;
+      return b;
+    }
+    function removeGamepadBoard(gp) {
+      const sig = "gp:" + (gp.index != null ? gp.index : 0);
+      const b = boards.get(sig);
+      if (b) {
+        b.wrap.remove();
+        boards.delete(sig);
+        onBoards && onBoards(boards);
+      }
+    }
+    function routeGamepad(i, gp) {
+      if (gp) addGamepadBoard(gp);
+      let hit = false;
+      for (const b of boards.values()) if (b.gamepad) {
+        b.router.handleGamepadButton(i);
+        hit = true;
+      }
+      if (!hit) for (const b of boards.values()) b.router.handleGamepadButton(i);
     }
     function addDemoBoard(profile, portId) {
       const sig = "demo:" + (profile.id || String(boards.size));
       return addBoard(sig, profile, [portId || sig], false);
     }
     function clear() {
-      for (const b of boards.values()) b.wrap.remove();
+      for (const b of boards.values()) {
+        if (b.probeTimer) clearTimeout(b.probeTimer);
+        b.wrap.remove();
+      }
       boards.clear();
+      onBoards && onBoards(boards);
     }
-    return { syncPorts, routeMidi, routeGamepad, addDemoBoard, clear, boards, renderBoard };
+    return { syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard, addDemoBoard, clear, boards, renderBoard };
   }
 
-  // src/core/audio.js
+  // livex/src/core/audio.js
   var audio_exports = {};
   __export(audio_exports, {
     bufferToWav: () => bufferToWav,
@@ -1291,6 +1447,7 @@
     createVoices: () => createVoices,
     download: () => download,
     freqFromMidi: () => freqFromMidi,
+    getBrightness: () => getBrightness,
     initAudio: () => initAudio,
     isReady: () => isReady,
     noteOn: () => noteOn,
@@ -1298,6 +1455,7 @@
     playNoteShot: () => playNoteShot,
     playPad: () => playPad,
     renderLoopToWav: () => renderLoopToWav,
+    setBrightness: () => setBrightness,
     setMasterVolume: () => setMasterVolume,
     setSample: () => setSample
   });
@@ -1339,6 +1497,13 @@
   }
   function setMasterVolume(v) {
     if (master) master.gain.value = Math.max(0, Math.min(1, v));
+  }
+  var brightness = 1;
+  function setBrightness(v01) {
+    brightness = 0.35 + Math.max(0, Math.min(1, v01)) * 1.25;
+  }
+  function getBrightness() {
+    return brightness;
   }
   function setSample(role, id, buffer) {
     samples[role + ":" + id] = buffer;
@@ -1462,7 +1627,7 @@
       o1.frequency.value = f;
       o2.frequency.value = f;
       lp.type = "lowpass";
-      lp.frequency.value = Math.min(9e3, f * 7);
+      lp.frequency.value = Math.min(9e3, f * 7 * brightness);
       g2.gain.setValueAtTime(1e-4, t);
       g2.gain.exponentialRampToValueAtTime(v, t + 8e-3);
       g2.gain.exponentialRampToValueAtTime(Math.max(1e-4, v * 0.6), t + 0.1);
@@ -1493,28 +1658,37 @@
     if (!liveVoices) liveVoices = createVoices(ctx, master);
     return liveVoices;
   }
-  function noteOn(midi, vel = 100) {
+  function noteOn(midi, vel = 100, bendCents2 = 0) {
     if (!ready) initAudio();
     const smp = samples["key:" + midi];
     const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
     if (smp) {
-      const h = voices().sampleVoice(smp, t, master, v * 2, 1);
-      return { release() {
-        try {
-          h.s.stop(ctx.currentTime + 0.3);
-        } catch (e) {
+      const h = voices().sampleVoice(smp, t, master, v * 2, Math.pow(2, bendCents2 / 1200));
+      return {
+        release() {
+          try {
+            h.s.stop(ctx.currentTime + 0.3);
+          } catch (e) {
+          }
+        },
+        bend(c) {
+          try {
+            h.s.playbackRate.value = Math.pow(2, c / 1200);
+          } catch (e) {
+          }
         }
-      } };
+      };
     }
     const g2 = ctx.createGain(), o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), lp = ctx.createBiquadFilter();
     o1.type = "sawtooth";
     o2.type = "square";
-    o2.detune.value = -9;
+    o2.detune.value = -9 + bendCents2;
     const f = freqFromMidi(midi);
     o1.frequency.value = f;
     o2.frequency.value = f;
+    o1.detune.value = bendCents2;
     lp.type = "lowpass";
-    lp.frequency.value = Math.min(9e3, f * 7);
+    lp.frequency.value = Math.min(9e3, f * 7 * brightness);
     g2.gain.setValueAtTime(1e-4, t);
     g2.gain.exponentialRampToValueAtTime(v, t + 0.01);
     o1.connect(lp);
@@ -1530,6 +1704,10 @@
         g2.gain.setTargetAtTime(1e-4, rt, 0.08);
         o1.stop(rt + 0.6);
         o2.stop(rt + 0.6);
+      },
+      bend(c) {
+        o1.detune.value = c;
+        o2.detune.value = -9 + c;
       }
     };
   }
@@ -1593,7 +1771,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 3e3);
   }
 
-  // src/core/transport.js
+  // livex/src/core/transport.js
   function createTransport({ onState, onBeat } = {}) {
     let bpm = 100, beatsPerBar = 4, bars = 2;
     let playing = false, recording = false, metronome = false;
@@ -1739,7 +1917,7 @@
     };
   }
 
-  // src/core/library.js
+  // livex/src/core/library.js
   var AUDIO_EXT = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|wma|caf|au)$/i;
   function createLibrary({ onChange } = {}) {
     const items = [];
@@ -1816,7 +1994,193 @@
     return { importFiles, assign, items: () => items };
   }
 
-  // src/.boot.entry.js
+  // livex/src/core/update.js
+  function initUpdater({ toast: toast2, manifestUrl, checkEveryMs } = {}) {
+    const VERSION = typeof window !== "undefined" && window.SKRIMPAD_VERSION || "1.0.0";
+    const EDITION = typeof window !== "undefined" && window.SKRIMPAD_EDITION || "livex";
+    const isElectron = typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent || "");
+    const isAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
+    const platform = isElectron ? "win" : isAndroid ? "apk" : "web";
+    const MANIFEST_URL = manifestUrl || typeof window !== "undefined" && window.SKRIMPAD_UPDATE_URL || "https://scrimpad.ink/api/update.json";
+    const CHECK_EVERY = checkEveryMs || 6 * 60 * 60 * 1e3;
+    const say = (m) => {
+      try {
+        toast2 ? toast2(m) : console.info("[update]", m);
+      } catch (e) {
+      }
+    };
+    const L = {
+      get auto() {
+        try {
+          return localStorage.getItem("skrimpad_autoupdate") !== "0";
+        } catch (e) {
+          return true;
+        }
+      },
+      set auto(v) {
+        try {
+          localStorage.setItem("skrimpad_autoupdate", v ? "1" : "0");
+        } catch (e) {
+        }
+      },
+      get good() {
+        try {
+          return localStorage.getItem("skrimpad_last_good") || VERSION;
+        } catch (e) {
+          return VERSION;
+        }
+      },
+      set good(v) {
+        try {
+          localStorage.setItem("skrimpad_last_good", v);
+        } catch (e) {
+        }
+      }
+    };
+    const newer = (a, b) => {
+      const pa = String(a).split(".").map((n) => parseInt(n) || 0), pb = String(b).split(".").map((n) => parseInt(n) || 0);
+      for (let i = 0; i < 3; i++) {
+        if ((pa[i] || 0) > (pb[i] || 0)) return true;
+        if ((pa[i] || 0) < (pb[i] || 0)) return false;
+      }
+      return false;
+    };
+    function ghost(o, urgent) {
+      const old = document.getElementById("skrimpad-ghost");
+      if (old) old.remove();
+      const g2 = document.createElement("div");
+      g2.id = "skrimpad-ghost";
+      g2.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483000;max-width:300px;padding:14px 16px;border-radius:14px;font-family:system-ui,-apple-system,sans-serif;color:#eaf2ff;background:rgba(14,16,26," + (urgent ? "0.93" : "0.60") + ");-webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);border:1px solid rgba(" + (urgent ? "255,90,90" : "75,214,200") + ",0.5);box-shadow:0 12px 44px rgba(0,0,0,0.55);opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s;";
+      g2.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:5px">' + o.title + '</div><div style="font-size:12px;opacity:.85;line-height:1.4;margin-bottom:10px">' + o.msg + '</div><div style="display:flex;gap:8px"><button id="sg-go" style="flex:1;padding:7px;border-radius:8px;border:0;cursor:pointer;background:' + (urgent ? "#ff5a5a" : "#4bd6c8") + ';color:#0a0713;font-weight:700;font-size:12px">' + o.action + '</button><button id="sg-x" style="padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#cdd;cursor:pointer;font-size:12px">Later</button></div>';
+      (document.body || document.documentElement).appendChild(g2);
+      requestAnimationFrame(() => {
+        g2.style.opacity = "1";
+        g2.style.transform = "translateY(0)";
+      });
+      g2.querySelector("#sg-go").onclick = () => {
+        try {
+          o.onAction && o.onAction();
+        } catch (e) {
+        }
+      };
+      g2.querySelector("#sg-x").onclick = () => {
+        g2.style.opacity = "0";
+        setTimeout(() => g2.remove(), 250);
+      };
+      if (!urgent) setTimeout(() => {
+        if (document.body.contains(g2)) g2.style.opacity = "0.5";
+      }, 12e3);
+      return g2;
+    }
+    function guardStart() {
+      try {
+        const p = JSON.parse(localStorage.getItem("skrimpad_boot_pending") || "null");
+        if (p && p.v === VERSION && (p.count || 0) >= 2 && L.good && L.good !== VERSION) {
+          ghost({
+            title: "\u26A0 Update unstable",
+            msg: "v" + VERSION + " failed to start cleanly. Roll back to v" + L.good + "?",
+            action: "Roll back",
+            onAction: () => revert(L.good)
+          }, true);
+        }
+        const count = p && p.v === VERSION ? (p.count || 0) + 1 : 1;
+        localStorage.setItem("skrimpad_boot_pending", JSON.stringify({ v: VERSION, count, ts: Date.now() }));
+      } catch (e) {
+      }
+    }
+    function guardHealthy() {
+      try {
+        localStorage.removeItem("skrimpad_boot_pending");
+        L.good = VERSION;
+      } catch (e) {
+      }
+    }
+    function revert(good) {
+      if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.revert) {
+        window.skrimpadUpdater.revert(good);
+        return;
+      }
+      try {
+        localStorage.removeItem("skrimpad_boot_pending");
+      } catch (e) {
+      }
+      say("Rolling back to v" + good + "\u2026");
+      location.reload();
+    }
+    async function check(manual) {
+      let m;
+      try {
+        const r = await fetch(MANIFEST_URL, { cache: "no-store" });
+        if (!r.ok) throw 0;
+        m = await r.json();
+      } catch (e) {
+        if (manual) say("Update check failed \u2014 offline?");
+        return;
+      }
+      if (!m || !m.version) return;
+      if (!newer(m.version, VERSION)) {
+        if (manual) say("\u2713 You\u2019re on the latest \u2014 v" + VERSION);
+        return;
+      }
+      const ed = m.downloads && m.downloads[EDITION] || {};
+      const dl = ed[platform] || ed.win || ed.apk || "";
+      const mandatory = !!m.mandatory;
+      if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.check) {
+        window.skrimpadUpdater.check();
+        if (!L.auto && !mandatory) ghost({ title: "\u2728 v" + m.version + " available", msg: m.notes || "Update when you\u2019re ready.", action: "Update", onAction: () => window.skrimpadUpdater.check() }, false);
+        return;
+      }
+      if (L.auto || mandatory) {
+        ghost({
+          title: "\u2B07 Update v" + m.version,
+          msg: (m.notes || "A new version is ready.") + (mandatory ? " (required)" : ""),
+          action: "Install",
+          onAction: () => {
+            if (dl) window.open(dl, "_blank");
+          }
+        }, mandatory);
+      } else {
+        ghost({
+          title: "\u2728 v" + m.version + " available",
+          msg: m.notes || "Update when you\u2019re ready.",
+          action: "Update",
+          onAction: () => {
+            if (dl) window.open(dl, "_blank");
+          }
+        }, false);
+      }
+    }
+    if (isElectron && window.skrimpadUpdater && window.skrimpadUpdater.on) {
+      window.skrimpadUpdater.on((evt, info) => {
+        if (evt === "available" && !L.auto) ghost({ title: "\u2728 v" + (info && info.version || "new") + " available", msg: "Update when you\u2019re ready.", action: "Update", onAction: () => window.skrimpadUpdater.check() }, false);
+        if (evt === "downloaded") ghost({ title: "\u2705 Update ready", msg: "v" + (info && info.version || "") + " installs on restart.", action: "Restart now", onAction: () => window.skrimpadUpdater.install() }, false);
+      });
+    }
+    guardStart();
+    setTimeout(guardHealthy, 8e3);
+    setTimeout(() => check(false), 5e3);
+    setInterval(() => check(false), CHECK_EVERY);
+    const api = {
+      check,
+      ghost,
+      version: VERSION,
+      edition: EDITION,
+      platform,
+      auto: { get: () => L.auto, set: (v) => {
+        L.auto = v;
+        say("Auto-update " + (v ? "on" : "off"));
+      } }
+    };
+    if (typeof window !== "undefined") {
+      window.skrimpadCheckUpdate = check;
+      window.skrimpadAutoUpdate = api.auto;
+      window.SKRIMPAD_INFO = { version: VERSION, edition: EDITION, platform };
+    }
+    console.info("[LIVEx] auto-update ready \xB7 v" + VERSION + " \xB7 " + EDITION + "/" + platform);
+    return api;
+  }
+
+  // livex/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var stage = $("#stage");
   var empty = $("#empty");
@@ -1832,6 +2196,9 @@
     empty.style.display = manager.boards.size ? "none" : "";
   };
   var held = /* @__PURE__ */ new Map();
+  var bendCents = 0;
+  var sustainOn = false;
+  var sustained = [];
   var transport = createTransport({
     onState: (s) => {
       $("#rec").classList.toggle("on", s.recording);
@@ -1857,14 +2224,15 @@
         return;
       }
       if (a.type === "noteon") {
-        const v = noteOn(a.note, a.vel);
+        const v = noteOn(a.note, a.vel, bendCents);
         held.set(board.sig + ":" + a.note, v);
         transport.recordNoteOn(a.note, a.vel);
       } else if (a.type === "noteoff") {
         const k = board.sig + ":" + a.note;
         const v = held.get(k);
         if (v) {
-          v.release();
+          if (sustainOn) sustained.push(v);
+          else v.release();
           held.delete(k);
         }
         transport.recordNoteOff(a.note);
@@ -1872,10 +2240,39 @@
         const pi = padIndexFor(board, a);
         playPad(pi, a.vel);
         transport.recordPad(pi, a.vel);
+      } else if (a.type === "gpbutton") {
+        const pi = a.index % 16;
+        playPad(pi, 110);
+        transport.recordPad(pi, 110);
       } else if (a.type === "transport") {
         if (a.name === "play") transport.play();
         else if (a.name === "stop") transport.stop();
         else if (a.name === "rec") transport.toggleRecord();
+      } else if (a.type === "cc") {
+        if (a.cc === 7) {
+          setMasterVolume(a.val / 127);
+          $("#vol").value = String(a.val / 127);
+        } else if (a.cc === 1) setBrightness(a.val / 127);
+        else if (a.cc === 64) {
+          sustainOn = a.val >= 64;
+          if (!sustainOn) {
+            for (const v of sustained.splice(0)) v.release();
+          }
+        }
+      } else if (a.type === "pitch") {
+        bendCents = (a.val - 8192) / 8192 * 200;
+        for (const v of held.values()) if (v.bend) v.bend(bendCents);
+      }
+    },
+    onBoards: () => refreshEmpty(),
+    // Per-controller orientation: a wide board asks for landscape, a compact
+    // pad bank for portrait. Applied where the platform exposes the lock.
+    onFit: (fit) => {
+      try {
+        const so = screen && screen.orientation;
+        if (so && so.lock && /Android/i.test(navigator.userAgent || "")) so.lock(fit.lock).catch(() => {
+        });
+      } catch (e) {
       }
     }
   });
@@ -1887,6 +2284,7 @@
   window.__manager = manager;
   window.__transport = transport;
   window.__audio = audio_exports;
+  window.__mkIO = createMidiIO;
   var lib = createLibrary({
     onChange: (items) => {
       const ul = $("#libList");
@@ -1977,7 +2375,18 @@
   var io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
   io.start().then((m) => console.info("[LIVEx] MIDI:", m.mode)).catch(() => {
   });
-  createGamepad({ onButton: (i) => manager.routeGamepad(i) }).start();
+  createGamepad({
+    onButton: (i, gp) => manager.routeGamepad(i, gp),
+    onConnect: (gp) => {
+      manager.addGamepadBoard(gp);
+      refreshEmpty();
+      toast("\u{1F3AE} " + (gp && gp.id || "Gamepad").slice(0, 42));
+    },
+    onDisconnect: (gp) => {
+      manager.removeGamepadBoard(gp);
+      refreshEmpty();
+    }
+  }).start();
   $("#bt").addEventListener("click", async () => {
     try {
       const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || "BT: " + s.mode) });
@@ -1987,6 +2396,20 @@
       toast("\u{1F4F6} " + (e && e.message || "no device"));
     }
   });
+  var upd = initUpdater({ toast });
+  var updBtn = $("#upd");
+  var updAuto = $("#updauto");
+  updBtn.textContent = "\u2B07 v" + upd.version;
+  updBtn.addEventListener("click", () => {
+    toast("Checking for updates\u2026");
+    upd.check(true);
+  });
+  var paintAuto = () => updAuto.classList.toggle("on", upd.auto.get());
+  updAuto.addEventListener("click", () => {
+    upd.auto.set(!upd.auto.get());
+    paintAuto();
+  });
+  paintAuto();
   window.addEventListener("pointerdown", () => initAudio(), { once: true });
   window.__sim = (portId, s, d1, d2) => manager.routeMidi({ port: { id: portId }, status: s, d1, d2, cmd: s & 240, chan: s & 15 });
   refreshEmpty();

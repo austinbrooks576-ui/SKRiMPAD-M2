@@ -8,6 +8,7 @@ const BLE_MIDI_CHAR = '7772e5db-3868-4112-a1a9-f2669d106bf3';
 export function createMidiIO({ onEvent, onPorts } = {}) {
   let access = null;
   let bleStatus = 0; // BLE running-status latch
+  let bleName = 'BLE MIDI'; // set on GATT connect so the board titles correctly
 
   const emit = (data, port) => {
     if (!data || data.length < 1) return;
@@ -19,11 +20,31 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   function listInputs() { return access ? [...access.inputs.values()] : []; }
 
   // --- Web MIDI (desktop Electron / Chrome) with hot-plug -------------------
-  async function start() {
-    // Android WebView has no Web MIDI → native bridge injects window.AndroidMidi
+  // Memoized: the app calls start() at boot, so a later connectBluetooth() never
+  // re-requests access — its `await start()` resolves on an already-settled
+  // promise (a single microtask), keeping the click's transient user activation
+  // alive for requestDevice(). Losing that activation is exactly what broke
+  // Bluetooth in SKRiMPAD M2.
+  let startPromise = null;
+  function start() { return (startPromise = startPromise || _start()); }
+
+  async function _start() {
+    // Android WebView has no Web MIDI → native bridge injects window.AndroidMidi.
+    // CRITICAL: MainActivity.kt invokes `window.onNativeMIDIMessage(bytes)` — that
+    // exact global MUST exist or the APK never hears a single MIDI byte.
     if (typeof window !== 'undefined' && window.AndroidMidi) {
-      window.__livexNativeMidi = (bytes) => emit(bytes, { name: 'native', native: true });
+      let nativeName = 'MIDI DEVICE';
+      window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), { id: 'native', name: nativeName, native: true });
+      window.onNativeMIDIStatus = (txt) => {
+        // status lines look like "🎹 SMK25 connected" — harvest a device name so the
+        // board gets a real title instead of the generic fallback
+        const m = String(txt || '').match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
+        if (m) nativeName = m[1].trim();
+        onPorts && onPorts(listInputs()); // let the host refresh
+      };
+      window.__livexNativeMidi = window.onNativeMIDIMessage; // legacy alias
       try { window.AndroidMidi.enable(); } catch (e) {}
+      try { window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth(); } catch (e) {}
       return { mode: 'native' };
     }
     if (typeof navigator !== 'undefined' && navigator.requestMIDIAccess) {
@@ -51,7 +72,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
       const d = [bleStatus];
       for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 0x80); k++) d.push(bytes[i++]);
-      if (d.length >= len + 1) emit(d, { name: 'ble', ble: true });
+      if (d.length >= len + 1) emit(d, { id: 'ble', name: bleName, ble: true });
     }
   }
 
@@ -72,6 +93,14 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // Must run inside the click gesture (requestDevice needs a live user activation;
   // a setTimeout drops it and the chooser silently never opens).
   async function connectBluetooth({ onStatus } = {}) {
+    // ANDROID: the WebView has no Web Bluetooth — BLE MIDI goes through the native
+    // MidiManager (pair in system Bluetooth settings first, then it attaches here).
+    if (typeof window !== 'undefined' && window.AndroidMidi) {
+      try { window.AndroidMidi.enable(); } catch (e) {}
+      try { window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth(); } catch (e) {}
+      onStatus && onStatus({ mode: 'native', hint: 'Pair the controller in Android Bluetooth settings — scanning…' });
+      return { mode: 'native' };
+    }
     if (!access && typeof navigator !== 'undefined' && navigator.requestMIDIAccess) {
       await start(); // Web MIDI is pre-granted in Electron → bridged ports already hooked
     }
@@ -107,6 +136,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
           .catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
       } else throw e;
     }
+    if (dev && dev.name) bleName = dev.name;
     const attach = async () => {
       const server = await dev.gatt.connect();
       const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);

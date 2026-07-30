@@ -4,10 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SKRiMPAD x LIVE x</title>
+  <script>window.SKRIMPAD_EDITION='livex';/*BUILD_EDITION*/
+window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   <style>
     :root { color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22; }
+    /* border-box everywhere: panels use width:100% + padding + border, which
+       overflows a phone viewport under the default content-box sizing. */
+    *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
-      font-family: 'Oswald', 'Arial Narrow', sans-serif; }
+      font-family: 'Oswald', 'Arial Narrow', sans-serif; overflow-x: hidden; }
     #app { display: flex; flex-direction: column; min-height: 100vh; padding: 14px; box-sizing: border-box; gap: 12px; }
     .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .brand { font-size: 12px; letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
@@ -48,6 +53,19 @@
       border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
       opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
     #toast.show { opacity: 1; }
+
+    /* PHONE: the fixed 210px library would squeeze the schematic into a postage
+       stamp on a 412px screen. Stack instead — the board takes the full width
+       (it is the instrument; it must stay playable), library drops underneath. */
+    @media (max-width: 760px) {
+      #app { padding: 8px; gap: 8px; }
+      #main { flex-direction: column; gap: 10px; }
+      #stage { order: 1; width: 100%; flex: 0 0 auto; gap: 10px; }
+      #lib { order: 2; width: 100%; }
+      #libList { max-height: 24vh; }
+      #transport { padding: 6px 8px; gap: 7px; }
+      .board { max-width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -58,6 +76,8 @@
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
+      <button class="hbtn" id="upd" title="Check for updates now">⬇ v1.0.0</button>
+      <button class="hbtn" id="updauto" title="Auto-update: ON installs updates itself; OFF shows a quiet update card instead">AUTO</button>
       <button class="hbtn" id="bt" style="border-color:var(--acc);color:var(--acc)">📶 BT</button>
     </div>
 
@@ -102,6 +122,7 @@
     import { createDeviceManager } from './core/device-manager.js';
     import { createTransport } from './core/transport.js';
     import { createLibrary } from './core/library.js';
+    import { initUpdater } from './core/update.js';
     import * as audio from './core/audio.js';
 
     const $ = (s) => document.querySelector(s);
@@ -110,8 +131,13 @@
     const toast = (m) => { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 3800); };
     const refreshEmpty = () => { empty.style.display = manager.boards.size ? 'none' : ''; };
 
-    // held key voices for note-off release
+    // held key voices for note-off release + performance state
+    // (pitch wheel bends every held voice; CC64 sustains releases; CC1 = brightness;
+    // CC7 = master volume — the SKRiMPAD M2 input standard)
     const held = new Map();
+    let bendCents = 0;
+    let sustainOn = false;
+    const sustained = [];
 
     // ---- transport ----
     const transport = createTransport({
@@ -138,10 +164,36 @@
           board.startWhite = Math.max(0, Math.min(board.startWhite + a.dir * 7, max));
           manager.renderBoard(board); return;
         }
-        if (a.type === 'noteon') { const v = audio.noteOn(a.note, a.vel); held.set(board.sig + ':' + a.note, v); transport.recordNoteOn(a.note, a.vel); }
-        else if (a.type === 'noteoff') { const k = board.sig + ':' + a.note; const v = held.get(k); if (v) { v.release(); held.delete(k); } transport.recordNoteOff(a.note); }
+        if (a.type === 'noteon') { const v = audio.noteOn(a.note, a.vel, bendCents); held.set(board.sig + ':' + a.note, v); transport.recordNoteOn(a.note, a.vel); }
+        else if (a.type === 'noteoff') {
+          const k = board.sig + ':' + a.note; const v = held.get(k);
+          if (v) { if (sustainOn) sustained.push(v); else v.release(); held.delete(k); }
+          transport.recordNoteOff(a.note);
+        }
         else if (a.type === 'pad') { const pi = padIndexFor(board, a); audio.playPad(pi, a.vel); transport.recordPad(pi, a.vel); }
+        else if (a.type === 'gpbutton') { const pi = a.index % 16; audio.playPad(pi, 110); transport.recordPad(pi, 110); }
         else if (a.type === 'transport') { if (a.name === 'play') transport.play(); else if (a.name === 'stop') transport.stop(); else if (a.name === 'rec') transport.toggleRecord(); }
+        else if (a.type === 'cc') {
+          if (a.cc === 7) { audio.setMasterVolume(a.val / 127); $('#vol').value = String(a.val / 127); }
+          else if (a.cc === 1) audio.setBrightness(a.val / 127);
+          else if (a.cc === 64) {
+            sustainOn = a.val >= 64;
+            if (!sustainOn) { for (const v of sustained.splice(0)) v.release(); }
+          }
+        }
+        else if (a.type === 'pitch') {
+          bendCents = ((a.val - 8192) / 8192) * 200; // ±2 semitones
+          for (const v of held.values()) if (v.bend) v.bend(bendCents);
+        }
+      },
+      onBoards: () => refreshEmpty(),
+      // Per-controller orientation: a wide board asks for landscape, a compact
+      // pad bank for portrait. Applied where the platform exposes the lock.
+      onFit: (fit) => {
+        try {
+          const so = screen && screen.orientation;
+          if (so && so.lock && /Android/i.test(navigator.userAgent || '')) so.lock(fit.lock).catch(() => {});
+        } catch (e) {}
       },
     });
     // resolve a pad action to its pad index: MIDI/tap carry the GM note → look up the
@@ -152,6 +204,7 @@
       return el ? +el.getAttribute('data-index') : 0;
     }
     window.__manager = manager; window.__transport = transport; window.__audio = audio;
+    window.__mkIO = createMidiIO;   // diagnostics / test hook for the I/O layer
 
     // ---- library ----
     const lib = createLibrary({
@@ -206,11 +259,24 @@
     // ---- live input (all devices) ----
     const io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
     io.start().then((m) => console.info('[LIVEx] MIDI:', m.mode)).catch(() => {});
-    createGamepad({ onButton: (i) => manager.routeGamepad(i) }).start();
+    createGamepad({
+      onButton: (i, gp) => manager.routeGamepad(i, gp),
+      onConnect: (gp) => { manager.addGamepadBoard(gp); refreshEmpty(); toast('🎮 ' + ((gp && gp.id) || 'Gamepad').slice(0, 42)); },
+      onDisconnect: (gp) => { manager.removeGamepadBoard(gp); refreshEmpty(); },
+    }).start();
     $('#bt').addEventListener('click', async () => {
       try { const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || ('BT: ' + s.mode)) }); if (r.mode === 'port') toast(r.count + ' MIDI port(s). KORG: press CONNECT in the KORG BLE-MIDI panel.'); else if (r.mode === 'gatt') toast('Connected: ' + (r.device || 'BLE MIDI')); }
       catch (e) { toast('📶 ' + (e && e.message || 'no device')); }
     });
+
+    // ---- auto-update (ghosted window + fail-safe rollback) ----
+    const upd = initUpdater({ toast });
+    const updBtn = $('#upd'), updAuto = $('#updauto');
+    updBtn.textContent = '⬇ v' + upd.version;
+    updBtn.addEventListener('click', () => { toast('Checking for updates…'); upd.check(true); });
+    const paintAuto = () => updAuto.classList.toggle('on', upd.auto.get());
+    updAuto.addEventListener('click', () => { upd.auto.set(!upd.auto.get()); paintAuto(); });
+    paintAuto();
 
     // unlock audio on first gesture
     window.addEventListener('pointerdown', () => audio.initAudio(), { once: true });

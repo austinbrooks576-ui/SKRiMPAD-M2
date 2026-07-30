@@ -27,6 +27,12 @@ export function initAudio() {
 export function output() { return master; }
 export function setMasterVolume(v) { if (master) master.gain.value = Math.max(0, Math.min(1, v)); }
 
+// CC1 (mod wheel) → synth brightness: scales every voice's lowpass cutoff.
+// 0.35 (dark) … 1.6 (bright); default 1.
+let brightness = 1;
+export function setBrightness(v01) { brightness = 0.35 + Math.max(0, Math.min(1, v01)) * 1.25; }
+export function getBrightness() { return brightness; }
+
 // assign a decoded sample to a pad index / key note (from the library / drop)
 export function setSample(role, id, buffer) { samples[role + ':' + id] = buffer; }
 export function clearSample(role, id) { delete samples[role + ':' + id]; }
@@ -94,7 +100,7 @@ export function createVoices(c, out) {
     const g = c.createGain(), o1 = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter();
     o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -9;
     const f = freqFromMidi(midi); o1.frequency.value = f; o2.frequency.value = f;
-    lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7);
+    lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7 * brightness);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(v, t + 0.008);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0001, v * 0.6), t + 0.1);
@@ -115,16 +121,24 @@ export function createVoices(c, out) {
 let liveVoices = null;
 function voices() { if (!ready) initAudio(); if (!liveVoices) liveVoices = createVoices(ctx, master); return liveVoices; }
 
-// sustaining key voice (held until release); returns {release()}
-export function noteOn(midi, vel = 100) {
+// sustaining key voice (held until release); returns {release(), bend(cents)}.
+// bend() retunes the live oscillators — wired to the pitch wheel (±200 cents).
+export function noteOn(midi, vel = 100, bendCents = 0) {
   if (!ready) initAudio();
   const smp = samples['key:' + midi];
   const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
-  if (smp) { const h = voices().sampleVoice(smp, t, master, v * 2, 1); return { release() { try { h.s.stop(ctx.currentTime + 0.3); } catch (e) {} } }; }
+  if (smp) {
+    const h = voices().sampleVoice(smp, t, master, v * 2, Math.pow(2, bendCents / 1200));
+    return {
+      release() { try { h.s.stop(ctx.currentTime + 0.3); } catch (e) {} },
+      bend(c) { try { h.s.playbackRate.value = Math.pow(2, c / 1200); } catch (e) {} },
+    };
+  }
   const g = ctx.createGain(), o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), lp = ctx.createBiquadFilter();
-  o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -9;
+  o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -9 + bendCents;
   const f = freqFromMidi(midi); o1.frequency.value = f; o2.frequency.value = f;
-  lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7);
+  o1.detune.value = bendCents;
+  lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7 * brightness);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01);
   o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(master);
   o1.start(t); o2.start(t);
@@ -133,6 +147,7 @@ export function noteOn(midi, vel = 100) {
       const rt = ctx.currentTime; g.gain.cancelScheduledValues(rt);
       g.gain.setTargetAtTime(0.0001, rt, 0.08); o1.stop(rt + 0.6); o2.stop(rt + 0.6);
     },
+    bend(c) { o1.detune.value = c; o2.detune.value = -9 + c; },
   };
 }
 export function playPad(index, vel = 110) { if (!ready) initAudio(); voices().scheduleDrum(index, vel, ctx.currentTime); }

@@ -149,8 +149,12 @@ export function deviceSignature(name = '', manufacturer = '') {
   s = s.replace(/midi(in|out)\d*/g, ' ');          // MIDIIN2 / MIDIOUT3
   s = s.replace(/\((?:bluetooth\s+)?midi(?:\s+(?:in|out))?\)/g, ' '); // (Bluetooth MIDI IN)
   s = s.replace(/[()\[\]]/g, ' ');
-  s = s.replace(/\bv\d\b/g, ' ');                    // trailing V2
+  s = s.replace(/\bv\d+\b/g, ' ');                  // separated revision: "SMK25 V2"
   s = s.replace(/[^a-z0-9]+/g, '');                 // collapse to token
+  // Revision suffix fused to the model ("SMK25V2" over BLE vs "SMK25" over USB)
+  // has no word boundary to match above, so strip it AFTER collapsing — otherwise
+  // the same physical controller is learned twice and never recalled.
+  s = s.replace(/v\d+$/, '');
   const mfr = String(manufacturer).toLowerCase().replace(/[^a-z0-9]+/g, '');
   return (s || 'device') + (mfr ? ':' + mfr : '');
 }
