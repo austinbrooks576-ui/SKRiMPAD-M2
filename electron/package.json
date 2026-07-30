@@ -1,7 +1,7 @@
 {
-  "name": "skrimpad-m2",
+  "name": "skrimpad-livex",
   "version": "1.0.0",
-  "description": "SKRiMPAD — music production studio for Windows",
+  "description": "SKRiMPAD LIVEx — plug in any controller, it draws itself and you play live",
   "main": "main.js",
   "repository": {
     "type": "git",
@@ -12,8 +12,8 @@
     "build:win": "electron-builder --win --x64 --publish never"
   },
   "build": {
-    "appId": "com.firstriff.studio",
-    "productName": "SKRiMPAD M2",
+    "appId": "com.firstriff.livex",
+    "productName": "SKRiMPAD LIVEx",
     "publish": [
       { "provider": "github", "owner": "austinbrooks576-ui", "repo": "SKRiMPAD-M2" }
     ],

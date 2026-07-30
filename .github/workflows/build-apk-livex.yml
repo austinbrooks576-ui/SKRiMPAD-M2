@@ -1,0 +1,75 @@
+name: Build APK (LIVEx)
+
+on:
+  push:
+    branches: [claude/skrimpad-livex]
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-apk-livex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD LIVEx Setup ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-livex-setup-${{ github.run_number }}
+          path: SKRiMPAD LIVEx Setup ${{ github.run_number }}.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: livex-v1.0.${{ github.run_number }}
+          name: SKRiMPAD LIVEx — Android — Setup ${{ github.run_number }}
+          body: |
+            **SKRiMPAD LIVEx** for Android — plug in any controller and it draws itself.
+
+            The moment a MIDI / BLE controller or gamepad connects, LIVEx identifies it,
+            **learns it** for instant recall, and renders a clean top-down **schematic**
+            of that exact hardware — keyboards scale and window with octave paging on
+            phone screens (the app re-fits orientation per device), pad banks + both A/B
+            shelves, knobs, wheels, and the full printed key legend. Playing lights up
+            the board; every element is drop- and tap-able. Displays and connects to
+            **all** attached controllers at once. BLE MIDI goes through the native
+            Android MIDI bridge.
+
+            Early build — identification, schematic, live mapping, and multi-device are
+            in; sound engine + loop/transport (record/play/export, BPM, metronome) next.
+
+            **Install:** Download `SKRiMPAD LIVEx Setup ${{ github.run_number }}.apk`,
+            enable "Install unknown apps" in Android settings, then open to install.
+          files: SKRiMPAD LIVEx Setup ${{ github.run_number }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

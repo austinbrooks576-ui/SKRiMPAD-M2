@@ -9,7 +9,7 @@ if (!file || !edition || !run) {
   console.error('usage: prep-electron-release.js <package.json> <se|consumer|vga> <runNumber>');
   process.exit(1);
 }
-const channel = edition === 'se' ? 'latest-se' : edition === 'vga' ? 'latest-vga' : 'latest';
+const channel = edition === 'se' ? 'latest-se' : edition === 'vga' ? 'latest-vga' : edition === 'livex' ? 'latest-livex' : 'latest';
 const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
 pkg.version = '1.0.' + run;                 // unique rising version per build
 pkg.skrimpadChannel = channel;              // read by main.js at runtime → autoUpdater.channel
