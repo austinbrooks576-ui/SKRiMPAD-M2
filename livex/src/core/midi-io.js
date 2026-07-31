@@ -2,8 +2,7 @@
 // native Android bridge. Normalizes everything to {status,d1,d2,cmd,chan,port}.
 // Ported from SKRiMPAD M2's proven handlers (hot-plug + BLE running-status parse).
 
-const BLE_MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
-const BLE_MIDI_CHAR = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+import { BLE_MIDI_SERVICE, BLE_MIDI_CHAR, createBleDecoder, looksLikeMidiName } from './ble-midi.js';
 
 export function createMidiIO({ onEvent, onPorts } = {}) {
   let access = null;
@@ -48,6 +47,22 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     fire();
   };
   const hasLiveData = () => lastDataAt > 0;
+
+  // RAW BLE packets from our own Android GATT stack. They go through the very
+  // same decoder the desktop Web Bluetooth path uses — one implementation of
+  // the BLE-MIDI packet format for every platform, with per-device state so
+  // several wireless controllers can play at once.
+  const bleCtx = new Map();
+  window.onNativeBLEPackets = (packets, addr, name) => {
+    if (!packets || !packets.length) return;
+    let ctx = bleCtx.get(addr);
+    if (!ctx) {
+      ctx = { port: { id: 'ble:' + addr, name: name || 'BLE MIDI', ble: true } };
+      ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+      bleCtx.set(addr, ctx);
+    }
+    for (let i = 0; i < packets.length; i++) ctx.decode(Uint8Array.from(packets[i]));
+  };
 
   function listInputs() { return access ? [...access.inputs.values()] : []; }
 
@@ -107,22 +122,13 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // running-status latch. Sharing either one means a second wireless controller
   // lands on the first one's board and corrupts its running-status stream — so
   // only one BLE device could ever really work at a time.
+  // Each device decodes with its OWN state (running status + any half-received
+  // SysEx). Sharing that between controllers corrupts both streams, which is why
+  // only one wireless device ever really worked before.
   function parseBLE(dv, ctx) {
-    const bytes = new Uint8Array(dv.buffer);
-    if (bytes.length < 3) return;
-    const st = ctx || { status: 0, port: { id: 'ble', name: bleName, ble: true } };
-    let i = 1; // skip BLE header byte
-    while (i < bytes.length) {
-      if (bytes[i] & 0x80) i++;                 // timestamp byte
-      if (i >= bytes.length) break;
-      if (bytes[i] & 0x80) { st.status = bytes[i]; i++; } // new status else running status
-      const type = st.status & 0xf0;
-      if (type < 0x80) break;
-      const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
-      const d = [st.status];
-      for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 0x80); k++) d.push(bytes[i++]);
-      if (d.length >= len + 1) emit(d, st.port);
-    }
+    const bytes = new Uint8Array(dv.buffer || dv);
+    if (!ctx.decode) ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+    ctx.decode(bytes);
   }
 
   function inputCount() { return access ? access.inputs.size : 0; }

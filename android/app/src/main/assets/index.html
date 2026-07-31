@@ -433,9 +433,89 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     console.info("[SKRiMPADxLIVEx] unrecognized controller \u2014 seed a pattern for:", { name, manufacturer });
   }
 
-  // livex/src/core/midi-io.js
+  // livex/src/core/ble-midi.js
   var BLE_MIDI_SERVICE = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
   var BLE_MIDI_CHAR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
+  var dataLenFor = (status) => {
+    const t = status & 240;
+    if (t === 192 || t === 208) return 1;
+    if (t === 240) {
+      if (status === 241 || status === 243) return 1;
+      if (status === 242) return 2;
+      return 0;
+    }
+    return 2;
+  };
+  function createBleDecoder(onMessage) {
+    let runningStatus = 0;
+    let sysex = null;
+    return function decode(bytes) {
+      if (!bytes || bytes.length < 1) return;
+      if (bytes.length < 2) return;
+      let i = 1;
+      while (i < bytes.length) {
+        const b = bytes[i];
+        if (sysex) {
+          if (b === 247) {
+            sysex.push(247);
+            onMessage(sysex);
+            sysex = null;
+            i++;
+            continue;
+          }
+          if (b & 128) {
+            i++;
+            continue;
+          }
+          sysex.push(b);
+          i++;
+          continue;
+        }
+        if (b & 128) {
+          i++;
+          if (i >= bytes.length) break;
+          const s = bytes[i];
+          if (s & 128) {
+            i++;
+            if (s === 240) {
+              sysex = [240];
+              continue;
+            }
+            if (s >= 248) {
+              onMessage([s]);
+              continue;
+            }
+            runningStatus = s < 240 ? s : 0;
+            const need2 = dataLenFor(s);
+            const msg2 = [s];
+            for (let k = 0; k < need2 && i < bytes.length && !(bytes[i] & 128); k++) msg2.push(bytes[i++]);
+            if (msg2.length === need2 + 1) onMessage(msg2);
+            continue;
+          }
+          if (!runningStatus) {
+            continue;
+          }
+          const need = dataLenFor(runningStatus);
+          const msg = [runningStatus];
+          for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 128); k++) msg.push(bytes[i++]);
+          if (msg.length === need + 1) onMessage(msg);
+          continue;
+        }
+        if (runningStatus) {
+          const need = dataLenFor(runningStatus);
+          const msg = [runningStatus];
+          for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 128); k++) msg.push(bytes[i++]);
+          if (msg.length === need + 1) {
+            onMessage(msg);
+            continue;
+          }
+        }
+        i++;
+      }
+    };
+  }
+
+  // livex/src/core/midi-io.js
   function createMidiIO({ onEvent, onPorts } = {}) {
     let access = null;
     let bleStatus = 0;
@@ -470,6 +550,17 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       fire();
     };
     const hasLiveData = () => lastDataAt > 0;
+    const bleCtx = /* @__PURE__ */ new Map();
+    window.onNativeBLEPackets = (packets, addr, name) => {
+      if (!packets || !packets.length) return;
+      let ctx2 = bleCtx.get(addr);
+      if (!ctx2) {
+        ctx2 = { port: { id: "ble:" + addr, name: name || "BLE MIDI", ble: true } };
+        ctx2.decode = createBleDecoder((msg) => emit(msg, ctx2.port));
+        bleCtx.set(addr, ctx2);
+      }
+      for (let i = 0; i < packets.length; i++) ctx2.decode(Uint8Array.from(packets[i]));
+    };
     function listInputs() {
       return access ? [...access.inputs.values()] : [];
     }
@@ -523,24 +614,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       return { mode: "none" };
     }
     function parseBLE(dv, ctx2) {
-      const bytes = new Uint8Array(dv.buffer);
-      if (bytes.length < 3) return;
-      const st = ctx2 || { status: 0, port: { id: "ble", name: bleName, ble: true } };
-      let i = 1;
-      while (i < bytes.length) {
-        if (bytes[i] & 128) i++;
-        if (i >= bytes.length) break;
-        if (bytes[i] & 128) {
-          st.status = bytes[i];
-          i++;
-        }
-        const type = st.status & 240;
-        if (type < 128) break;
-        const len = type === 192 || type === 208 ? 1 : 2;
-        const d = [st.status];
-        for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 128); k++) d.push(bytes[i++]);
-        if (d.length >= len + 1) emit(d, st.port);
-      }
+      const bytes = new Uint8Array(dv.buffer || dv);
+      if (!ctx2.decode) ctx2.decode = createBleDecoder((msg) => emit(msg, ctx2.port));
+      ctx2.decode(bytes);
     }
     function inputCount() {
       return access ? access.inputs.size : 0;
