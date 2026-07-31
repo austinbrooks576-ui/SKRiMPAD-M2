@@ -21,6 +21,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       padding: 8px 11px; border-radius: 6px; cursor: pointer; }
     .hbtn:hover { border-color: var(--acc); color: var(--acc); }
     .hbtn.on { background: var(--acc); color: var(--bg); border-color: var(--acc); }
+    /* While programming, make every loadable target obvious and the library read
+       as the thing you are about to tap. */
+    body.programming [data-drop] { cursor: pointer; }
+    body.programming .board { outline: 1px solid rgba(75,214,200,.35); outline-offset: 3px; }
+    body.programming #libList li { border-color: var(--acc); cursor: pointer; }
     #rec.on { background: #e0484f; border-color: #e0484f; color: #fff; }
     #play.on { background: var(--acc); border-color: var(--acc); color: var(--bg); }
     #transport { border: 1px solid #222c38; border-radius: 10px; padding: 8px 10px; }
@@ -83,6 +88,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="jp1">+ JP-1</button>
       <button class="hbtn" data-dev="jpmini">+ JP MINI</button>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
+      <button class="hbtn" id="program" title="Tap a pad or key (on screen or on your controller), then tap a sound to load it">⏺ PROGRAM</button>
       <button class="hbtn" id="mappads" title="Bind the drawn grid to YOUR controller — press pad 1, then 2, then 3…">⌗ MAP PADS</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
@@ -178,6 +184,69 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     const refreshEmpty = () => { empty.style.display = manager.boards.size ? 'none' : ''; refreshKbHint(); };
 
+    // ---- PROGRAM MODE --------------------------------------------------------
+    // Two taps to load a sound: tap the pad (on screen OR the real one on the
+    // controller), then tap the sound. Dragging a list item onto a 48px pad is
+    // fine with a mouse and miserable on a phone, and it cannot use the hardware
+    // at all. Mode stays on so a whole kit can be built without re-arming, and
+    // while it is on a hit ARMS rather than plays — otherwise every pick would
+    // fire the sound that is already loaded.
+    // It works in BOTH directions — pad-then-sound or sound-then-pad — because
+    // whichever you reach for first is the one you were thinking of. Each side
+    // just holds its half until the other arrives.
+    const program = {
+      on: false,
+      target: null,       // { board, el, role, id, label }  — the armed pad/key
+      sound: null,        // the armed library item
+      arm(v) {
+        this.on = v;
+        if (!v) { this.clear(); this.sound = null; }
+        const btn = $('#program');
+        btn.classList.toggle('on', v);
+        btn.textContent = v ? '⏺ PROGRAMMING' : '⏺ PROGRAM';
+        document.body.classList.toggle('programming', v);
+        lib.touch();
+        toast(v ? 'PROGRAM: tap a sound then a pad, or a pad then a sound'
+                : 'Program mode off');
+      },
+      // a pad/key was hit — either complete a pending sound, or wait for one
+      pick(board, el) {
+        const role = el.getAttribute('data-role');
+        const id = role === 'pad' ? +el.getAttribute('data-index') : +el.getAttribute('data-note');
+        const label = role === 'pad' ? 'PAD ' + (el.getAttribute('data-pad') || id + 1) : 'KEY ' + id;
+        if (this.sound) { this.assign(this.sound, { board, el, role, id, label }); return; }
+        this.clear();
+        el.setAttribute('stroke', 'var(--acc)');
+        el.setAttribute('stroke-width', '3');
+        this.target = { board, el, role, id, label };
+        toast(lib.items().length ? label + ' armed — now tap a sound'
+                                 : label + ' armed — import a sound first');
+      },
+      // a library sound was tapped — either complete a pending pad, or wait
+      pickSound(item) {
+        if (this.target) { this.assign(item, this.target); return; }
+        this.sound = item;
+        lib.touch();
+        toast('"' + item.name + '" armed — now tap a pad or key');
+      },
+      clear() {
+        if (this.target && this.target.el) {
+          this.target.el.removeAttribute('stroke');
+          this.target.el.setAttribute('stroke-width', '1.5');
+        }
+        this.target = null;
+      },
+      async assign(item, t) {
+        await lib.assign(item, t.role, t.id);
+        t.el.setAttribute('fill', '#4bd6c8');
+        setTimeout(() => { if (t.el) t.el.removeAttribute('fill'); }, 260);
+        this.clear();
+        this.sound = null;
+        lib.touch();
+        toast('✓ "' + item.name + '" → ' + t.label);
+      },
+    };
+
     // held key voices for note-off release + performance state
     // (pitch wheel bends every held voice; CC64 sustains releases; CC1 = brightness;
     // CC7 = master volume — the SKRiMPAD M2 input standard)
@@ -252,6 +321,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const manager = createDeviceManager({
       stage, litColor: '#4bd6c8', renderOpts: { maxWidth: 560 },
       onAction: (board, a) => {
+        // PROGRAM MODE — a hit picks the target instead of playing it, so you can
+        // arm a pad by hitting the PHYSICAL pad and never hunt for it on screen.
+        if (program.on && (a.type === 'pad' || a.type === 'noteon')) {
+          const el = a.type === 'pad'
+            ? board.body.querySelector('[data-role="pad"][data-index="' +
+                (a.index != null ? a.index : padIndexFor(board, a) % ((board.profile.pads && board.profile.pads.count) || 16)) + '"]')
+            : board.body.querySelector('[data-role="key"][data-note="' + a.note + '"]');
+          if (el) { program.pick(board, el); return; }
+        }
+        if (program.on && a.type === 'noteoff') return;   // swallow the release too
         if (a.type === 'octnav') {
           const kb = (board.lastSvg && board.lastSvg.__keyboard) || {};
           const max = Math.max(0, (kb.whiteTotal || 0) - (kb.visibleWhites || 0));
@@ -327,6 +406,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       return (a.bank || 0) * count + i;
     }
     window.__manager = manager; window.__transport = transport; window.__audio = audio;
+    window.__program = program;     // diagnostics / test hook for PROGRAM mode
     window.__mkIO = createMidiIO;   // diagnostics / test hook for the I/O layer
 
     // ---- library ----
@@ -337,19 +417,31 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         items.forEach((it, i) => {
           const li = document.createElement('li'); li.textContent = it.name; li.draggable = true; li.dataset.idx = i;
           if (i === libSel) li.style.borderColor = 'var(--acc)';
-          li.addEventListener('click', () => { libSel = i; lib.touch(); });
+          if (program.sound === it) { li.style.borderColor = 'var(--acc)'; li.style.background = 'rgba(75,214,200,.18)'; }
+          li.addEventListener('click', () => {
+            libSel = i;
+            // Tapping a sound always AUDITIONS it — you should hear what you are
+            // about to load, and hear it when just browsing too.
+            lib.preview(it);
+            if (program.on) program.pickSound(it);
+            else lib.touch();
+          });
           li.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/livex-sample', String(i)));
           ul.appendChild(li);
         });
       },
     });
+    window.__libApi = lib;   // diagnostics / test hook for the library
     // SPLASH the selected sound across every key (repitched), or clear it again.
-    $('#splash').addEventListener('click', () => {
+    $('#splash').addEventListener('click', async () => {
       const items = lib.items();
       if (!items.length) { toast('Import a sound first, then SPLASH it'); return; }
       if (audio.getSplash()) { audio.clearSplash(); $('#splash').classList.remove('on'); toast('Splash cleared — synth keys restored'); return; }
       const it = items[Math.min(libSel, items.length - 1)];
-      audio.setSplash(it.buffer, 60);
+      // items carry metadata only until played — fetch (or re-decode) the audio
+      const buf = await lib.bufferFor(it);
+      if (!buf) { toast('Could not load "' + it.name + '"'); return; }
+      audio.setSplash(buf, 60);
       $('#splash').classList.add('on');
       toast('🌊 “' + it.name + '” across all keys — per-key sounds still win');
     });
@@ -358,6 +450,25 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     ['dragenter', 'dragover'].forEach((ev) => $('#drop').addEventListener(ev, (e) => { e.preventDefault(); $('#drop').classList.add('hot'); }));
     ['dragleave', 'drop'].forEach((ev) => $('#drop').addEventListener(ev, () => $('#drop').classList.remove('hot')));
     $('#drop').addEventListener('drop', async (e) => { e.preventDefault(); const n = (await lib.importFiles(e.dataTransfer.files)).length; if (n) toast(n + ' sound(s) added'); });
+
+    // PROGRAM mode: a tap on the drawn board ARMS that pad/key instead of playing
+    // it. Captured on the stage so it lands before the board's own router sees the
+    // press — otherwise the pad would sound while you were only trying to pick it.
+    stage.addEventListener('pointerdown', (e) => {
+      if (!program.on) return;
+      const t = e.target.closest && e.target.closest('[data-role="pad"],[data-role="key"]');
+      if (!t) return;
+      const wrap = t.closest('.board');
+      const board = [...manager.boards.values()].find((b) => b.wrap === wrap);
+      if (!board) return;
+      e.preventDefault(); e.stopPropagation();
+      program.pick(board, t);
+    }, true);
+    $('#program').addEventListener('click', () => program.arm(!program.on));
+    // Esc leaves program mode before it reaches the panic handler
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && program.on) { program.arm(false); e.stopPropagation(); }
+    }, true);
 
     // ---- drop a sample onto a pad/key ----
     stage.addEventListener('dragover', (e) => { if (e.target.closest && e.target.closest('[data-drop]')) e.preventDefault(); });
@@ -541,6 +652,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         }
       } catch (e) { L.push('BT granted    : (unavailable)'); }
       L.push('data seen     : ' + (io.hasLiveData() ? 'YES' : 'NO — nothing has ever arrived'));
+      try {
+        const s = lib.stats();
+        L.push('library       : ' + s.count + ' sounds, ' + s.decoded + ' decoded in RAM (' +
+               s.pinned + ' pinned), ' + s.memMB + ' / ' + s.budgetMB + ' MB');
+      } catch (e) {}
       // NATIVE DEVICES, with every property Android actually holds. This is the
       // ground truth for "why did my controller not identify" — it shows which
       // property carries a name on THIS device instead of us assuming.
