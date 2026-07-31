@@ -25,8 +25,10 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.view.View
 import android.view.WindowManager
+import android.net.Uri
 import android.webkit.*
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -45,6 +47,21 @@ class MainActivity : AppCompatActivity() {
     private var bleScanCb: ScanCallback? = null
     private val BLE_PERMISSION_REQUEST = 1002
     private val BLE_MIDI_UUID = UUID.fromString("03b80e5a-ede8-4b33-a751-6ce34ec4c700")
+
+    // ---- WebView file picker ------------------------------------------------
+    // An <input type="file"> does NOTHING in a WebView unless the host implements
+    // onShowFileChooser — the tap is simply swallowed, with no error anywhere.
+    // That is why the library's "tap to browse" opened no file explorer.
+    // Registered as a field so it exists before the activity starts.
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val cb = fileChooserCallback
+            fileChooserCallback = null
+            cb?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            )
+        }
 
     // MIDI bridge — the WebView has no Web MIDI API, so USB / BLE controllers
     // are opened natively through android.media.midi and their raw bytes are
@@ -516,6 +533,45 @@ class MainActivity : AppCompatActivity() {
         webView.setBackgroundColor(0xFF0A0B0F.toInt())
 
         webView.webChromeClient = object : WebChromeClient() {
+            // THE file picker hook. Without it every <input type="file"> tap is
+            // silently dropped by the WebView, which is what made the library's
+            // "tap to browse" do nothing at all.
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                params: FileChooserParams?
+            ): Boolean {
+                // never leave a previous request hanging — that wedges the input
+                fileChooserCallback?.onReceiveValue(null)
+                fileChooserCallback = filePathCallback
+                return try {
+                    // Build the intent ourselves rather than using
+                    // params.createIntent(). A mixed accept list ("audio/*,.zip")
+                    // makes several Android pickers show ONLY audio and hide .zip
+                    // packs — so ask for anything, and advertise the types we want
+                    // as a hint instead of a filter.
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                            "audio/*", "application/zip", "application/x-zip-compressed",
+                            "application/octet-stream", "multipart/x-zip"
+                        ))
+                        putExtra(
+                            Intent.EXTRA_ALLOW_MULTIPLE,
+                            params?.mode == FileChooserParams.MODE_OPEN_MULTIPLE
+                        )
+                    }
+                    fileChooserLauncher.launch(intent)
+                    true
+                } catch (e: Exception) {
+                    fileChooserCallback = null
+                    filePathCallback?.onReceiveValue(null)
+                    Toast.makeText(this@MainActivity, "No file picker available", Toast.LENGTH_SHORT).show()
+                    false
+                }
+            }
+
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread {
                     request.grant(request.resources)
