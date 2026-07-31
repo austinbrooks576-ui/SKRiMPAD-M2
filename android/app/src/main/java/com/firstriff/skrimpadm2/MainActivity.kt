@@ -82,13 +82,42 @@ class MainActivity : AppCompatActivity() {
     // Tell the renderer WHICH devices are attached. Without this the APK only ever
     // learned about a controller when a note arrived, so a keyboard that was
     // plugged in but not yet played simply never appeared on screen.
+    // Harvest a REAL name for a MIDI device. PROPERTY_NAME is null on a great many
+    // controllers — notably BLE MIDI ones, where Android leaves it unset and keeps
+    // the advertised name on the BluetoothDevice instead. Falling straight back to
+    // the string "MIDI device" is what made a JamJum JP mini arrive nameless, and a
+    // nameless controller can never be recognised. Try every property that can
+    // carry a real name, most specific first, and only give up at the end.
+    private fun deviceLabel(info: MidiDeviceInfo): String {
+        val p = info.properties
+        val candidates = ArrayList<String?>()
+        candidates.add(p.getString(MidiDeviceInfo.PROPERTY_NAME))
+        candidates.add(p.getString(MidiDeviceInfo.PROPERTY_PRODUCT))
+        // BLE MIDI: the advertised name lives on the BluetoothDevice, not on NAME.
+        try {
+            val bt = p.getParcelable<android.bluetooth.BluetoothDevice>(MidiDeviceInfo.PROPERTY_BLUETOOTH_DEVICE)
+            if (bt != null) {
+                try { candidates.add(bt.name) } catch (se: SecurityException) {}   // needs BLUETOOTH_CONNECT
+                candidates.add(bt.address)
+            }
+        } catch (e: Exception) {}
+        try { for (pi in info.ports) candidates.add(pi.name) } catch (e: Exception) {}
+        val mf = p.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER)
+        for (c in candidates) {
+            val v = c?.trim() ?: continue
+            if (v.isEmpty() || v.equals("MIDI device", true) || v.equals("device", true)) continue
+            return if (!mf.isNullOrBlank() && !v.contains(mf, true) && v.length < 6) "$mf $v" else v
+        }
+        return if (!mf.isNullOrBlank()) mf else "MIDI DEVICE"
+    }
+
     private fun publishDeviceList(mm: MidiManager) {
         val sb = StringBuilder("[")
         try {
             for (info in mm.devices) {
                 if (info.outputPortCount <= 0) continue
-                val nm = (info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device").replace("'", "")
-                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "")
+                val nm = deviceLabel(info).replace("'", "").replace("\"", "")
+                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "").replace("\"", "")
                 if (sb.length > 1) sb.append(',')
                 sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
                   .append("\",\"manufacturer\":\"").append(mf).append("\"}")
@@ -103,7 +132,7 @@ class MainActivity : AppCompatActivity() {
     // stream its bytes to the WebView as a JSON int array.
     private fun openMidiInput(mm: MidiManager, info: MidiDeviceInfo) {
         if (info.outputPortCount <= 0) return
-        val name = info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device"
+        val name = deviceLabel(info)
         mm.openDevice(info, { device -> attachMidiDevice(device, name) }, Handler(Looper.getMainLooper()))
     }
 
