@@ -7405,7 +7405,9 @@ function updateMidiStatus() {
   const el = document.getElementById('midi-status'); if (!el) return;
   if (nativeMidiOn && !midiAccess) return; // native bridge manages its own status line
   if (!midiAccess) { el.textContent = 'MIDI off'; return; }
-  const names = [...midiAccess.inputs.values()].map(i => i.name).join(', ');
+  const list = [...midiAccess.inputs.values()].map(i => i.name);
+  notePadOnlyDevices(list);   // JP-1 / JP mini / nanoPAD → pad-only mode + 4x4
+  const names = list.join(', ');
   el.textContent = midiAccess.inputs.size ? '🟢 ' + names.slice(0, 40) : 'No MIDI devices — plug one in';
 }
 // General-MIDI drum note → our pad index. Drum pads on a controller send these
@@ -7427,12 +7429,66 @@ const GM_DRUM_MAP = {
   75: 13,                 // claves → CLAVE
   60: 5, 61: 6, 62: 9, 63: 5, 64: 6, 67: 10, 68: 10 // congas/bongos/agogo → nearest voice
 };
+// ---- PAD-ONLY CONTROLLERS + PAD-GRID AUTO-LEARN -----------------------------
+// A JamJum JP-1 / JP mini, Korg nanoPAD, Launchpad or MPD has NO keybed, so
+// every note it sends is a pad. Two things make the GM table above useless for
+// them: they are freely reassignable in their vendor software (none of these
+// units publishes a default note map), and they ship on MIDI channel 1 as often
+// as channel 10 — so a channel-10-only rule leaves their pads completely dead.
+//
+// Instead we learn the grid from what the hardware actually plays: notes sorted
+// ascending map to pads 1..N left-to-right, top-to-bottom — the order all these
+// units number their pads and the order buildPads() draws them.
+const PAD_ONLY_RE = /jam\s?jum|\bjp[-\s]?1\b|\bjp[-\s]?mini\b|nano\s?pad|nanopad|launchpad|\bmpd\b|maschine|beatstep|\bpad\s?kontrol\b/i;
+let padOnlyDevice = false;      // a pad-only controller is attached
+const padGrid = { notes: [], map: {} };
+// Called with every connected port name. Turns pad-only mode on/off and, when a
+// 16-pad grid shows up, switches the on-screen bank to 4x4 so the app's layout
+// matches the hardware in front of you.
+function notePadOnlyDevices(names) {
+  const hay = (names || []).join(' ');
+  const was = padOnlyDevice;
+  padOnlyDevice = PAD_ONLY_RE.test(hay);
+  if (padOnlyDevice && !was) {
+    padGrid.notes = []; padGrid.map = {};   // new device, learn it fresh
+    if (/jam\s?jum|\bjp[-\s]?1\b|\bjp[-\s]?mini\b|launchpad|maschine/i.test(hay)) {
+      const grew = ensurePadCount(16);   // a 16-pad controller deserves 16 pads
+      if (padLayoutId !== '4x4') setPadLayout('4x4');
+      toast('🎹 16-pad grid detected — pads switched to 4x4' + (grew ? ' (+' + grew + ' new pads)' : ''));
+    }
+  }
+}
+// Grow the kit so every pad on the controller has somewhere to land. A JP-1 or
+// JP mini has 16; shipping a 14-voice kit would silently fold its last two pads
+// back onto the first two. Adds quietly and rebuilds the UI once.
+function ensurePadCount(n) {
+  let added = 0;
+  while (drumDefs.length < n) {
+    drumDefs.push({ name: 'PAD ' + (drumDefs.length + 1), color: NEW_PAD_COLORS[drumDefs.length % NEW_PAD_COLORS.length], fn: playClave, vol: 0.5 });
+    seqPatterns.push(new Array(SEQ_STEPS).fill(false));
+    added++;
+  }
+  if (added) rebuildDrumUI();
+  return added;
+}
+// Fold a note from a pad-only controller into the grid, keeping pads ordered by
+// note. Returns the pad index this note now owns.
+function learnPadNote(d1) {
+  if (padGrid.map['n' + d1] != null) return padGrid.map['n' + d1];
+  padGrid.notes.push(d1);
+  padGrid.notes.sort((a, b) => a - b);
+  padGrid.map = {};
+  padGrid.notes.forEach((n, i) => { padGrid.map['n' + n] = i % Math.max(1, drumDefs.length); });
+  return padGrid.map['n' + d1];
+}
 // Resolve a MIDI note to a drum pad, or -1 for "this is a key". Priority:
-// 1) an explicit learned binding, 2) channel-10 GM drums, 3) opt-in key-split.
+// 1) an explicit learned binding, 2) channel-10 GM drums, 3) a pad-only
+// controller's learned grid (any channel), 4) opt-in key-split.
 function midiPadFor(d1, chan) {
   const b = midiMap.notes['n' + d1];
   if (b !== undefined && b >= 0 && b < drumDefs.length) return b;
   if (chan === 9 && GM_DRUM_MAP[d1] != null && GM_DRUM_MAP[d1] < drumDefs.length) return GM_DRUM_MAP[d1];
+  if (padOnlyDevice) { const g = learnPadNote(d1); if (g >= 0 && g < drumDefs.length) return g; }
   if (midiMap.padsFromKeys && d1 < midiMap.keySplit) { const p = d1 - midiMap.padBase; if (p >= 0 && p < drumDefs.length) return p; }
   return -1;
 }
@@ -7495,8 +7551,15 @@ function onMIDI(e) {
         else if (n.sample) n.sample.playbackRate.setTargetAtTime(n.sample.playbackRate.value * Math.pow(2, synth.pitchBend / 12) / (n._lastBend || 1), ctx.currentTime, 0.005);
       } catch (e) {}
     });
-  } else if (cmd === 0xc0) { // PROGRAM CHANGE — step through the key voices
-    if (typeof keyFilters !== 'undefined' && keyFilters.length) {
+  } else if (cmd === 0xc0) { // PROGRAM CHANGE
+    // On a pad-only controller (the JP mini sends PC by design, and has no
+    // keybed to voice) this steps the PAD BANK instead of the key voices.
+    if (padOnlyDevice) {
+      const size = (PAD_LAYOUTS[padLayoutId] || PAD_LAYOUTS['3x3']).size;
+      const nBanks = Math.max(1, Math.ceil(drumDefs.length / size));
+      padBank = d1 % nBanks; buildPads();
+      toast('🥁 Pad bank ' + (padBank + 1));
+    } else if (typeof keyFilters !== 'undefined' && keyFilters.length) {
       const f = keyFilters[d1 % keyFilters.length]; synth.keyMode = f;
       if (typeof applyKeyMode === 'function') applyKeyMode(f);
       if (typeof renderModeButtons === 'function') renderModeButtons();
@@ -7504,6 +7567,13 @@ function onMIDI(e) {
     }
   } else if (cmd === 0xd0) { // channel aftertouch → filter shimmer
     synth.filtCut = 300 + (d1 / 127) * 7700;
+  } else if (cmd === 0xa0) { // POLY KEY PRESSURE
+    // The JP-1's pads are pressure sensitive and report per pad while held, so
+    // squeezing a pad rides that pad's level. On a keyboard it just shimmers the
+    // filter like channel pressure does.
+    const pi = midiPadFor(d1, chan);
+    if (pi >= 0 && drumDefs[pi]) drumDefs[pi].vol = Math.max(0.05, d2 / 127);
+    else synth.filtCut = 300 + (d2 / 127) * 7700;
   } else if (cmd === 0xb0) { // CONTROL CHANGE
     const v = d2 / 127;
     if (midiCC[d1] != null) { drumDefs[midiCC[d1]] && (drumDefs[midiCC[d1]].vol = v); } // learned knob → pad
@@ -7558,7 +7628,10 @@ window.onNativeMIDIMessage = function (arr) {
   if (!audioReady) initAudio();
   feedRawMIDI(arr);
 };
-window.onNativeMIDIStatus = function (txt) { const el = document.getElementById('midi-status'); if (el) el.textContent = txt; };
+window.onNativeMIDIStatus = function (txt) {
+  notePadOnlyDevices([String(txt || '')]);   // status lines carry the device name
+  const el = document.getElementById('midi-status'); if (el) el.textContent = txt;
+};
 // Batched MIDI — the bridge coalesces a frame's worth of packets into one call
 // so a chatty controller cannot flood the WebView (that flood froze the app).
 window.onNativeMIDIBatch = function (list) {
@@ -7578,6 +7651,7 @@ window.onNativeBLEPackets = function (packets, addr, name) {
 // The attached-device list, so a controller that is plugged in but not yet
 // played still reports itself instead of leaving the app looking dead.
 window.onNativeMIDIDevices = function (list) {
+  notePadOnlyDevices((list || []).map(function (d) { return d.name; }));
   const el = document.getElementById('midi-status');
   if (!el) return;
   el.textContent = (list && list.length)
