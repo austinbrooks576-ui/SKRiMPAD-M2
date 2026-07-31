@@ -649,13 +649,15 @@ body.se-active #se-root{
    and is compact so it never covers the front window. Tapping it still brings it
    forward via seRaise(). */
 #se-hud-wrap{position:absolute;top:50%;left:50%;transform:translate(-50%,-52%);z-index:38;
-  width:min(40vh,300px);height:min(40vh,300px);pointer-events:none;}
+  width:min(30vh,215px);height:min(30vh,215px);pointer-events:none;}
 #se-hud{width:100%;height:100%;display:block;filter:drop-shadow(0 0 24px rgba(var(--se-glow-rgb),.28));}
 #se-hud-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;}
 #se-hud-label .sub{font-size:9px;letter-spacing:.42em;color:var(--se-paper);opacity:.75;margin-top:5px;}
 #se-hud-label .kanji{font-size:13px;letter-spacing:.3em;color:var(--se-accent);margin-bottom:7px;}
 /* the AI lives in the center of the HUD */
-#se-ai-input{width:170px;padding:8px 12px;border-radius:18px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.8);
+/* the console has to live inside the smaller node — cap it to the node's width
+   rather than a fixed 170px, which would spill past the ring on a phone */
+#se-ai-input{width:min(150px,34vw);padding:7px 10px;border-radius:16px;border:1px solid var(--se-line);background:rgba(var(--se-ink-rgb),.8);
   color:var(--se-glow);font-family:var(--se-font);font-size:11px;letter-spacing:.06em;text-align:center;outline:none;display:block;}
 #se-ai-input::placeholder{color:var(--se-paper);opacity:.45;}
 #se-ai-input:focus{box-shadow:0 0 16px rgba(var(--se-glow-rgb),.5);}
@@ -858,7 +860,7 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
 .daw-knob input{width:100%;}
 @media (max-width:760px){
   #daw-heads{width:130px;}
-  #se-hud-wrap{width:52vw;height:52vw;top:42%;}
+  #se-hud-wrap{width:40vw;height:40vw;top:42%;}
   /* the drop-shadow filter re-rasterizes the HUD canvas every frame — on a
      phone GPU that fights the audio pipeline, so the glow comes off */
   #se-hud{filter:none;}
@@ -8267,12 +8269,27 @@ let seOn = false, seHudRAF = null, seParked = [], seWasStudio = false, seParticl
 // z-stack for click-to-front: the AI HUD node sits at 46; a focused window or
 // the tapped AI node rises above everything via this rising counter.
 let seWinZ = 47;
-function seRaise(el) { if (el) el.style.zIndex = ++seWinZ; }
+function seRaise(el) {
+  if (!el) return;
+  el.style.zIndex = ++seWinZ;
+  // Raising the AI node used to be PERMANENT: the inline z-index it wrote sat
+  // above every window forever, so one tap on the node left it covering whatever
+  // you opened next. Touching anything else now drops the node back to its
+  // resting layer (its CSS z-index, below .se-mod), so it is in front only while
+  // it is the thing you last reached for.
+  const hud = document.getElementById('se-hud-wrap');
+  if (hud && el !== hud) hud.style.zIndex = '';
+}
 function seBindHudFront() {
   const hud = document.getElementById('se-hud-wrap');
   if (!hud || hud._frontBound) return; hud._frontBound = true;
-  // tapping the AI node (or its console) brings it in front of any window
-  hud.addEventListener('pointerdown', () => { if (!seRevolve) seRaise(hud); }, true);
+  // The AI node STAYS BEHIND the windows. It used to raise itself on tap, and
+  // because that wrote an inline z-index it then covered every window opened
+  // afterwards — including one opened from the dock, which never raised itself.
+  // The node is the centrepiece, not a panel; a window you brought forward must
+  // always sit on top of it. Its console is still live whenever nothing covers
+  // it, so nothing is lost by leaving it at rest.
+  hud.style.zIndex = '';
 }
 // Which live DOM panel powers each module id (re-parented, then returned home on exit)
 const SE_SOURCE = { pads: 'pads-panel', seq: 'seq-panel', keys: 'keys-panel', mixer: 'faders-panel', synth: 'synth-panel', fx: 'fx-panel', lib: 'lib-panel' };
