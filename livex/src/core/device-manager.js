@@ -152,6 +152,37 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     return b;
   }
 
+  // A board built before its device had a name — the Android bridge can deliver
+  // bytes a beat before the device list, and BLE controllers often report no name
+  // at first — would otherwise stay an unidentified 4-pad control surface forever,
+  // because identification only ran at creation. So when a real name turns up later
+  // on a board that never got one, identify AGAIN and redraw, carrying across
+  // whatever the probe has already learned about the grid.
+  const GENERIC_NAME = /^(midi\s*device|midi|device|ble\s*midi|unknown)?$/i;
+  function relabelBoard(b, name) {
+    if (!name || GENERIC_NAME.test(String(name).trim())) return false;
+    const cur = String(b.profile.portName || '');
+    if (cur === name) return false;
+    // only upgrade a board that is still unidentified — never overwrite a match
+    if (b.profile.id && !GENERIC_NAME.test(cur.trim())) return false;
+    const learned = b.profile.pads;
+    const upgraded = identifyMidiInput({ name });
+    upgraded.portName = name;
+    upgraded.source = b.profile.source;
+    // carry the learned grid across so nothing the device already taught us is lost
+    if (learned && learned.learned && upgraded.pads) {
+      upgraded.pads.notes = learned.notes;
+      upgraded.pads.noteMap = learned.noteMap;
+      upgraded.pads.learned = true;
+    }
+    b.profile = upgraded;
+    if (b.probe) b.probe = createProbe(b.profile, {});
+    b.router = null;                       // rebuilt by renderBoard against the new profile
+    renderBoard(b);
+    onBoards && onBoards(boards);
+    return true;
+  }
+
   // Route a normalized MIDI event to the board owning its port; unknown ports from
   // the native/BLE bridges materialize their own board on the first event.
   function routeMidi(ev) {
@@ -159,6 +190,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     if (pid) {
       for (const b of boards.values()) {
         if (b.ports.has(pid)) {
+          if (ev.port.name) relabelBoard(b, ev.port.name);
           probeFeed(b, ev);
           b.router.handleMidi(ev);
           return;
@@ -167,6 +199,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     }
     if (ev.port && (ev.port.native || ev.port.ble)) {
       const b = ensureAdhocBoard(ev);
+      if (ev.port.name) relabelBoard(b, ev.port.name);
       probeFeed(b, ev);
       b.router.handleMidi(ev);
       return;

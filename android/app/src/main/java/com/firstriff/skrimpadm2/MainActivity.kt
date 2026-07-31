@@ -82,13 +82,46 @@ class MainActivity : AppCompatActivity() {
     // Tell the renderer WHICH devices are attached. Without this the APK only ever
     // learned about a controller when a note arrived, so a keyboard that was
     // plugged in but not yet played simply never appeared on screen.
+    // Harvest a REAL name for a MIDI device. PROPERTY_NAME is null on a great many
+    // controllers — notably BLE MIDI ones, where Android leaves it unset and keeps
+    // the advertised name on the BluetoothDevice instead. Falling straight back to
+    // the string "MIDI device" is what made a JamJum JP mini arrive nameless: with
+    // no name the renderer can match no profile, so it drew the blank unknown-device
+    // face instead of a 4x4 grid. Try every property that can carry a real name,
+    // most specific first, and only give up at the end.
+    private fun deviceLabel(info: MidiDeviceInfo): String {
+        val p = info.properties
+        val candidates = ArrayList<String?>()
+        candidates.add(p.getString(MidiDeviceInfo.PROPERTY_NAME))
+        candidates.add(p.getString(MidiDeviceInfo.PROPERTY_PRODUCT))
+        // BLE MIDI: the advertised name lives on the BluetoothDevice, not on NAME.
+        try {
+            val bt = p.getParcelable<android.bluetooth.BluetoothDevice>(MidiDeviceInfo.PROPERTY_BLUETOOTH_DEVICE)
+            if (bt != null) {
+                try { candidates.add(bt.name) } catch (se: SecurityException) {}   // needs BLUETOOTH_CONNECT
+                candidates.add(bt.address)
+            }
+        } catch (e: Exception) {}
+        // last resort before the generic label: the port's own name
+        try { for (pi in info.ports) candidates.add(pi.name) } catch (e: Exception) {}
+        val mf = p.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER)
+        for (c in candidates) {
+            val v = c?.trim() ?: continue
+            if (v.isEmpty() || v.equals("MIDI device", true) || v.equals("device", true)) continue
+            // Prefix the manufacturer when the name alone is too generic to match on
+            // ("MIDI 1", "Port A") — "JamJum JP mini" identifies, "MIDI 1" cannot.
+            return if (!mf.isNullOrBlank() && !v.contains(mf, true) && v.length < 6) "$mf $v" else v
+        }
+        return if (!mf.isNullOrBlank()) mf else "MIDI DEVICE"
+    }
+
     private fun publishDeviceList(mm: MidiManager) {
         val sb = StringBuilder("[")
         try {
             for (info in mm.devices) {
                 if (info.outputPortCount <= 0) continue
-                val nm = (info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device").replace("'", "")
-                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "")
+                val nm = deviceLabel(info).replace("'", "").replace("\"", "")
+                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "").replace("\"", "")
                 if (sb.length > 1) sb.append(',')
                 sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
                   .append("\",\"manufacturer\":\"").append(mf).append("\"}")
@@ -103,8 +136,9 @@ class MainActivity : AppCompatActivity() {
     // stream its bytes to the WebView as a JSON int array.
     private fun openMidiInput(mm: MidiManager, info: MidiDeviceInfo) {
         if (info.outputPortCount <= 0) return
-        val name = info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device"
-        mm.openDevice(info, { device -> attachMidiDevice(device, name) }, Handler(Looper.getMainLooper()))
+        val name = deviceLabel(info)
+        val portId = "nat" + info.id
+        mm.openDevice(info, { device -> attachMidiDevice(device, name, portId) }, Handler(Looper.getMainLooper()))
     }
 
     // MIDI → WebView pump. Messages are buffered and flushed at most once per
@@ -115,27 +149,50 @@ class MainActivity : AppCompatActivity() {
     private var midiFlushScheduled = false
     private val midiHandler = Handler(Looper.getMainLooper())
 
-    private fun queueMidiToJs(arrayLiteral: String) {
+    // The bytes must carry WHICH device sent them. Without that, every packet was
+    // attributed to one synthetic port called "MIDI DEVICE", so it never matched
+    // the named device published by publishDeviceList() — the named board sat there
+    // receiving nothing while a second, nameless board owned all the traffic. That
+    // is exactly the "single row of 4 pads called MIDI DEVICE" symptom.
+    private var midiBatchPort = "native"
+    private var midiBatchName = "MIDI DEVICE"
+
+    private fun queueMidiToJs(arrayLiteral: String, portId: String = "native", portName: String = "MIDI DEVICE") {
         synchronized(midiQueue) {
+            // A batch belongs to one device. If a different controller sends while a
+            // batch is pending, flush what we have first so nothing is misattributed.
+            if (midiQueue.isNotEmpty() && portId != midiBatchPort) {
+                val pending = midiQueue.toList(); val pPort = midiBatchPort; val pName = midiBatchName
+                midiQueue.clear()
+                midiHandler.post { emitMidiBatch(pending, pPort, pName) }
+            }
+            midiBatchPort = portId; midiBatchName = portName
             if (midiQueue.size > 256) midiQueue.removeFirst()   // shed load, never grow forever
             midiQueue.addLast(arrayLiteral)
             if (midiFlushScheduled) return
             midiFlushScheduled = true
         }
         midiHandler.postDelayed({
-            val batch: List<String>
+            val batch: List<String>; val port: String; val name: String
             synchronized(midiQueue) {
                 midiFlushScheduled = false
                 if (midiQueue.isEmpty()) return@postDelayed
                 batch = midiQueue.toList(); midiQueue.clear()
+                port = midiBatchPort; name = midiBatchName
             }
-            val js = "window.onNativeMIDIBatch && onNativeMIDIBatch([" + batch.joinToString(",") + "])"
-            try { webView.evaluateJavascript(js, null) } catch (e: Exception) {}
+            emitMidiBatch(batch, port, name)
         }, 16)
     }
 
+    private fun emitMidiBatch(batch: List<String>, portId: String, portName: String) {
+        val safeId = portId.replace("'", ""); val safeName = portName.replace("'", "")
+        val js = "window.onNativeMIDIBatch && onNativeMIDIBatch([" + batch.joinToString(",") +
+                 "],'" + safeId + "','" + safeName + "')"
+        try { webView.evaluateJavascript(js, null) } catch (e: Exception) {}
+    }
+
     // Shared for USB + BLE — connect a MidiReceiver to the device's output port.
-    private fun attachMidiDevice(device: MidiDevice?, name: String) {
+    private fun attachMidiDevice(device: MidiDevice?, name: String, portId: String = "native") {
         if (device == null) return                       // not a MIDI device (e.g. a bonded headset) — stay quiet
         val port = device.openOutputPort(0) ?: run { try { device.close() } catch (e: Exception) {}; return } // no MIDI-out port
         openMidiDevices.add(device)
@@ -160,7 +217,7 @@ class MainActivity : AppCompatActivity() {
                     i++
                 }
                 if (sb.isEmpty()) return
-                queueMidiToJs("[$sb]")
+                queueMidiToJs("[$sb]", portId, name)
             }
         })
         jsMidiStatus("🟢 $name")

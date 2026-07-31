@@ -80,13 +80,21 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // the globals never exist and the APK hears nothing at all. Defining them up
   // front costs nothing on desktop and removes the whole failure mode.
   let nativeName = 'MIDI DEVICE';
-  const nativePort = () => ({ id: 'native', name: nativeName, native: true });
-  window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
+  // The bridge tells us WHICH device a batch came from. That identity is what
+  // joins the incoming bytes to the named device published by the device list —
+  // without it every packet landed on one synthetic "MIDI DEVICE" port, so the
+  // named board received nothing and a nameless one owned all the traffic.
+  const nativePort = (id, name) => ({
+    id: id || 'native',
+    name: name || nativeName,
+    native: true,
+  });
+  window.onNativeMIDIMessage = (bytes, id, name) => emit(Array.from(bytes), nativePort(id, name));
   // batched form — the bridge coalesces a frame's worth of packets into one call
   // so a chatty controller can't flood the WebView
-  window.onNativeMIDIBatch = (list) => {
+  window.onNativeMIDIBatch = (list, id, name) => {
     if (!list || !list.length) return;
-    const p = nativePort();
+    const p = nativePort(id, name);
     for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
   };
   window.onNativeMIDIStatus = (txt) => {

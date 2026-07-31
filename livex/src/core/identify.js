@@ -155,32 +155,58 @@ export function createProbe(profile, { onUpdate } = {}) {
   return { feed, refine, seen };
 }
 
+// ---- pad numbering ----------------------------------------------------------
+// Pads on these grids are numbered from the BOTTOM-LEFT, running left→right and
+// upward: pad 1 bottom-left, pad 4 bottom-right, pad 16 top-right (confirmed on
+// the JamJum JP mini in hand; it is also the MPC convention these units follow).
+// We DRAW top-down, so the two orders are not the same and must be converted —
+// getting this backwards mirrors the whole grid vertically, which is the sort of
+// thing that only shows up once you're actually playing it.
+//
+//   padNumberAt(drawIndex) → the number printed on that pad, 1-based
+//   drawIndexOfPad(padNo)  → where pad N lands in draw order, 0-based
+export function padNumberAt(drawIndex, rows, cols) {
+  const r = Math.floor(drawIndex / cols), c = drawIndex % cols;
+  return (rows - 1 - r) * cols + c + 1;
+}
+export function drawIndexOfPad(padNo /* 0-based */, rows, cols) {
+  const r = Math.floor(padNo / cols), c = padNo % cols;
+  return (rows - 1 - r) * cols + c;
+}
+
 // ---- pad-grid auto-learn ----------------------------------------------------
 // The JamJum JP-1, JP mini and M-Vave SMK-25 all let you reassign every pad's
 // note in their vendor software, and none of them publish a default note table.
 // Hard-coding GM drum notes therefore mis-maps any unit the owner has touched.
 // Instead we learn the grid from what the hardware actually plays:
 //
-//   notes sorted ascending → pad 1..N reading left-to-right, top-to-bottom
-//   (the order the pads are numbered on all three units, and the order
-//   schematic.js draws them), overflowing into the next bank past N.
+//   notes sorted ascending → pad 1..N in HARDWARE order (bottom-left, going
+//   right then up), then converted into draw order, overflowing into the next
+//   bank past N.
 //
 // Writes two things onto the pads block:
-//   notes[]  — the bank-A note per pad, used for the drawn `data-note`
-//   noteMap  — { note: padIndex } across ALL banks, so a pad still lights and
+//   notes[]  — the bank-A note per DRAWN pad, used for the drawn `data-note`
+//   noteMap  — { note: drawIndex } across ALL banks, so a pad still lights and
 //              fires after a bank switch changes the notes it sends.
 export function learnPadGrid(pads, padNotes) {
   if (!pads || pads.learn === false || !padNotes || !padNotes.size) return pads;
   const notes = [...padNotes].sort((a, b) => a - b);
   const count = pads.count || nextPadCount(notes.length);
+  if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
+  const [rows, cols] = pads.layout;
   // Grow the grid if the unit clearly has more pads than the seed claimed, but
   // never past what its bank count can explain.
   const cap = count * (pads.banks || 1);
   const map = {};
-  notes.slice(0, cap).forEach((n, i) => { map[n] = i % count; });
+  const drawn = new Array(count);
+  notes.slice(0, cap).forEach((n, i) => {
+    const padNo = i % count;                       // hardware pad, 0-based
+    const di = drawIndexOfPad(padNo, rows, cols);  // where that pad is drawn
+    map[n] = di;
+    if (i < count) drawn[di] = n;
+  });
   pads.count = count;
-  if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
-  pads.notes = notes.slice(0, count);
+  pads.notes = drawn;
   pads.noteMap = map;
   pads.learned = true;
   return pads;

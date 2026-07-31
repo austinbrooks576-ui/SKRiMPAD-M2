@@ -13,6 +13,7 @@
 //   data-hold   = "1" on elements that open the 6s hold menu (apk)
 
 import { DEFAULT_THEME, contraryColor } from '../styles/theme.js';
+import { padNumberAt } from './identify.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const BLACK_PCS = new Set([1, 3, 6, 8, 10]); // semitone classes that are accidentals
@@ -130,20 +131,28 @@ function drawPads(parent, pads, theme) {
   // Learned note per pad wins over the GM default — see learnPadGrid() in
   // identify.js. Pads not yet played keep the GM note so the board is playable
   // by touch from the first frame.
-  const noteFor = (i) => (pads.notes && pads.notes[i] != null ? pads.notes[i] : gmDrumNote(i));
+  // GM fallback follows the same hardware numbering, so the default kick lands on
+  // pad 1 at the bottom-left rather than wherever the draw order happens to start.
+  const noteFor = (i) => (pads.notes && pads.notes[i] != null
+    ? pads.notes[i]
+    : gmDrumNote(padNumberAt(i, rows, cols) - 1));
   let i = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols && i < pads.count; c++, i++) {
       const x = c * (PAD + PAD_GAP), y = r * (PAD + PAD_GAP);
       const gr = g(parent, x, y);
       const learned = !!(pads.notes && pads.notes[i] != null);
+      // Pads are numbered from the BOTTOM-LEFT going right then up — pad 1 at the
+      // bottom-left, pad 16 at the top-right — matching the hardware. We draw
+      // top-down, so the printed number is not the draw index.
+      const padNo = padNumberAt(i, rows, cols);
       el('rect', {
         x: 0, y: 0, width: PAD, height: PAD, rx: 7,
         fill: 'none', stroke: learned ? theme.accent : theme.ink, 'stroke-width': learned ? 1.8 : 1.5,
-        'data-role': 'pad', 'data-index': i, 'data-note': noteFor(i),
+        'data-role': 'pad', 'data-index': i, 'data-pad': padNo, 'data-note': noteFor(i),
         'data-drop': '1', 'data-hold': '1',
       }, gr);
-      label(gr, PAD / 2, PAD / 2 + 3, 'PAD ' + (i + 1), theme.mute, 8);
+      label(gr, PAD / 2, PAD / 2 + 3, 'PAD ' + padNo, theme.mute, 8);
     }
   }
   return { w: cols * (PAD + PAD_GAP) - PAD_GAP, h: rows * (PAD + PAD_GAP) - PAD_GAP };
