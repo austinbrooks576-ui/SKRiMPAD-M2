@@ -271,6 +271,11 @@ body.lib-dragging{cursor:copy;}
 .lib-sound[draggable]{cursor:grab;}
 .drop-hi{outline:2px dashed var(--teal,#3fd6d0) !important;outline-offset:-2px;box-shadow:0 0 0 3px rgba(63,214,208,.35) !important;}
 .lib-tab.on{background:var(--purple);color:#fff;border-color:var(--purple);}
+/* MY SOUNDS filed GROUP > KIND — headers span the whole grid so the sounds
+   underneath still flow in columns. */
+.lib-head{grid-column:1/-1;font-weight:800;letter-spacing:.16em;text-transform:uppercase;padding:8px 2px 2px;}
+.lib-head-group{font-size:10px;color:var(--acc,#4bd6c8);border-bottom:1px solid var(--bdr);}
+.lib-head-kind{font-size:8px;color:var(--dim,#8792ab);padding-top:4px;letter-spacing:.12em;}
 .lib-sound{padding:8px 10px;border-radius:var(--r2);border:1.5px solid var(--bdr);background:var(--surf2);color:var(--txt);font-size:10px;font-weight:700;cursor:pointer;text-align:center;transition:all .12s;position:relative;}
 .lib-sound:hover{border-color:var(--teal);color:var(--teal);}
 .lib-sound:active{background:var(--teal);color:#000;}
@@ -5016,7 +5021,29 @@ function buildSoundLibGrid() {
     const gridDiv = document.getElementById(gridId);
     if (!gridDiv) return;
     gridDiv.innerHTML = '';
-    (SOUND_LIB[libCategory] || []).forEach(s => {
+    // MY SOUNDS is where every import lands, so it is the one that needs
+    // filing — GROUP > KIND headers, in a fixed musical order. The built-in
+    // categories are already single-purpose and stay as flat lists.
+    const all = SOUND_LIB[libCategory] || [];
+    const seq = [];
+    if (libCategory === 'MY SOUNDS' && all.length > 3) {
+      for (const { group, kinds } of groupSounds(all)) {
+        seq.push({ header: group, level: 'group' });
+        for (const [kind, list] of kinds) {
+          seq.push({ header: kind + '  (' + list.length + ')', level: 'kind' });
+          list.forEach(s => seq.push({ sound: s }));
+        }
+      }
+    } else all.forEach(s => seq.push({ sound: s }));
+    seq.forEach(row => {
+      if (row.header) {
+        const h = document.createElement('div');
+        h.className = 'lib-head lib-head-' + row.level;
+        h.textContent = row.header;
+        gridDiv.appendChild(h);
+        return;
+      }
+      const s = row.sound;
       const btn = document.createElement('div');
       btn.className = 'lib-sound';
       const origin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
@@ -5432,10 +5459,89 @@ function makeEditable(el, getVal, setVal, label) {
   addLongPress(el, fn);
 }
 
+// ---- SOUND TAXONOMY --------------------------------------------------------
+// Everything imported lands in MY SOUNDS, and a flat list there is unusable the
+// moment a pack arrives — you cannot find the kick among 300 items. Each sound
+// is filed GROUP > KIND from its name, and when the name says nothing
+// ("01.wav") from the AUDIO ITSELF: duration plus zero-crossing rate separates
+// a kick from a hat from a pad without the cost of an FFT.
+// First match wins, so specific rules ("kick") sit above general ones ("drum").
+const SOUND_GROUPS = ['DRUMS', 'PERCUSSION', 'BASS', 'SYNTH', 'KEYS', 'GUITAR', 'VOCAL', 'FX', 'LOOPS', 'OTHER'];
+const KIND_RULES = [
+  [/kick|\bbd\b|bassdrum|bass[\s_-]?drum|\b808\b|thump/i, 'DRUMS', 'KICK'],
+  [/snare|\bsd\b|rimshot|side[\s_-]?stick|\brim\b/i, 'DRUMS', 'SNARE'],
+  [/clap|hand[\s_-]?clap/i, 'DRUMS', 'CLAP'],
+  [/hi[\s_-]?hat|hihat|\bhat\b|\bhh\b|closed|open[\s_-]?h/i, 'DRUMS', 'HAT'],
+  [/\btom\b|floor[\s_-]?tom|rack[\s_-]?tom|tom[\s_-]?\d/i, 'DRUMS', 'TOM'],
+  [/crash|\bride\b|splash|china|cymbal|\bcym\b/i, 'DRUMS', 'CYMBAL'],
+  [/\bsnap\b|finger[\s_-]?snap/i, 'DRUMS', 'SNAP'],
+  [/conga|bongo|djembe|tabla|cajon|timbale|taiko|darbuka/i, 'PERCUSSION', 'HAND DRUM'],
+  [/shaker|tambourine|\btamb\b|maraca|cabasa|guiro|cowbell|clave|wood[\s_-]?block|triangle|agogo/i, 'PERCUSSION', 'SHAKER'],
+  [/\bperc\b|percussion/i, 'PERCUSSION', 'PERC'],
+  [/sub[\s_-]?bass|\bsub\b/i, 'BASS', 'SUB'],
+  [/reese|growl|wobble|neuro/i, 'BASS', 'REESE'],
+  [/bass|bassline|\bbs\b/i, 'BASS', 'BASS'],
+  [/pluck|\bplk\b|stab/i, 'SYNTH', 'PLUCK'],
+  [/\bpads?\b|warm[\s_-]?pad|atmos|drone/i, 'SYNTH', 'PAD'],
+  [/lead|\barp\b|arpeggio|acid/i, 'SYNTH', 'LEAD'],
+  [/bells?|chime|glock|celesta|kalimba|music[\s_-]?box/i, 'SYNTH', 'BELL'],
+  [/brass|\bhorn\b|trumpet|\bsax\b|trombone/i, 'SYNTH', 'BRASS'],
+  [/strings?|violin|cello|orchestra/i, 'SYNTH', 'STRINGS'],
+  [/synth|\bsaw\b|square|\bsine\b|\bosc\b/i, 'SYNTH', 'SYNTH'],
+  [/piano|rhodes|wurli|e[\s_-]?piano|\bclav\b|organ|harpsi/i, 'KEYS', 'KEYS'],
+  [/guitar|\bgtr\b|acoustic|strum|\briff\b/i, 'GUITAR', 'GUITAR'],
+  [/\bvox\b|vocal|voice|acap|chant|choir|adlib|spoken/i, 'VOCAL', 'VOCAL'],
+  [/riser|uplifter|downlifter|sweep|whoosh|impact|\bboom\b|braam|siren|noise|foley|ambien|texture/i, 'FX', 'FX'],
+  [/reverse|\brev\b/i, 'FX', 'REVERSE'],
+  [/\bloop\b|\bbeat\b|groove|break/i, 'LOOPS', 'LOOP'],
+  [/melody|melodic|chords?|progression/i, 'LOOPS', 'MELODIC'],
+  [/drums?|\bkit\b/i, 'DRUMS', 'DRUM'],
+];
+function classifySound(name, buf) {
+  const n = String(name || '');
+  for (const [re, group, kind] of KIND_RULES) if (re.test(n)) return { group, kind };
+  if (buf) return classifyByAudio(buf);
+  return { group: 'OTHER', kind: 'SAMPLE' };
+}
+function classifyByAudio(buf) {
+  const dur = buf.duration, d = buf.getChannelData(0), n = d.length;
+  let zc = 0, peak = 0, energy = 0, samples = 0;
+  const step = Math.max(1, Math.floor(n / 40000));
+  for (let i = step; i < n; i += step) {
+    const a = d[i - step], b = d[i];
+    if ((a < 0 && b >= 0) || (a >= 0 && b < 0)) zc++;
+    const abs = Math.abs(b); if (abs > peak) peak = abs;
+    energy += abs; samples++;
+  }
+  const zcr = samples ? zc / samples : 0, avg = samples ? energy / samples : 0;
+  const sustained = avg > peak * 0.18;
+  if (dur > 4) return { group: 'LOOPS', kind: 'LOOP' };
+  if (dur > 1.2 && sustained) return { group: 'SYNTH', kind: zcr > 0.22 ? 'PAD' : 'BASS' };
+  if (dur <= 0.22 && zcr > 0.30) return { group: 'DRUMS', kind: 'HAT' };
+  if (dur <= 0.50 && zcr > 0.18) return { group: 'DRUMS', kind: 'SNARE' };
+  if (dur <= 0.90 && zcr < 0.08) return { group: 'DRUMS', kind: 'KICK' };
+  if (dur <= 1.20) return { group: 'PERCUSSION', kind: 'PERC' };
+  return { group: 'OTHER', kind: 'SAMPLE' };
+}
+// Group a list of sounds GROUP > KIND, groups in a fixed musical order and only
+// those that actually contain something.
+function groupSounds(list) {
+  const by = new Map();
+  for (const s of list) {
+    const cls = (s.group && s.kind) ? s : Object.assign(s, classifySound(s.name, s.buf));
+    if (!by.has(cls.group)) by.set(cls.group, new Map());
+    const kg = by.get(cls.group);
+    if (!kg.has(cls.kind)) kg.set(cls.kind, []);
+    kg.get(cls.kind).push(s);
+  }
+  return SOUND_GROUPS.filter(g => by.has(g)).map(g => ({ group: g, kinds: by.get(g) }));
+}
+
 // ---- MY SOUNDS — every import and generated sound lands here ----
 SOUND_LIB['MY SOUNDS'] = [];
 function libAddBuffer(name, sub, buf, persist) {
-  const entry = { name: name.slice(0, 18).toUpperCase(), sub, buf, fn: t => playSampleBuf(buf, t, 1, 0.9) };
+  const cls = classifySound(name, buf);
+  const entry = { name: name.slice(0, 18).toUpperCase(), sub, buf, group: cls.group, kind: cls.kind, fn: t => playSampleBuf(buf, t, 1, 0.9) };
   SOUND_LIB['MY SOUNDS'].unshift(entry);
   if (persist && buf.duration <= 70) idbSave(entry).catch(() => {});
   return entry;
