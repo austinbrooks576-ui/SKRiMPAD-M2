@@ -287,14 +287,31 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
     const py = y + h - v * h;
     line.setAttribute('y1', py); line.setAttribute('y2', py);
   }
-  // knob index -> CC: knob 1 is volume (CC7), knob 2 tone (CC1), rest are free
-  const knobCC = (i) => (i === 0 ? 7 : i === 1 ? 1 : 20 + i);
+  // EVERY KNOB HAS A JOB. Knob n drives the n-th performance parameter and
+  // reports the STANDARD CC for that job, so a hardware knob sending that CC and
+  // the drawn knob move the same thing. Previously only knobs 1 and 2 were wired
+  // and the rest emitted CC 22-27, which nothing listened to — six of the eight
+  // knobs on a JP-1 did nothing at all.
+  //   1 VOL(7)  2 TONE(1)  3 CUTOFF(74)  4 RES(71)
+  //   5 ATTACK(73)  6 RELEASE(72)  7 SPACE(91)  8 DRUMS(76)
+  const KNOB_JOBS = [
+    { param: 'volume', cc: 7 }, { param: 'tone', cc: 1 },
+    { param: 'cutoff', cc: 74 }, { param: 'resonance', cc: 71 },
+    { param: 'attack', cc: 73 }, { param: 'release', cc: 72 },
+    { param: 'space', cc: 91 }, { param: 'drums', cc: 76 },
+  ];
+  const knobJob = (i) => KNOB_JOBS[i % KNOB_JOBS.length];
+  const knobCC = (i) => knobJob(i).cc;
 
   function setKnob(el, v) {
     const i = +el.getAttribute('data-index');
     v = Math.max(0, Math.min(1, v));
     knobVals.set(i, v); paintKnob(el, v);
-    onAction && onAction({ type: 'cc', cc: knobCC(i), val: Math.round(v * 127), bank: state.knobBank, source: 'knob', index: i });
+    const job = knobJob(i);
+    onAction && onAction({
+      type: 'cc', cc: job.cc, val: Math.round(v * 127),
+      param: job.param, bank: state.knobBank, source: 'knob', index: i,
+    });
   }
   function setWheel(el, v) {
     const name = el.getAttribute('data-name');

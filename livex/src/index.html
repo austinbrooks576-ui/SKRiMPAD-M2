@@ -51,7 +51,18 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     #stage { display: flex; flex-direction: column; align-items: center; gap: 18px; flex: 1; }
     .board { width: 100%; max-width: 620px; }
     .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
-    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
+    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc);
+      padding: 3px 2px 5px; opacity: .85; display: flex; align-items: center; gap: 8px; }
+    .board-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* close THIS board — for clearing a duplicate without wiping the rest */
+    .board-x { appearance: none; background: transparent; border: 1px solid var(--mut); color: var(--mut);
+      border-radius: 5px; width: 22px; height: 20px; line-height: 1; font-size: 11px; cursor: pointer; flex: none; }
+    .board-x:hover { border-color: #e0484f; color: #e0484f; }
+    /* library filed under GROUP > KIND */
+    #libList .lib-group { background: transparent; border: 0; color: var(--acc); font-size: 9px;
+      letter-spacing: .2em; padding: 8px 2px 3px; margin: 0; cursor: default; }
+    #libList .lib-kind { background: transparent; border: 0; border-bottom: 1px solid #222c38; color: var(--mut);
+      font-size: 8px; letter-spacing: .14em; padding: 3px 2px; margin: 0 0 3px; cursor: default; }
     .board-b svg { max-width: 100%; height: auto; touch-action: none; }
     /* every drawn control is live — show it */
     .board-b [data-role="key"], .board-b [data-role="pad"],
@@ -247,6 +258,21 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       },
     };
 
+    // Standard CC -> performance parameter. These are the numbers hardware
+    // actually sends for these jobs, so a controller's knobs land correctly
+    // whether or not the app drew them.
+    const CC_PARAM = { 7: 'volume', 1: 'tone', 74: 'cutoff', 71: 'resonance',
+                       73: 'attack', 72: 'release', 91: 'space', 76: 'drums' };
+    // A knob sweep is a stream of values — announce it, but throttled, so the
+    // readout stays useful instead of machine-gunning.
+    let paramToastAt = 0;
+    function showParam(param, v01) {
+      const now = Date.now();
+      if (now - paramToastAt < 260) return;
+      paramToastAt = now;
+      toast((audio.PARAM_LABEL[param] || param.toUpperCase()) + '  ' + Math.round(v01 * 100) + '%');
+    }
+
     // held key voices for note-off release + performance state
     // (pitch wheel bends every held voice; CC64 sustains releases; CC1 = brightness;
     // CC7 = master volume — the SKRiMPAD M2 input standard)
@@ -362,18 +388,43 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         else if (a.type === 'allnotesoff') allNotesOff();
         else if (a.type === 'kboctave') toast('Octave ' + (a.octave > 0 ? '+' : '') + a.octave);
         else if (a.type === 'button') {
-          if (a.name === 'bt') $('#bt').click();
-          else toast(String(a.name).toUpperCase() + ' — hold a key to use it');
+          // EVERY DRAWN BUTTON COMPLETES A FUNCTION. These used to toast "hold a
+          // key to use it" and do nothing — including the JP-1's six programmable
+          // buttons, which are a third of that controller's surface.
+          const B = {
+            bt: () => $('#bt').click(),
+            arp: () => { transport.play(); toast('▶ Loop running'); },
+            scch: () => { $('#sync').click(); },
+            b1: () => { $('#metro').click(); },
+            b2: () => { $('#sync').click(); },
+            b3: () => { $('#clearloop').click(); },
+            b4: () => { transport.nextChannel(); paintDeck(); toast('Loop ' + (transport.state().armed + 1)); },
+            b5: () => { allNotesOff(); toast('✋ Panic — all notes stopped'); },
+            b6: () => { $('#splash').click(); },
+          };
+          const fn = B[a.name];
+          if (fn) fn();
+          else toast(String(a.name).toUpperCase());
         }
         else if (a.type === 'pad') { const pi = padIndexFor(board, a); audio.playPad(pi, a.vel); transport.recordPad(pi, a.vel); }
         else if (a.type === 'gpbutton') { const pi = a.index % 16; audio.playPad(pi, 110); transport.recordPad(pi, 110); }
         else if (a.type === 'transport') { if (a.name === 'play') transport.play(); else if (a.name === 'stop') transport.stop(); else if (a.name === 'rec') transport.toggleRecord(); }
         else if (a.type === 'cc') {
-          if (a.cc === 7) { audio.setMasterVolume(a.val / 127); $('#vol').value = String(a.val / 127); }
-          else if (a.cc === 1) audio.setBrightness(a.val / 127);
-          else if (a.cc === 64) {
+          // EVERY KNOB DOES SOMETHING. A drawn knob names its own job; a hardware
+          // knob is matched by the standard CC for that job, so both land on the
+          // same parameter and agree with each other.
+          if (a.cc === 64) {
             sustainOn = a.val >= 64;
             if (!sustainOn) { for (const v of sustained.splice(0)) v.release(); }
+          } else if (a.cc === 10) {
+            audio.setPan(a.val / 127);
+          } else {
+            const param = a.param || CC_PARAM[a.cc];
+            if (param) {
+              audio.setParam(param, a.val / 127);
+              if (param === 'volume') $('#vol').value = String(a.val / 127);
+              showParam(param, a.val / 127);
+            }
           }
         }
         else if (a.type === 'pitch') {
@@ -414,23 +465,39 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const lib = createLibrary({
       onChange: (items) => {
         const ul = $('#libList'); ul.innerHTML = '';
-        items.forEach((it, i) => {
-          const li = document.createElement('li'); li.textContent = it.name; li.draggable = true; li.dataset.idx = i;
-          if (i === libSel) li.style.borderColor = 'var(--acc)';
-          if (program.sound === it) { li.style.borderColor = 'var(--acc)'; li.style.background = 'rgba(75,214,200,.18)'; }
-          li.addEventListener('click', () => {
-            libSel = i;
-            // Tapping a sound always AUDITIONS it — you should hear what you are
-            // about to load, and hear it when just browsing too.
-            lib.preview(it);
-            if (program.on) program.pickSound(it);
-            else lib.touch();
-          });
-          li.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/livex-sample', String(i)));
-          ul.appendChild(li);
-        });
+        // Filed under GROUP > KIND. A flat list is unusable the moment a pack
+        // lands; this puts the kick next to the kicks and the pads next to pads.
+        const idxOf = new Map(items.map((it, i) => [it, i]));
+        for (const { group, kinds } of lib.grouped()) {
+          const gh = document.createElement('li');
+          gh.className = 'lib-group'; gh.textContent = group;
+          ul.appendChild(gh);
+          for (const [kind, list] of kinds) {
+            const kh = document.createElement('li');
+            kh.className = 'lib-kind'; kh.textContent = kind + '  (' + list.length + ')';
+            ul.appendChild(kh);
+            list.forEach((it) => renderItem(it, idxOf.get(it), ul));
+          }
+        }
       },
     });
+    // one library row
+    function renderItem(it, i, ul) {
+      const li = document.createElement('li');
+      li.className = 'lib-item'; li.textContent = it.name; li.draggable = true; li.dataset.idx = i;
+      if (i === libSel) li.style.borderColor = 'var(--acc)';
+      if (program.sound === it) { li.style.borderColor = 'var(--acc)'; li.style.background = 'rgba(75,214,200,.18)'; }
+      li.addEventListener('click', () => {
+        libSel = i;
+        // Tapping a sound always AUDITIONS it — you should hear what you are
+        // about to load, and hear it when just browsing too.
+        lib.preview(it);
+        if (program.on) program.pickSound(it);
+        else lib.touch();
+      });
+      li.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/livex-sample', String(i)));
+      ul.appendChild(li);
+    }
     window.__libApi = lib;   // diagnostics / test hook for the library
     // SPLASH the selected sound across every key (repitched), or clear it again.
     $('#splash').addEventListener('click', async () => {

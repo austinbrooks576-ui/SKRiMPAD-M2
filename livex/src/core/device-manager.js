@@ -29,18 +29,43 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
   function makeContainer(sig, title) {
     const wrap = document.createElement('div');
     wrap.className = 'board'; wrap.dataset.sig = sig;
-    const head = document.createElement('div'); head.className = 'board-h'; head.textContent = title || sig;
+    const head = document.createElement('div'); head.className = 'board-h';
+    const name = document.createElement('span'); name.className = 'board-name';
+    name.textContent = title || sig;
+    // Close THIS face. A controller that arrives by more than one route, or a
+    // demo board added just to look at, otherwise stacks up with no way to clear
+    // one of them — CLEAR wipes every board at once.
+    const x = document.createElement('button');
+    x.className = 'board-x'; x.textContent = '✕';
+    x.title = 'Remove this board';
+    x.addEventListener('click', (e) => { e.stopPropagation(); removeBoard(sig); });
+    head.appendChild(name); head.appendChild(x);
     const body = document.createElement('div'); body.className = 'board-b';
     wrap.appendChild(head); wrap.appendChild(body);
     stage.appendChild(wrap);
     return { wrap, body };
   }
 
+  // Drop one board and everything it owns. A device that is still physically
+  // attached can come back on its next event — that is intended: the ✕ clears
+  // duplicates, it is not a mute switch for hardware.
+  function removeBoard(sig) {
+    const b = boards.get(sig);
+    if (!b) return false;
+    if (b.probeTimer) clearTimeout(b.probeTimer);
+    if (b.liveTimer) clearTimeout(b.liveTimer);
+    if (b.router && b.router.releaseAllTaps) { try { b.router.releaseAllTaps(); } catch (e) {} }
+    b.wrap.remove();
+    boards.delete(sig);
+    onBoards && onBoards(boards);
+    return true;
+  }
+
   function renderBoard(b) {
     b.body.innerHTML = '';
     b.lastSvg = renderSchematic(b.profile, { ...renderOpts, startWhite: b.startWhite });
     b.body.appendChild(b.lastSvg);
-    const head = b.wrap.querySelector('.board-h');
+    const head = b.wrap.querySelector('.board-name');
     if (head) head.textContent = b.profile.portName || b.profile.id || b.sig;
     // ARCHITECTURE rule: re-fit orientation/scale on EVERY new input — a wide
     // 61/88-key board wants landscape, a compact pad bank fits portrait. CSS does
@@ -320,6 +345,6 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
   return {
     syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard,
     addDemoBoard, clear, boards, renderBoard,
-    beginPadMap, cancelPadMap, padMapActive, finishPadMap,
+    beginPadMap, cancelPadMap, padMapActive, finishPadMap, removeBoard,
   };
 }

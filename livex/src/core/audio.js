@@ -31,10 +31,30 @@ function buildBuses(c, dest) {
 
   const drum = c.createGain(); drum.gain.value = 1.0;   // straight through, no ducking
 
-  tone.connect(toneComp); toneComp.connect(out);
-  drum.connect(out);
-  out.connect(limiter); limiter.connect(dest);
-  return { out, tone, drum };
+  // PERFORMANCE STAGE — the parameters the hardware knobs actually move.
+  // Without these a controller's knobs emit CC into nothing: only volume and
+  // brightness were wired, so six of the eight knobs on a JP-1 did nothing at
+  // all. Every knob now lands on a real node in this chain.
+  const filter = c.createBiquadFilter();      // sweepable master lowpass
+  filter.type = 'lowpass'; filter.frequency.value = 20000; filter.Q.value = 0.7;
+  const panner = c.createStereoPanner ? c.createStereoPanner() : null;
+
+  // SPACE — a cheap stereo echo used as a send, so "reverb" costs almost
+  // nothing on a phone but still opens the mix up.
+  const spaceSend = c.createGain(); spaceSend.gain.value = 0;
+  const dl = c.createDelay(1.0); dl.delayTime.value = 0.19;
+  const fb = c.createGain(); fb.gain.value = 0.34;
+  const damp = c.createBiquadFilter(); damp.type = 'lowpass'; damp.frequency.value = 3200;
+  spaceSend.connect(dl); dl.connect(damp); damp.connect(fb); fb.connect(dl);
+  damp.connect(out);
+
+  tone.connect(toneComp); toneComp.connect(filter);
+  drum.connect(filter);
+  filter.connect(out);
+  tone.connect(spaceSend); drum.connect(spaceSend);
+  if (panner) { out.connect(panner); panner.connect(limiter); } else { out.connect(limiter); }
+  limiter.connect(dest);
+  return { out, tone, drum, filter, panner, spaceSend };
 }
 
 export function initAudio() {
@@ -44,8 +64,51 @@ export function initAudio() {
   if (ctx.state === 'suspended') ctx.resume();
   const b = buildBuses(ctx, ctx.destination);
   master = b.out; toneBus = b.tone; drumBus = b.drum;
+  perf.filter = b.filter; perf.panner = b.panner; perf.spaceSend = b.spaceSend;
   ready = true;
   return ctx;
+}
+
+// ---- PERFORMANCE PARAMETERS -------------------------------------------------
+// One named function per knob, so a controller's knobs all DO something. Values
+// are 0..1 as they arrive from a CC; the mapping to musical range lives here so
+// every caller (hardware knob, on-screen knob, mouse drag) behaves identically.
+const perf = { filter: null, panner: null, spaceSend: null };
+export const PARAMS = ['volume', 'tone', 'cutoff', 'resonance', 'attack', 'release', 'space', 'drums'];
+export const PARAM_LABEL = {
+  volume: 'VOL', tone: 'TONE', cutoff: 'CUTOFF', resonance: 'RES',
+  attack: 'ATTACK', release: 'RELEASE', space: 'SPACE', drums: 'DRUMS',
+};
+const paramVals = { volume: 0.85, tone: 0.5, cutoff: 1, resonance: 0, attack: 0, release: 0.35, space: 0, drums: 1 };
+export function getParam(name) { return paramVals[name]; }
+export function getParams() { return Object.assign({}, paramVals); }
+
+export function setParam(name, v01) {
+  if (!(name in paramVals)) return false;
+  const v = Math.max(0, Math.min(1, v01));
+  paramVals[name] = v;
+  if (!ready) initAudio();
+  switch (name) {
+    case 'volume': setMasterVolume(v); break;
+    case 'tone': setBrightness(v); break;
+    // exponential sweep — a linear cutoff knob is unusable, all the action
+    // would sit in the last few degrees of travel
+    case 'cutoff': if (perf.filter) perf.filter.frequency.value = 80 * Math.pow(250, v); break;
+    case 'resonance': if (perf.filter) perf.filter.Q.value = 0.7 + v * 18; break;
+    case 'attack': envAttack = v * v * 1.2; break;          // 0 … 1.2s, fine at the low end
+    case 'release': envRelease = 0.05 + v * 2.5; break;
+    case 'space': if (perf.spaceSend) perf.spaceSend.gain.value = v * 0.55; break;
+    case 'drums': if (drumBus) drumBus.gain.value = v * 1.4; break;
+    default: return false;
+  }
+  return true;
+}
+// envelope shape used by noteOn — the ATTACK and RELEASE knobs move these
+let envAttack = 0.01, envRelease = 0.35;
+export function getEnv() { return { attack: envAttack, release: envRelease }; }
+export function setPan(v01) {
+  if (!ready) initAudio();
+  if (perf.panner) perf.panner.pan.value = (Math.max(0, Math.min(1, v01)) - 0.5) * 2;
 }
 export function output() { return master; }
 export function toneOut() { return toneBus; }
@@ -183,13 +246,18 @@ export function noteOn(midi, vel = 100, bendCents = 0) {
   const f = freqFromMidi(midi); o1.frequency.value = f; o2.frequency.value = f;
   o1.detune.value = bendCents;
   lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7 * brightness);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01);
+  // ATTACK and RELEASE knobs shape the voice here — a slow attack swells the
+  // note in, a long release lets it ring after the key is lifted.
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(v, t + Math.max(0.006, envAttack));
   o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(toneBus);
   o1.start(t); o2.start(t);
   return {
     release() {
       const rt = ctx.currentTime; g.gain.cancelScheduledValues(rt);
-      g.gain.setTargetAtTime(0.0001, rt, 0.08); o1.stop(rt + 0.6); o2.stop(rt + 0.6);
+      const rel = Math.max(0.05, envRelease);
+      g.gain.setTargetAtTime(0.0001, rt, rel / 4);
+      o1.stop(rt + rel + 0.2); o2.stop(rt + rel + 0.2);
     },
     bend(c) { o1.detune.value = c; o2.detune.value = -9 + c; },
   };

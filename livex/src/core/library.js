@@ -21,6 +21,92 @@
 import { context, initAudio, setSample } from './audio.js';
 
 const AUDIO_EXT = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|wma|caf|au)$/i;
+
+// ---- SOUND TAXONOMY ---------------------------------------------------------
+// A flat list of file names is useless once a pack lands — you cannot find the
+// kick among 300 items. Every sound is filed into GROUP > KIND from its name
+// and, when the name says nothing, from what the audio itself looks like.
+// Order matters: the first pattern that matches wins, so specific rules
+// ("kick") sit above general ones ("drum").
+export const SOUND_GROUPS = ['DRUMS', 'PERCUSSION', 'BASS', 'SYNTH', 'KEYS', 'GUITAR', 'VOCAL', 'FX', 'LOOPS', 'OTHER'];
+const KIND_RULES = [
+  // DRUMS — the kit
+  [/kick|\bbd\b|bassdrum|bass[\s_-]?drum|\b808\b|thump/i, 'DRUMS', 'KICK'],
+  [/snare|\bsd\b|rimshot|side[\s_-]?stick|\brim\b/i, 'DRUMS', 'SNARE'],
+  [/clap|hand[\s_-]?clap/i, 'DRUMS', 'CLAP'],
+  [/hi[\s_-]?hat|hihat|\bhat\b|\bhh\b|closed|open[\s_-]?h/i, 'DRUMS', 'HAT'],
+  [/\btom\b|floor[\s_-]?tom|rack[\s_-]?tom|tom[\s_-]?\d/i, 'DRUMS', 'TOM'],
+  [/crash|\bride\b|splash|china|cymbal|\bcym\b/i, 'DRUMS', 'CYMBAL'],
+  [/\bsnap\b|finger[\s_-]?snap/i, 'DRUMS', 'SNAP'],
+  // PERCUSSION — everything else you hit
+  [/conga|bongo|djembe|tabla|cajon|timbale|taiko|darbuka/i, 'PERCUSSION', 'HAND DRUM'],
+  [/shaker|tambourine|\btamb\b|maraca|cabasa|guiro|cowbell|clave|wood[\s_-]?block|triangle|agogo/i, 'PERCUSSION', 'SHAKER'],
+  [/\bperc\b|percussion/i, 'PERCUSSION', 'PERC'],
+  // BASS
+  [/sub[\s_-]?bass|\bsub\b/i, 'BASS', 'SUB'],
+  [/reese|growl|wobble|neuro/i, 'BASS', 'REESE'],
+  [/bass|bassline|\bbs\b/i, 'BASS', 'BASS'],
+  // SYNTH
+  [/pluck|\bplk\b|stab/i, 'SYNTH', 'PLUCK'],
+  [/\bpads?\b|warm[\s_-]?pad|atmos|drone/i, 'SYNTH', 'PAD'],
+  [/lead|\barp\b|arpeggio|acid/i, 'SYNTH', 'LEAD'],
+  [/bells?|chime|glock|celesta|kalimba|music[\s_-]?box/i, 'SYNTH', 'BELL'],
+  [/brass|\bhorn\b|trumpet|\bsax\b|trombone/i, 'SYNTH', 'BRASS'],
+  [/strings?|violin|cello|orchestra/i, 'SYNTH', 'STRINGS'],
+  [/synth|\bsaw\b|square|\bsine\b|\bosc\b/i, 'SYNTH', 'SYNTH'],
+  // KEYS
+  [/piano|rhodes|wurli|e[\s_-]?piano|\bclav\b|organ|harpsi/i, 'KEYS', 'KEYS'],
+  // GUITAR
+  [/guitar|\bgtr\b|acoustic|strum|\briff\b/i, 'GUITAR', 'GUITAR'],
+  // VOCAL
+  [/\bvox\b|vocal|voice|acap|chant|choir|adlib|spoken/i, 'VOCAL', 'VOCAL'],
+  // FX
+  [/riser|uplifter|downlifter|sweep|whoosh|impact|\bboom\b|braam|siren|noise|foley|ambien|texture/i, 'FX', 'FX'],
+  [/reverse|\brev\b/i, 'FX', 'REVERSE'],
+  // LOOPS
+  [/\bloop\b|\bbeat\b|groove|break/i, 'LOOPS', 'LOOP'],
+  [/melody|melodic|chords?|progression/i, 'LOOPS', 'MELODIC'],
+  // last resort for anything that only says "drum"
+  [/drums?|\bkit\b/i, 'DRUMS', 'DRUM'],
+];
+
+// Classify from the name, falling back to the AUDIO ITSELF when the name says
+// nothing ("sample-3.wav", "01.wav") — length and brightness tell you a great
+// deal about whether something is a kick, a hat, or a pad.
+export function classifySound(name, buffer) {
+  const n = String(name || '');
+  for (const [re, group, kind] of KIND_RULES) if (re.test(n)) return { group, kind };
+  if (buffer) return classifyByAudio(buffer);
+  return { group: 'OTHER', kind: 'SAMPLE' };
+}
+
+function classifyByAudio(buf) {
+  const dur = buf.duration;
+  const d = buf.getChannelData(0);
+  const n = d.length;
+  // Zero-crossing rate separates bright noise (hats, snares) from low tonal
+  // content (kicks, bass) without the cost of an FFT.
+  let zc = 0, peak = 0, energy = 0, samples = 0;
+  const step = Math.max(1, Math.floor(n / 40000));
+  for (let i = step; i < n; i += step) {
+    const a = d[i - step], b = d[i];
+    if ((a < 0 && b >= 0) || (a >= 0 && b < 0)) zc++;
+    const abs = Math.abs(b);
+    if (abs > peak) peak = abs;
+    energy += abs; samples++;
+  }
+  const zcr = samples ? zc / samples : 0;
+  const avg = samples ? energy / samples : 0;
+  const sustained = avg > peak * 0.18;          // stays loud = held, not a hit
+
+  if (dur > 4) return { group: 'LOOPS', kind: 'LOOP' };
+  if (dur > 1.2 && sustained) return { group: 'SYNTH', kind: zcr > 0.22 ? 'PAD' : 'BASS' };
+  if (dur <= 0.22 && zcr > 0.30) return { group: 'DRUMS', kind: 'HAT' };
+  if (dur <= 0.50 && zcr > 0.18) return { group: 'DRUMS', kind: 'SNARE' };
+  if (dur <= 0.90 && zcr < 0.08) return { group: 'DRUMS', kind: 'KICK' };
+  if (dur <= 1.20) return { group: 'PERCUSSION', kind: 'PERC' };
+  return { group: 'OTHER', kind: 'SAMPLE' };
+}
 const DB_NAME = 'skrimpad-livex-library';
 const STORE = 'sounds';
 const ASSIGN_KEY = 'skrimpad_livex_assigns';
@@ -102,8 +188,11 @@ export function createLibrary({ onChange } = {}) {
     } catch (e) { return null; }
   }
 
-  async function store(id, name, arrayBuffer, dur) {
-    await tx(db, 'readwrite', (s) => s.put({ id, name, data: arrayBuffer, dur, added: Date.now() }));
+  async function store(id, name, arrayBuffer, dur, cls) {
+    await tx(db, 'readwrite', (s) => s.put({
+      id, name, data: arrayBuffer, dur, added: Date.now(),
+      group: cls && cls.group, kind: cls && cls.kind,
+    }));
   }
 
   // Decode + register. `keep` is the pristine copy that goes to disk —
@@ -113,10 +202,14 @@ export function createLibrary({ onChange } = {}) {
     const keep = arrayBuffer.slice(0);
     try {
       const buf = await context().decodeAudioData(arrayBuffer);
-      const it = { id: nextId++, name: name || ('sample-' + (items.length + 1)), dur: buf.duration, size: keep.byteLength };
+      const nm = name || ('sample-' + (items.length + 1));
+      // File it on the way in — from the name, or from the audio when the name
+      // is uninformative. Classifying once at import keeps browsing instant.
+      const cls = classifySound(nm, buf);
+      const it = { id: nextId++, name: nm, dur: buf.duration, size: keep.byteLength, group: cls.group, kind: cls.kind };
       remember(it.id, buf);
       items.push(it);
-      await store(it.id, it.name, keep, it.dur);
+      await store(it.id, it.name, keep, it.dur, cls);
       onChange && onChange(items);
       return it;
     } catch (e) { console.warn('[library] could not decode', name, e && e.message); return null; }
@@ -259,7 +352,14 @@ export function createLibrary({ onChange } = {}) {
     });
     all.sort((a, b) => (a.added || 0) - (b.added || 0));
     for (const rec of all) {
-      items.push({ id: rec.id, name: rec.name, dur: rec.dur, size: (rec.data && rec.data.byteLength) || 0 });
+      // Older records predate the taxonomy — classify them by name on the way
+      // in so an existing library sorts itself the first time this build runs.
+      const cls = rec.group ? { group: rec.group, kind: rec.kind } : classifySound(rec.name, null);
+      items.push({
+        id: rec.id, name: rec.name, dur: rec.dur,
+        size: (rec.data && rec.data.byteLength) || 0,
+        group: cls.group, kind: cls.kind,
+      });
       if (rec.id >= nextId) nextId = rec.id + 1;
     }
     onChange && onChange(items);
@@ -278,7 +378,8 @@ export function createLibrary({ onChange } = {}) {
   // `add` accepts an already-decoded { name, buffer } — used by tests and by any
   // caller that has audio in hand rather than a file.
   async function add(it) {
-    const rec = { id: nextId++, name: it.name, dur: it.buffer ? it.buffer.duration : 0, size: 0 };
+    const cls = classifySound(it.name, it.buffer);
+    const rec = { id: nextId++, name: it.name, dur: it.buffer ? it.buffer.duration : 0, size: 0, group: cls.group, kind: cls.kind };
     remember(rec.id, it.buffer);
     items.push(rec);
     onChange && onChange(items);
@@ -288,5 +389,20 @@ export function createLibrary({ onChange } = {}) {
   return {
     importFiles, assign, preview, stopPreview, touch: () => onChange && onChange(items),
     items: () => items, remove, clearAll, bufferFor, stats, ready, add,
+    classify: classifySound, groups: SOUND_GROUPS,
+    // items filed under GROUP > KIND, groups in a fixed musical order and only
+    // those that actually contain something
+    grouped() {
+      const by = new Map();
+      for (const it of items) {
+        const g = it.group || 'OTHER';
+        if (!by.has(g)) by.set(g, new Map());
+        const k = it.kind || 'SAMPLE';
+        const kg = by.get(g);
+        if (!kg.has(k)) kg.set(k, []);
+        kg.get(k).push(it);
+      }
+      return SOUND_GROUPS.filter((g) => by.has(g)).map((g) => ({ group: g, kinds: by.get(g) }));
+    },
   };
 }

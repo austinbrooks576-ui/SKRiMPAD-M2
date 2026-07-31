@@ -107,23 +107,37 @@ function drawButtons(parent, buttons, theme) {
   return { w: maxX, h: y + (col ? BH : 0) };
 }
 
+// Each knob is LABELLED with the job it does. A bare row of circles tells you
+// nothing about what turning one will change — and until now most of them
+// changed nothing at all, which the drawing had no way of showing either.
+// The printed caption and the engine's parameter name are NOT the same string —
+// "VOL" reads better on a 34px knob than "volume". Keep both, and publish the
+// real parameter name in data-param so anything reading the drawing addresses
+// the engine correctly rather than guessing from the caption.
+const KNOB_LABELS = ['VOL', 'TONE', 'CUTOFF', 'RES', 'ATTACK', 'RELEASE', 'SPACE', 'DRUMS'];
+const KNOB_PARAMS = ['volume', 'tone', 'cutoff', 'resonance', 'attack', 'release', 'space', 'drums'];
 function drawKnobs(parent, count, theme) {
   const perRow = Math.min(count, 4);
+  const ROW_H = KNOB_R * 2 + KNOB_GAP + 9;      // room for the caption under each
   let x = 0, y = KNOB_R, maxX = 0, row = 0, col = 0;
   for (let i = 0; i < count; i++) {
     const cx = x + KNOB_R, cy = y;
     const gr = g(parent, 0, 0);
+    const job = KNOB_LABELS[i % KNOB_LABELS.length];
     el('circle', {
       cx, cy, r: KNOB_R, fill: 'none', stroke: theme.ink, 'stroke-width': 1.5,
       'data-role': 'knob', 'data-index': i, 'data-hold': '1',
+      'data-param': KNOB_PARAMS[i % KNOB_PARAMS.length],
     }, gr);
     // pointer tick at ~ -45°
     el('line', { x1: cx, y1: cy, x2: cx - KNOB_R * 0.7, y2: cy - KNOB_R * 0.7, stroke: theme.mute, 'stroke-width': 1.5 }, gr);
+    const cap = label(gr, cx, cy + KNOB_R + 8, job, theme.mute, 6.5);
+    cap.setAttribute('letter-spacing', '.06em');
     maxX = Math.max(maxX, cx + KNOB_R);
     col++; x += KNOB_R * 2 + KNOB_GAP;
-    if (col >= perRow) { col = 0; row++; x = 0; y += KNOB_R * 2 + KNOB_GAP; }
+    if (col >= perRow) { col = 0; row++; x = 0; y += ROW_H; }
   }
-  return { w: maxX, h: (row + (col ? 1 : 0)) * (KNOB_R * 2 + KNOB_GAP) };
+  return { w: maxX, h: (row + (col ? 1 : 0)) * ROW_H };
 }
 
 function drawPads(parent, pads, theme) {
