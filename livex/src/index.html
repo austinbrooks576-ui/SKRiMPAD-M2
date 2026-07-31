@@ -80,6 +80,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     <div class="row" id="chrome">
       <span class="brand">SKRiMPADxLIVEx</span>
       <button class="hbtn" data-dev="smk25">+ SMK-25</button>
+      <button class="hbtn" data-dev="jp1">+ JP-1</button>
+      <button class="hbtn" data-dev="jpmini">+ JP MINI</button>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
@@ -150,6 +152,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     import { createMidiIO } from './core/midi-io.js';
     import { createGamepad } from './core/gamepad.js';
     import { createDeviceManager } from './core/device-manager.js';
+    import { identifyMidiInput } from './core/identify.js';
     import { createTransport } from './core/transport.js';
     import { createLibrary } from './core/library.js';
     import { initUpdater } from './core/update.js';
@@ -295,12 +298,19 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         } catch (e) {}
       },
     });
-    // resolve a pad action to its pad index: MIDI/tap carry the GM note → look up the
-    // matching pad element's data-index on that board; fall back to any index it carried.
+    // Resolve a pad action to the flat sample slot it plays. The router supplies the
+    // grid index — from the LEARNED note map once the device has actually been played —
+    // and we fold the active bank in on top, because "3 pad banks" on the JamJum JP-1
+    // means 48 distinct pads: each bank gets its own slot and its own default voice.
     function padIndexFor(board, a) {
-      if (a.index != null) return a.index;
-      const el = board.body.querySelector('[data-role="pad"][data-note="' + a.note + '"]');
-      return el ? +el.getAttribute('data-index') : 0;
+      const pads = board.profile && board.profile.pads;
+      const count = (pads && pads.count) || 16;
+      let i = a.index;
+      if (i == null) {
+        const el = board.body.querySelector('[data-role="pad"][data-note="' + a.note + '"]');
+        i = el ? +el.getAttribute('data-index') : 0;
+      }
+      return (a.bank || 0) * count + i;
     }
     window.__manager = manager; window.__transport = transport; window.__audio = audio;
     window.__mkIO = createMidiIO;   // diagnostics / test hook for the I/O layer
@@ -349,8 +359,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     });
 
     // ---- demo boards ----
+    // Build a preview board straight from the pattern DB, exactly the way a real
+    // plug-in would — so what you see with no hardware attached IS the face the
+    // hardware gets.
+    const seed = (name) => { const p = identifyMidiInput({ name }); p.portName = name; return p; };
     const demo = {
       smk25: () => { const p = PATTERNS.find((x) => /smk/.test(String(x.test))).base('SMK25'); p.portName = 'SMK25'; return p; },
+      jp1: () => seed('JAMJUM JP-1'),
+      jpmini: () => seed('JAMJUM JP MINI'),
       k61: () => makeProfile({ id: 'k61', class: CLASSES.KEYBOARD, portName: 'GENERIC 61', keys: { count: 61, firstNote: 36 }, wheels: ['pitch', 'mod'] }),
     };
     document.querySelectorAll('[data-dev]').forEach((b) => b.addEventListener('click', () => { manager.addDemoBoard(demo[b.dataset.dev]()); refreshEmpty(); }));

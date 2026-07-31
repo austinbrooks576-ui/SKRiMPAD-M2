@@ -74,15 +74,23 @@ export function createProbe(profile, { onUpdate } = {}) {
     ccs: new Set(),
     pitchBend: false,
     modWheel: false,
+    aftertouch: false,
+    programChange: false,
   };
   let dirty = false;
+
+  // A pad-only controller (JamJum JP-1 / JP mini, Korg nanoPAD, a launch grid)
+  // has no keybed, so EVERY note it sends is a pad — regardless of channel.
+  // These units are user-configurable and frequently ship set to channel 1, not
+  // 10, which is exactly why a channel-10-only rule left their pads dead.
+  const padOnly = () => !!(profile.pads && !(profile.keys && profile.keys.count));
 
   function feed(status, d1 /* data1 */, _d2) {
     const type = status & 0xf0;
     const chan = status & 0x0f;
 
     if (type === 0x90 /* note on */ && _d2 > 0) {
-      if (chan === 9) seen.padNotes.add(d1);
+      if (chan === 9 || padOnly()) seen.padNotes.add(d1);
       else seen.keyNotes.add(d1);
       dirty = true;
     } else if (type === 0xb0 /* CC */) {
@@ -91,6 +99,12 @@ export function createProbe(profile, { onUpdate } = {}) {
       dirty = true;
     } else if (type === 0xe0 /* pitch bend */) {
       seen.pitchBend = true;
+      dirty = true;
+    } else if (type === 0xa0 /* poly key pressure */ || type === 0xd0 /* channel pressure */) {
+      seen.aftertouch = true;
+      dirty = true;
+    } else if (type === 0xc0 /* program change */) {
+      seen.programChange = true;
       dirty = true;
     }
   }
@@ -103,8 +117,11 @@ export function createProbe(profile, { onUpdate } = {}) {
     // pads
     if (seen.padNotes.size > 0 && !profile.pads) {
       const count = nextPadCount(seen.padNotes.size);
-      profile.pads = { count, layout: padLayout(count), channel: 10 };
+      profile.pads = { count, layout: padLayout(count), channel: 10, learn: true };
     }
+    if (profile.pads) learnPadGrid(profile.pads, seen.padNotes);
+    if (seen.aftertouch && !profile.features.includes('aftertouch')) profile.features.push('aftertouch');
+    if (seen.programChange && !profile.features.includes('programChange')) profile.features.push('programChange');
     // keys
     if (seen.keyNotes.size > 1) {
       const lo = Math.min(...seen.keyNotes);
@@ -136,6 +153,37 @@ export function createProbe(profile, { onUpdate } = {}) {
   }
 
   return { feed, refine, seen };
+}
+
+// ---- pad-grid auto-learn ----------------------------------------------------
+// The JamJum JP-1, JP mini and M-Vave SMK-25 all let you reassign every pad's
+// note in their vendor software, and none of them publish a default note table.
+// Hard-coding GM drum notes therefore mis-maps any unit the owner has touched.
+// Instead we learn the grid from what the hardware actually plays:
+//
+//   notes sorted ascending → pad 1..N reading left-to-right, top-to-bottom
+//   (the order the pads are numbered on all three units, and the order
+//   schematic.js draws them), overflowing into the next bank past N.
+//
+// Writes two things onto the pads block:
+//   notes[]  — the bank-A note per pad, used for the drawn `data-note`
+//   noteMap  — { note: padIndex } across ALL banks, so a pad still lights and
+//              fires after a bank switch changes the notes it sends.
+export function learnPadGrid(pads, padNotes) {
+  if (!pads || pads.learn === false || !padNotes || !padNotes.size) return pads;
+  const notes = [...padNotes].sort((a, b) => a - b);
+  const count = pads.count || nextPadCount(notes.length);
+  // Grow the grid if the unit clearly has more pads than the seed claimed, but
+  // never past what its bank count can explain.
+  const cap = count * (pads.banks || 1);
+  const map = {};
+  notes.slice(0, cap).forEach((n, i) => { map[n] = i % count; });
+  pads.count = count;
+  if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
+  pads.notes = notes.slice(0, count);
+  pads.noteMap = map;
+  pads.learned = true;
+  return pads;
 }
 
 // snap an observed pad count up to the nearest common bank size

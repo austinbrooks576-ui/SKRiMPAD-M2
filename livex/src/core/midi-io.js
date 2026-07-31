@@ -73,6 +73,31 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     for (let i = 0; i < packets.length; i++) ctx.decode(Uint8Array.from(packets[i]));
   };
 
+  // NATIVE MIDI hooks — registered UNCONDITIONALLY, not inside the
+  // `if (window.AndroidMidi)` branch of _start(). MainActivity.kt calls these
+  // exact globals; if the bridge is injected even a moment after boot (a WebView
+  // reload, a late addJavascriptInterface), a branch-scoped registration means
+  // the globals never exist and the APK hears nothing at all. Defining them up
+  // front costs nothing on desktop and removes the whole failure mode.
+  let nativeName = 'MIDI DEVICE';
+  const nativePort = () => ({ id: 'native', name: nativeName, native: true });
+  window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
+  // batched form — the bridge coalesces a frame's worth of packets into one call
+  // so a chatty controller can't flood the WebView
+  window.onNativeMIDIBatch = (list) => {
+    if (!list || !list.length) return;
+    const p = nativePort();
+    for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
+  };
+  window.onNativeMIDIStatus = (txt) => {
+    // status lines look like "🎹 SMK25 connected" — harvest a device name so the
+    // board gets a real title instead of the generic fallback
+    const m = String(txt || '').match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
+    if (m) nativeName = m[1].trim();
+    onPorts && onPorts(listInputs()); // let the host refresh
+  };
+  window.__livexNativeMidi = window.onNativeMIDIMessage; // legacy alias
+
   let nativeDevices = [];   // devices reported by the Android bridge
   let nativeMode = false;
   function listInputs() {
@@ -91,28 +116,11 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
 
   async function _start() {
     // Android WebView has no Web MIDI → native bridge injects window.AndroidMidi.
-    // CRITICAL: MainActivity.kt invokes `window.onNativeMIDIMessage(bytes)` — that
-    // exact global MUST exist or the APK never hears a single MIDI byte.
+    // The onNative* globals MainActivity.kt calls are registered above, outside
+    // this branch, so they exist no matter when the bridge shows up. All that is
+    // left here is turning the bridge on.
     if (typeof window !== 'undefined' && window.AndroidMidi) {
-      let nativeName = 'MIDI DEVICE';
       nativeMode = true;
-      const nativePort = () => ({ id: 'native', name: nativeName, native: true });
-      window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
-      // batched form — the bridge coalesces a frame's worth of packets into one
-      // call so a chatty controller can't flood the WebView
-      window.onNativeMIDIBatch = (list) => {
-        if (!list || !list.length) return;
-        const p = nativePort();
-        for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
-      };
-      window.onNativeMIDIStatus = (txt) => {
-        // status lines look like "🎹 SMK25 connected" — harvest a device name so the
-        // board gets a real title instead of the generic fallback
-        const m = String(txt || '').match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
-        if (m) nativeName = m[1].trim();
-        onPorts && onPorts(listInputs()); // let the host refresh
-      };
-      window.__livexNativeMidi = window.onNativeMIDIMessage; // legacy alias
       try { window.AndroidMidi.enable(); } catch (e) {}
       try { window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth(); } catch (e) {}
       return { mode: 'native' };

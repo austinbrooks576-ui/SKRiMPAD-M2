@@ -21,7 +21,26 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
 
   const q = (sel) => container.querySelector(sel);
   const keyEl = (note) => q(`[data-role="key"][data-note="${note}"]`);
-  const padEl = (note) => q(`[data-role="pad"][data-note="${note}"]`);
+
+  // A pad-only controller has no keybed, so every note it sends is a pad — the
+  // JamJum JP-1 / JP mini and other 4x4 grids ship freely reassignable, often on
+  // channel 1 rather than 10, so a channel-10-only rule leaves their pads dead.
+  const padOnly = () => !!(profile && profile.pads && !(profile.keys && profile.keys.count));
+  // Resolve a note to its drawn pad. Prefers the LEARNED map (identify.js builds
+  // note -> pad index from what the hardware actually played, across all banks),
+  // so a pad keeps working after a bank switch changes the note it sends.
+  const padIndexOf = (note) => {
+    const m = profile && profile.pads && profile.pads.noteMap;
+    return m && m[note] != null ? m[note] : null;
+  };
+  const padEl = (note) => {
+    const i = padIndexOf(note);
+    if (i != null) {
+      const byIndex = q(`[data-role="pad"][data-index="${i}"]`);
+      if (byIndex) return byIndex;
+    }
+    return q(`[data-role="pad"][data-note="${note}"]`);
+  };
 
   // ---- lighting (SVG rects) ----
   function lightOn(el) {
@@ -56,9 +75,16 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
     const noteOff = cmd === 0x80 || (cmd === 0x90 && d2 === 0);
 
     if (noteOn) {
-      if (chan === 9) { // drum pads
-        flash(padEl(d1));
-        onAction && onAction({ type: 'pad', note: d1, vel: d2, bank: state.padBank });
+      // Pad when: the drum channel, a pad-only board, or a note the grid has
+      // already been learned to own (a hybrid whose pads sit off channel 10).
+      const pi = padIndexOf(d1);
+      if (chan === 9 || padOnly() || pi != null) {
+        const el = padEl(d1);
+        flash(el);
+        onAction && onAction({
+          type: 'pad', note: d1, vel: d2, bank: state.padBank,
+          index: pi != null ? pi : (el ? +el.getAttribute('data-index') : null),
+        });
         return;
       }
       let el = keyEl(d1);
@@ -68,7 +94,7 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
       return;
     }
     if (noteOff) {
-      lightOff(chan === 9 ? padEl(d1) : keyEl(d1));
+      lightOff(chan === 9 || padOnly() || padIndexOf(d1) != null ? padEl(d1) : keyEl(d1));
       onAction && onAction({ type: 'noteoff', note: d1 });
       return;
     }
@@ -93,7 +119,22 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
       return;
     }
     if (cmd === 0xe0) { onAction && onAction({ type: 'pitch', val: (d2 << 7) | d1 }); return; }
+    // Channel pressure — one value for the whole board.
     if (cmd === 0xd0) { onAction && onAction({ type: 'aftertouch', val: d1 }); return; }
+    // Polyphonic key pressure — the JP-1's pads send this PER PAD while held, so
+    // it carries a pad index and can modulate that pad's voice on its own.
+    if (cmd === 0xa0) {
+      const pi = padIndexOf(d1);
+      onAction && onAction({ type: 'aftertouch', note: d1, val: d2, poly: true, index: pi });
+      return;
+    }
+    // Program Change — the JP mini's documented way of stepping banks/kits.
+    if (cmd === 0xc0) {
+      const banks = (profile && profile.pads && profile.pads.banks) || 1;
+      if (banks > 1) setBank('pad', d1 % banks);
+      onAction && onAction({ type: 'program', value: d1 });
+      return;
+    }
   }
 
   // ---- gamepad in ----
@@ -103,13 +144,26 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
     onAction && onAction({ type: 'gpbutton', index: i });
   }
 
-  // ---- A/B banks (KNOB-B / PAD-B) ----
-  function setBank(which /* 'knob' | 'pad' */) {
+  // ---- banks (KNOB-B / PAD-B) ----
+  // Not a plain A/B toggle: the SMK-25 has 2 pad banks, the JamJum JP-1 has 3
+  // pad banks (16x3 = the 48 pads it advertises) AND 3 knob banks (8x3 = 24),
+  // so the stepper cycles however many the profile declares.
+  function bankCount(which) {
+    if (which === 'pad') return (profile && profile.pads && profile.pads.banks) || 2;
+    return (profile && profile.knobBanks) || 2;
+  }
+  function setBank(which /* 'knob' | 'pad' */, to) {
     const k = which + 'Bank';
-    state[k] ^= 1;
+    const n = Math.max(1, bankCount(which));
+    state[k] = to != null ? ((to % n) + n) % n : (state[k] + 1) % n;
     const btn = q(`[data-role="button"][data-name="${which}B"]`);
-    if (btn) btn.setAttribute('stroke-width', state[k] ? '2.6' : '1.4'); // active shelf glows
-    onAction && onAction({ type: 'bank', which, value: state[k] });
+    if (btn) {
+      btn.setAttribute('stroke-width', state[k] ? '2.6' : '1.4'); // active shelf glows
+      // name the live bank on the button so 3-way cycling is readable at a glance
+      const lbl = btn.parentNode && btn.parentNode.querySelector('text');
+      if (lbl && n > 2) lbl.textContent = (which === 'pad' ? 'PAD ' : 'KNOB ') + 'ABCDEFGH'[state[k]];
+    }
+    onAction && onAction({ type: 'bank', which, value: state[k], of: n });
     return state[k];
   }
 
@@ -143,7 +197,10 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
         onAction && onAction({ type: 'noteon', note, vel: 100, source: 'tap' });
       } else if (role === 'pad') {
         flash(t);                            // pads are one-shots — no release needed
-        onAction && onAction({ type: 'pad', note: +t.getAttribute('data-note'), vel: 100, source: 'tap' });
+        onAction && onAction({
+          type: 'pad', note: +t.getAttribute('data-note'), index: +t.getAttribute('data-index'),
+          vel: 100, bank: state.padBank, source: 'tap',
+        });
       } else if (role === 'knob' || role === 'wheel') {
         // vertical drag: grab the pointer so it keeps tracking off the control
         const isKnob = role === 'knob';
@@ -257,7 +314,18 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
     KeyQ: 12, KeyW: 14, KeyE: 16, KeyR: 17, KeyT: 19, KeyY: 21, KeyU: 23,
     KeyI: 24, KeyO: 26, KeyP: 28,
   };
-  const PAD_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'];
+  // On a board WITH keys the letter rows are notes, so pads live on the number
+  // row. On a pad-only board (JamJum JP-1 / JP mini and every other 4x4 grid)
+  // there are no notes to protect, so the whole 4x4 QWERTY block becomes the
+  // grid — same shape as the hardware, top row to bottom row.
+  const PAD_KEYS_ROW = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'];
+  const PAD_KEYS_GRID = [
+    'Digit1', 'Digit2', 'Digit3', 'Digit4',
+    'KeyQ', 'KeyW', 'KeyE', 'KeyR',
+    'KeyA', 'KeyS', 'KeyD', 'KeyF',
+    'KeyZ', 'KeyX', 'KeyC', 'KeyV',
+  ];
+  const padKeys = () => (padOnly() ? PAD_KEYS_GRID : PAD_KEYS_ROW);
   const kbHeld = new Map(); // code -> note
   let kbOctave = 0;
 
@@ -273,7 +341,7 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
     if (code === 'Minus' || code === 'BracketLeft') { if (down) { kbOctave--; onAction && onAction({ type: 'kboctave', octave: kbOctave }); } return true; }
     if (code === 'Equal' || code === 'BracketRight') { if (down) { kbOctave++; onAction && onAction({ type: 'kboctave', octave: kbOctave }); } return true; }
 
-    const padIdx = PAD_KEYS.indexOf(code);
+    const padIdx = padKeys().indexOf(code);
     if (padIdx >= 0) {
       const pads = container.querySelectorAll('[data-role="pad"]');
       if (!pads.length) return false;
@@ -281,7 +349,7 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
         kbHeld.set(code, -1);
         const el = pads[padIdx % pads.length];
         flash(el);
-        onAction && onAction({ type: 'pad', note: +el.getAttribute('data-note'), index: +el.getAttribute('data-index'), vel: 110, source: 'kb' });
+        onAction && onAction({ type: 'pad', note: +el.getAttribute('data-note'), index: +el.getAttribute('data-index'), vel: 110, bank: state.padBank, source: 'kb' });
       } else if (!down) kbHeld.delete(code);
       return true;
     }

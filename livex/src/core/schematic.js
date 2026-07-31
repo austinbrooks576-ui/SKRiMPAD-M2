@@ -79,7 +79,12 @@ function drawTransport(parent, transport, theme) {
   return { w: Math.max(0, x - TR_GAP), h: TR_H + 12 };
 }
 
-const BTN_LABEL = { arp: 'ARP', scch: 'SCCH', bt: 'BT', knobB: 'KNOB-B', padB: 'PAD-B', 'oct-': 'OCT−', 'oct+': 'OCT+' };
+const BTN_LABEL = {
+  arp: 'ARP', scch: 'SCCH', bt: 'BT', knobB: 'KNOB-B', padB: 'PAD-B',
+  'oct-': 'OCT−', 'oct+': 'OCT+',
+  // JamJum JP-1: six printed buttons, each with a short and a long press action
+  b1: 'B1', b2: 'B2', b3: 'B3', b4: 'B4', b5: 'B5', b6: 'B6',
+};
 function drawButtons(parent, buttons, theme) {
   const BW = 52, BH = 22, BG = 7, PER = 4;
   let x = 0, y = 0, col = 0, maxX = 0;
@@ -122,15 +127,20 @@ function drawKnobs(parent, count, theme) {
 
 function drawPads(parent, pads, theme) {
   const [rows, cols] = pads.layout && pads.layout[0] ? pads.layout : squareish(pads.count);
+  // Learned note per pad wins over the GM default — see learnPadGrid() in
+  // identify.js. Pads not yet played keep the GM note so the board is playable
+  // by touch from the first frame.
+  const noteFor = (i) => (pads.notes && pads.notes[i] != null ? pads.notes[i] : gmDrumNote(i));
   let i = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols && i < pads.count; c++, i++) {
       const x = c * (PAD + PAD_GAP), y = r * (PAD + PAD_GAP);
       const gr = g(parent, x, y);
+      const learned = !!(pads.notes && pads.notes[i] != null);
       el('rect', {
         x: 0, y: 0, width: PAD, height: PAD, rx: 7,
-        fill: 'none', stroke: theme.ink, 'stroke-width': 1.5,
-        'data-role': 'pad', 'data-index': i, 'data-note': gmDrumNote(i),
+        fill: 'none', stroke: learned ? theme.accent : theme.ink, 'stroke-width': learned ? 1.8 : 1.5,
+        'data-role': 'pad', 'data-index': i, 'data-note': noteFor(i),
         'data-drop': '1', 'data-hold': '1',
       }, gr);
       label(gr, PAD / 2, PAD / 2 + 3, 'PAD ' + (i + 1), theme.mute, 8);

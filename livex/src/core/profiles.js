@@ -70,7 +70,9 @@ export const PATTERNS = [
           scch: { 17: 'CH', 18: 'TRIAD', 19: '7TH', 20: '9TH', 21: 'RAND', 22: 'OFF', 23: 'MAJOR', 24: 'MINOR' },
         },
       },
-      pads: { count: 8, layout: [2, 4], channel: 10, banks: 2 }, // PAD-B = second bank → 16 sounds
+      // PAD-B = second bank → 16 sounds. The 8 pads' notes are user-assignable in
+      // CubeSuite, so `learn` lets the probe map this unit's actual grid.
+      pads: { count: 8, layout: [2, 4], channel: 10, banks: 2, learn: true },
       transport: ['play', 'stop', 'rec'],
       knobs: 8,
       knobBanks: 2,                             // KNOB-B = second shelf → 16 CC assignments
@@ -92,34 +94,59 @@ export const PATTERNS = [
     }),
   },
 
-  // --- JamJum JP mini / JP-1 (compact BLE-capable pad+key controllers) ---
-  // Matches the family across the spellings these report under: "JamJum",
-  // "JAM JUM", "JP mini", "JP-1", "JP1". The live capability probe refines the
-  // exact key/pad counts on first play, so a firmware variant still lands right.
-  {
-    test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
-    base: () => makeProfile({
-      id: 'jpmini', class: CLASSES.HYBRID,
-      keys: { count: 25, firstNote: 48 },
-      pads: { count: 8, layout: [2, 4], channel: 10 },
-      knobs: 4, wheels: ['pitch', 'mod'],
-      transport: ['play', 'stop', 'rec'],
-      buttons: ['oct-', 'oct+'],
-      features: ['octave', 'transpose', 'sustain', 'bt'],
-      confidence: 0.85,
-    }),
-  },
+  // --- JamJum JP-1 — 4x4 pad controller, NOT a keyboard -----------------------
+  // Manufacturer spec (JAMJUM JP-1 manual + product spec, read 2026-07-31):
+  //   • 16 RGB pads, velocity sensitive WITH aftertouch (pressure)
+  //   • 3 PAD BANKS  → "up to 48 pads"
+  //   • 8 endless 360° rotary knobs, 3 KNOB BANKS → "up to 24 knobs"
+  //   • 6 customizable buttons, each with a SHORT and a LONG press action,
+  //     sending custom MIDI and MMC (MIDI Machine Control) commands
+  //   • BLE MIDI + USB-C + 3.5mm TRS MIDI out, ~20h battery
+  //   • NO keybed, NO pitch/mod wheels
+  // JP-1 MUST be tested before the generic \bjam\s?jum\b pattern below, or the
+  // JP mini seed would swallow it.
+  // Every pad/knob/button assignment is user-editable in the vendor app and the
+  // manual publishes no default note table — so `learn` lets the live probe map
+  // the grid from whatever this unit actually sends. See identify.js.
   {
     test: /\bjp[-\s]?1\b/i,
     base: () => makeProfile({
-      id: 'jp1', class: CLASSES.HYBRID,
-      keys: { count: 25, firstNote: 48 },
-      pads: { count: 8, layout: [2, 4], channel: 10 },
-      knobs: 8, wheels: ['pitch', 'mod'],
-      transport: ['play', 'stop', 'rec'],
-      buttons: ['oct-', 'oct+'],
-      features: ['octave', 'transpose', 'sustain', 'bt'],
-      confidence: 0.85,
+      id: 'jp1', class: CLASSES.PADS,
+      keys: null,
+      pads: { count: 16, layout: [4, 4], channel: 10, banks: 3, learn: true },
+      knobs: 8,
+      knobBanks: 3,
+      wheels: [],
+      transport: ['play', 'stop', 'rec'],   // driven by the 6 buttons' MMC output
+      // padB/knobB are the app's own bank steppers (they cycle 3 ways here);
+      // b1..b6 mirror the six dual-action buttons printed on the unit.
+      buttons: ['padB', 'knobB', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6'],
+      features: ['velocity', 'aftertouch', 'padBanks', 'knobBanks', 'mmc', 'rgb', 'bt', 'longPress'],
+      confidence: 0.9,
+    }),
+  },
+
+  // --- JamJum JP mini — 4x4 pad controller, NOT a keyboard --------------------
+  // Manufacturer spec (JAMJUM JP mini manual, read 2026-07-31):
+  //   • 4x4 layout of 16 silicone pads, velocity AND pressure sensitive
+  //   • RGB colour per pad, adjustable in the vendor software
+  //   • transmits Note, MIDI CC and Program Change
+  //   • BLE MIDI + USB-C, battery powered
+  //   • NO keybed, NO knobs, NO wheels
+  // Also the family catch-all: a unit reporting only "JamJum"/"JAM JUM" lands
+  // here and the probe refines it from what it plays.
+  {
+    test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
+    base: () => makeProfile({
+      id: 'jpmini', class: CLASSES.PADS,
+      keys: null,
+      pads: { count: 16, layout: [4, 4], channel: 10, banks: 1, learn: true },
+      knobs: 0,
+      wheels: [],
+      transport: [],
+      buttons: [],
+      features: ['velocity', 'pressure', 'programChange', 'rgb', 'bt'],
+      confidence: 0.88,
     }),
   },
 
