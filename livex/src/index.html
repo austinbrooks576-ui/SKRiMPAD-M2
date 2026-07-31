@@ -492,8 +492,24 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     // controller that "does nothing" can be diagnosed from the device itself
     // rather than guessed at.
     const diagLog = [];
+    // A rolling log LOSES things: pressing 16 pads is 32 messages, plus repeats,
+    // so the earliest pads scroll off before the log can be copied — which made a
+    // full 16-pad sweep look like only 12 pads ever arrived. Keep a permanent
+    // tally per device that never scrolls, so "did every pad register" is a fact
+    // rather than an inference from whatever survived in the window.
+    const diagNotes = new Map();   // port name -> Map(note -> {count, chan})
     const hex = (n) => n.toString(16).toUpperCase().padStart(2, '0');
+    function diagTally(ev) {
+      if (ev.cmd !== 0x90 || !(ev.d2 > 0)) return;
+      const port = (ev.port && ev.port.name) || '?';
+      if (!diagNotes.has(port)) diagNotes.set(port, new Map());
+      const m = diagNotes.get(port);
+      const cur = m.get(ev.d1) || { count: 0, chan: ev.chan };
+      cur.count++; cur.chan = ev.chan;
+      m.set(ev.d1, cur);
+    }
     function diagNote(ev) {
+      diagTally(ev);
       const raw = (ev.raw || [ev.status, ev.d1, ev.d2]).map(hex).join(' ');
       const kind = ev.transport ? 'TRANSPORT ' + ev.transport.toUpperCase()
         : ev.cmd === 0x90 && ev.d2 > 0 ? 'note on  ' + ev.d1 + ' vel ' + ev.d2 + ' ch' + (ev.chan + 1)
@@ -502,7 +518,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         : ev.cmd === 0xe0 ? 'pitch ' + ((ev.d2 << 7) | ev.d1)
         : ev.status === 0xf0 ? 'sysex' : 'status ' + hex(ev.status);
       diagLog.unshift(raw.padEnd(14) + '  ' + kind + '   [' + ((ev.port && ev.port.name) || '?') + ']');
-      if (diagLog.length > 60) diagLog.pop();
+      if (diagLog.length > 400) diagLog.pop();
       const el = $('#diag-log'); if (el && $('#diagpanel').style.display !== 'none') el.textContent = diagLog.join('\n');
     }
     async function diagEnv() {
@@ -550,6 +566,26 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
           for (const note in pd.noteMap) inv.push('n' + note + '→draw' + pd.noteMap[note]);
           L.push('     padmap(' + (pd.taught ? 'TAUGHT' : pd.learned ? 'auto-learned' : 'default') + '): ' + inv.join(' '));
         }
+      }
+      // THE PERMANENT TALLY — every distinct note this device has ever sent, with
+      // where each one landed on the grid. This is what answers "I hit all 16, did
+      // they all register?" without depending on the scrolling log.
+      for (const [port, notes] of diagNotes) {
+        const board = [...manager.boards.values()].find((b) => (b.profile.portName || '') === port);
+        const pd = board && board.profile.pads;
+        const list = [...notes.keys()].sort((a, b) => a - b);
+        L.push('notes from "' + port + '": ' + list.length + ' distinct');
+        L.push('   ' + list.map((n) => {
+          const slot = pd && pd.noteMap ? pd.noteMap[n] : null;
+          const padNo = slot != null && pd.layout
+            ? ((pd.layout[0] - 1 - Math.floor(slot / pd.layout[1])) * pd.layout[1] + (slot % pd.layout[1]) + 1)
+            : null;
+          return n + (padNo != null ? '→pad' + padNo : '→UNMAPPED') + '×' + notes.get(n).count;
+        }).join('  '));
+        const chans = new Set([...notes.values()].map((v) => v.chan + 1));
+        L.push('   channels: ' + [...chans].join(', ') +
+               (pd ? '   grid: ' + pd.count + ' pads, ' + (pd.seen || 0) + ' learned' +
+                     (pd.taught ? ' (TAUGHT)' : pd.provisional ? ' (still learning)' : '') : ''));
       }
       $('#diag-env').textContent = L.join('\n');
     }
