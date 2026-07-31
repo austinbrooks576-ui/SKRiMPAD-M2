@@ -130,9 +130,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <div id="stage"></div>
     </div>
     <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
-    <div id="kbhint">MOUSE: click keys/pads · drag knobs &amp; wheels · every button is live &nbsp;·&nbsp;
-      KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play · <b>1–8</b> pads ·
-      <b>−/=</b> octave · <b>Space</b> play · <b>Enter</b> rec · <b>\</b> metro · <b>Esc</b> panic</div>
+    <div id="kbhint"></div>
   </div>
   <div id="toast"></div>
   <div id="diagpanel" style="display:none;position:fixed;inset:auto 12px 12px auto;width:min(430px,92vw);max-height:70vh;
@@ -162,7 +160,22 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const stage = $('#stage'), empty = $('#empty'), toastEl = $('#toast');
     let toastT = null;
     const toast = (m) => { toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 3800); };
-    const refreshEmpty = () => { empty.style.display = manager.boards.size ? 'none' : ''; };
+    // The computer-keyboard legend has to follow the board on screen. A pad-only
+    // controller (JamJum JP-1 / JP mini and every other 4x4 grid) has no notes on
+    // the letter rows — the whole QWERTY block IS the grid there — so advertising
+    // "Z S X D … play" would be telling you to press keys that do something else.
+    const MOUSE_HINT = 'MOUSE: click keys/pads · drag knobs &amp; wheels · every button is live &nbsp;·&nbsp; ';
+    const TAIL_HINT = ' · <b>Space</b> play · <b>Enter</b> rec · <b>\\</b> metro · <b>Esc</b> panic';
+    function refreshKbHint() {
+      const boards = [...manager.boards.values()];
+      const anyKeys = boards.some((b) => b.profile.keys && b.profile.keys.count);
+      const padsOnly = boards.length && !anyKeys && boards.some((b) => b.profile.pads && b.profile.pads.count);
+      $('#kbhint').innerHTML = MOUSE_HINT + (padsOnly
+        ? 'PADS: <b>1 2 3 4</b> / <b>Q W E R</b> / <b>A S D F</b> / <b>Z X C V</b> — the 4×4 grid'
+        : 'KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play · <b>1–8</b> pads · <b>−/=</b> octave'
+      ) + TAIL_HINT;
+    }
+    const refreshEmpty = () => { empty.style.display = manager.boards.size ? 'none' : ''; refreshKbHint(); };
 
     // held key voices for note-off release + performance state
     // (pitch wheel bends every held voice; CC64 sustains releases; CC1 = brightness;
