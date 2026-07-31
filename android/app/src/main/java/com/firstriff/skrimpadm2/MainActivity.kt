@@ -69,13 +69,34 @@ class MainActivity : AppCompatActivity() {
         for (info in mm.devices) openMidiInput(mm, info)
         if (midiCallback == null) {
             midiCallback = object : MidiManager.DeviceCallback() {
-                override fun onDeviceAdded(info: MidiDeviceInfo) { openMidiInput(mm, info) }
-                override fun onDeviceRemoved(info: MidiDeviceInfo) {}
+                override fun onDeviceAdded(info: MidiDeviceInfo) { openMidiInput(mm, info); publishDeviceList(mm) }
+                override fun onDeviceRemoved(info: MidiDeviceInfo) { publishDeviceList(mm) }
             }
             mm.registerDeviceCallback(midiCallback!!, Handler(Looper.getMainLooper()))
         }
+        publishDeviceList(mm)
         val n = mm.devices.count { it.outputPortCount > 0 }
-        jsMidiStatus(if (n > 0) "🟢 $n MIDI device(s) connected" else "🎹 Native MIDI on — connect a USB / BT controller")
+        jsMidiStatus(if (n > 0) "$n MIDI device(s) connected" else "Native MIDI on - connect a USB or BT controller")
+    }
+
+    // Tell the renderer WHICH devices are attached. Without this the APK only ever
+    // learned about a controller when a note arrived, so a keyboard that was
+    // plugged in but not yet played simply never appeared on screen.
+    private fun publishDeviceList(mm: MidiManager) {
+        val sb = StringBuilder("[")
+        try {
+            for (info in mm.devices) {
+                if (info.outputPortCount <= 0) continue
+                val nm = (info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device").replace("'", "")
+                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "")
+                if (sb.length > 1) sb.append(',')
+                sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
+                  .append("\",\"manufacturer\":\"").append(mf).append("\"}")
+            }
+        } catch (e: Exception) {}
+        sb.append("]")
+        val js = "window.onNativeMIDIDevices && onNativeMIDIDevices(" + sb.toString() + ")"
+        runOnUiThread { try { webView.evaluateJavascript(js, null) } catch (e: Exception) {} }
     }
 
     // Open the device's OUTPUT port (data flowing FROM the controller to us) and

@@ -83,6 +83,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
+      <span id="midistat" title="MIDI ports the app can see" style="font-size:9px;letter-spacing:.08em;color:var(--mut);padding:0 6px">MIDI: —</span>
       <button class="hbtn" id="diag" title="MIDI monitor — what the app can see and every message arriving">🔎 MIDI</button>
       <button class="hbtn" id="upd" title="Check for updates now">⬇ v1.0.0</button>
       <button class="hbtn" id="updauto" title="Auto-update: ON installs updates itself; OFF shows a quiet update card instead">AUTO</button>
@@ -479,9 +480,19 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       catch (e) { toast('Select the text to copy it'); }
     });
 
+    function paintMidiStat(n) {
+      const el = $('#midistat'); if (!el) return;
+      const live = io && io.hasLiveData && io.hasLiveData();
+      el.textContent = 'MIDI: ' + (n === 0 ? 'none' : n + (live ? ' ●' : ''));
+      el.style.color = n > 0 ? (live ? 'var(--acc)' : 'var(--ink)') : 'var(--mut)';
+    }
     const io = createMidiIO({
-      onEvent: (ev) => { diagNote(ev); manager.routeMidi(ev); },
-      onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty),
+      onEvent: (ev) => { diagNote(ev); manager.routeMidi(ev); paintMidiStat(io.listInputs().length); },
+      onPorts: (ins) => {
+        paintMidiStat(ins.length);
+        if (ins.length) toast('🎹 ' + ins.length + ' MIDI device(s): ' + ins.map((i) => i.name).join(', ').slice(0, 60));
+        return manager.syncPorts(ins).then(refreshEmpty);
+      },
     });
     const btStatus = (s) => {
       if (s.mode === 'gatt' && s.connected) toast(s.auto ? '📶 Reconnected ' + (s.name || 'controller') : '📶 Connected — ' + (s.name || 'BLE MIDI'));

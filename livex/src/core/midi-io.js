@@ -53,7 +53,16 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // the BLE-MIDI packet format for every platform, with per-device state so
   // several wireless controllers can play at once.
   const bleCtx = new Map();
-  window.onNativeBLEPackets = (packets, addr, name) => {
+// The device list from the native bridge. Reported as ports so the SAME
+  // board-building path runs as on desktop — a controller that is plugged in
+  // but not yet played still draws itself.
+  window.onNativeMIDIDevices = (list) => {
+    nativeDevices = (list || []).map((d) => ({ id: d.id, name: d.name, manufacturer: d.manufacturer || '' }));
+    if (nativeDevices.length && typeof nativeName !== 'undefined') { try { nativeName = nativeDevices[0].name; } catch (e) {} }
+    onPorts && onPorts(nativeDevices);
+  };
+
+    window.onNativeBLEPackets = (packets, addr, name) => {
     if (!packets || !packets.length) return;
     let ctx = bleCtx.get(addr);
     if (!ctx) {
@@ -64,7 +73,12 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     for (let i = 0; i < packets.length; i++) ctx.decode(Uint8Array.from(packets[i]));
   };
 
-  function listInputs() { return access ? [...access.inputs.values()] : []; }
+  let nativeDevices = [];   // devices reported by the Android bridge
+  let nativeMode = false;
+  function listInputs() {
+    if (access) return [...access.inputs.values()];
+    return nativeDevices;
+  }
 
   // --- Web MIDI (desktop Electron / Chrome) with hot-plug -------------------
   // Memoized: the app calls start() at boot, so a later connectBluetooth() never
@@ -81,6 +95,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     // exact global MUST exist or the APK never hears a single MIDI byte.
     if (typeof window !== 'undefined' && window.AndroidMidi) {
       let nativeName = 'MIDI DEVICE';
+      nativeMode = true;
       const nativePort = () => ({ id: 'native', name: nativeName, native: true });
       window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
       // batched form — the bridge coalesces a frame's worth of packets into one
@@ -112,6 +127,16 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       hook();
       access.onstatechange = () => { hook(); onPorts && onPorts(listInputs()); };
       onPorts && onPorts(listInputs());
+      // Belt and braces: some Windows/driver combinations never fire
+      // onstatechange, leaving a controller plugged in but invisible. Re-hook and
+      // re-report whenever the set of ports actually changes.
+      let seen = [...access.inputs.keys()].join('|');
+      setInterval(() => {
+        if (!access) return;
+        const nowKeys = [...access.inputs.keys()].join('|');
+        if (nowKeys !== seen) { seen = nowKeys; hook(); onPorts && onPorts(listInputs()); }
+        else hook();   // cheap: re-assert handlers in case a port was re-opened
+      }, 3000);
       return { mode: 'webmidi', access };
     }
     return { mode: 'none' };

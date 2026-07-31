@@ -83,6 +83,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
+      <span id="midistat" title="MIDI ports the app can see" style="font-size:9px;letter-spacing:.08em;color:var(--mut);padding:0 6px">MIDI: —</span>
       <button class="hbtn" id="diag" title="MIDI monitor — what the app can see and every message arriving">🔎 MIDI</button>
       <button class="hbtn" id="upd" title="Check for updates now">⬇ v1.0.0</button>
       <button class="hbtn" id="updauto" title="Auto-update: ON installs updates itself; OFF shows a quiet update card instead">AUTO</button>
@@ -551,6 +552,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     };
     const hasLiveData = () => lastDataAt > 0;
     const bleCtx = /* @__PURE__ */ new Map();
+    window.onNativeMIDIDevices = (list) => {
+      nativeDevices = (list || []).map((d) => ({ id: d.id, name: d.name, manufacturer: d.manufacturer || "" }));
+      if (nativeDevices.length && typeof nativeName !== "undefined") {
+        try {
+          nativeName = nativeDevices[0].name;
+        } catch (e) {
+        }
+      }
+      onPorts && onPorts(nativeDevices);
+    };
     window.onNativeBLEPackets = (packets, addr, name) => {
       if (!packets || !packets.length) return;
       let ctx2 = bleCtx.get(addr);
@@ -561,8 +572,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       for (let i = 0; i < packets.length; i++) ctx2.decode(Uint8Array.from(packets[i]));
     };
+    let nativeDevices = [];
+    let nativeMode = false;
     function listInputs() {
-      return access ? [...access.inputs.values()] : [];
+      if (access) return [...access.inputs.values()];
+      return nativeDevices;
     }
     let startPromise = null;
     function start() {
@@ -570,8 +584,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     async function _start() {
       if (typeof window !== "undefined" && window.AndroidMidi) {
-        let nativeName = "MIDI DEVICE";
-        const nativePort = () => ({ id: "native", name: nativeName, native: true });
+        let nativeName2 = "MIDI DEVICE";
+        nativeMode = true;
+        const nativePort = () => ({ id: "native", name: nativeName2, native: true });
         window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
         window.onNativeMIDIBatch = (list) => {
           if (!list || !list.length) return;
@@ -580,7 +595,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         };
         window.onNativeMIDIStatus = (txt) => {
           const m = String(txt || "").match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
-          if (m) nativeName = m[1].trim();
+          if (m) nativeName2 = m[1].trim();
           onPorts && onPorts(listInputs());
         };
         window.__livexNativeMidi = window.onNativeMIDIMessage;
@@ -609,6 +624,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
           onPorts && onPorts(listInputs());
         };
         onPorts && onPorts(listInputs());
+        let seen = [...access.inputs.keys()].join("|");
+        setInterval(() => {
+          if (!access) return;
+          const nowKeys = [...access.inputs.keys()].join("|");
+          if (nowKeys !== seen) {
+            seen = nowKeys;
+            hook();
+            onPorts && onPorts(listInputs());
+          } else hook();
+        }, 3e3);
         return { mode: "webmidi", access };
       }
       return { mode: "none" };
@@ -3262,12 +3287,24 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       toast("Select the text to copy it");
     }
   });
+  function paintMidiStat(n) {
+    const el2 = $("#midistat");
+    if (!el2) return;
+    const live = io && io.hasLiveData && io.hasLiveData();
+    el2.textContent = "MIDI: " + (n === 0 ? "none" : n + (live ? " \u25CF" : ""));
+    el2.style.color = n > 0 ? live ? "var(--acc)" : "var(--ink)" : "var(--mut)";
+  }
   var io = createMidiIO({
     onEvent: (ev) => {
       diagNote(ev);
       manager.routeMidi(ev);
+      paintMidiStat(io.listInputs().length);
     },
-    onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty)
+    onPorts: (ins) => {
+      paintMidiStat(ins.length);
+      if (ins.length) toast("\u{1F3B9} " + ins.length + " MIDI device(s): " + ins.map((i) => i.name).join(", ").slice(0, 60));
+      return manager.syncPorts(ins).then(refreshEmpty);
+    }
   });
   var btStatus = (s) => {
     if (s.mode === "gatt" && s.connected) toast(s.auto ? "\u{1F4F6} Reconnected " + (s.name || "controller") : "\u{1F4F6} Connected \u2014 " + (s.name || "BLE MIDI"));
