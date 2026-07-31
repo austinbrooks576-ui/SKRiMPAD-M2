@@ -72,6 +72,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font
 .pad::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.18);opacity:0;transition:opacity .08s;}
 .pad:active::after,.pad.hit::after{opacity:1;}
 .pad:active,.pad.hit{transform:scale(.93);}
+/* PROGRAM mode — the armed pad/sound has to be unmistakable, and every pad has
+   to read as a target while the mode is on. */
+body.programming .pad{outline:1px dashed rgba(255,255,255,.28);outline-offset:-3px;}
+.pad.armed{outline:2px solid #4bd6c8!important;outline-offset:-2px;box-shadow:0 0 14px rgba(75,214,200,.55);}
+.lib-sound.armed{outline:2px solid #4bd6c8;box-shadow:0 0 12px rgba(75,214,200,.5);}
+.hbtn.program-btn.on{background:#4bd6c8;color:#08131a;border-color:#4bd6c8;}
 .pad .pad-name{font-size:8px;opacity:.8;margin-top:2px;}
 .pad .pad-vel{position:absolute;bottom:3px;right:4px;font-size:7px;opacity:.5;}
 
@@ -1552,7 +1558,10 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
 <div class="panel" id="lib-panel">
   <div class="sec-label">SOUND LIBRARY — YOUR SOUNDS ARE SAVED ON THIS DEVICE</div>
   <div class="lay-hint">CLICK = preview · RIGHT-CLICK/HOLD = assign to selected pad · CTRL+CLICK = assign to keys · ✂ = open in sample editor · ✕ = delete forever</div>
-  <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
+  <div style="display:flex;gap:6px;margin-bottom:8px">
+    <button class="hbtn program-btn" title="Tap a pad then a sound (or a sound then a pad) to load it — no dragging, no right-click">⏺ PROGRAM</button>
+    <button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button>
+  </div>
   <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
   <div style="display:flex;gap:6px;margin-bottom:10px">
     <input class="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
@@ -1656,7 +1665,10 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
       <button class="hbtn" id="gen-make">GENERATE</button>
       <span class="lay-hint" style="margin:0">invents a brand-new sound and saves it to MY SOUNDS</span>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:8px"><button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+    <button class="hbtn program-btn" title="Tap a pad then a sound (or a sound then a pad) to load it — no dragging, no right-click">⏺ PROGRAM</button>
+    <button class="hbtn zip-import-btn" title="Import a .zip sample pack — it extracts and organizes itself into the right tabs">📦 IMPORT ZIP PACK</button>
+  </div>
     <div class="drop-zone" tabindex="0">⬇ DROP .ZIP PACKS OR AUDIO FILES HERE<div class="dz-sub">or tap to browse — packs auto-sort into tabs</div></div>
     <div style="display:flex;gap:6px;margin-bottom:10px">
       <input class="ai-gen-desc" id="ai-gen-desc" placeholder='🤖 Describe a sound — "deep punchy 808 kick"' style="flex:1;background:var(--surf2);border:1px solid var(--purple);color:var(--txt);border-radius:6px;padding:7px 9px;font-size:10px;font-weight:600">
@@ -3656,6 +3668,8 @@ function buildPads() {
 
     const triggerPad = () => {
       initAudio();
+      // In PROGRAM mode a tap ARMS this pad rather than playing it.
+      if (PROGRAM_MODE.on) { PROGRAM_MODE.pickPad(i); return; }
       playDrum(i, ctx.currentTime);
       lastTouchedPad = i;
       loopCapture('drum', { drumIdx: i });
@@ -4886,6 +4900,59 @@ const SOUND_LIB = {
 let libCategory = 'KICKS';
 let lastTouchedPad = 0;
 
+// ---- PROGRAM MODE ----------------------------------------------------------
+// Two taps to load a sound: tap the pad, tap the sound — in EITHER order.
+// Right-click and long-press already assign, but neither is comfortable on a
+// phone and neither works from a hardware pad. While the mode is on a pad tap
+// ARMS instead of playing, otherwise picking a pad would fire whatever is
+// already loaded on it. The mode stays on so a whole kit can be built in one
+// pass. See PROGRAM_MODE.toggle().
+const PROGRAM_MODE = {
+  on: false,
+  pad: null,          // armed pad index
+  sound: null,        // armed library sound
+  toggle(v) {
+    this.on = v == null ? !this.on : v;
+    if (!this.on) { this.pad = null; this.sound = null; }
+    document.body.classList.toggle('programming', this.on);
+    document.querySelectorAll('.program-btn').forEach(b => b.classList.toggle('on', this.on));
+    this.paint();
+    toast(this.on ? '⏺ PROGRAM — tap a pad then a sound, or a sound then a pad'
+                  : 'Program mode off');
+  },
+  paint() {
+    document.querySelectorAll('.pad').forEach(p => {
+      p.classList.toggle('armed', this.on && +p.dataset.idx === this.pad);
+    });
+    document.querySelectorAll('.lib-sound').forEach(b => {
+      b.classList.toggle('armed', this.on && b.__sound === this.sound);
+    });
+  },
+  // a pad was tapped — finish a pending sound, or wait for one
+  pickPad(i) {
+    if (this.sound) { this.assign(this.sound, i); return; }
+    this.pad = i; this.paint();
+    toast((drumDefs[i] ? drumDefs[i].name : 'PAD ' + (i + 1)) + ' armed — now tap a sound');
+  },
+  // a sound was tapped — finish a pending pad, or wait for one
+  pickSound(s) {
+    if (this.pad != null) { this.assign(s, this.pad); return; }
+    this.sound = s; this.paint();
+    toast('"' + s.name + '" armed — now tap a pad');
+  },
+  assign(s, i) {
+    const put = () => {
+      const def = drumDefs[i];
+      if (!def) return;
+      if (s.buf) def.sampleBuf = s.buf; else { def.sampleBuf = null; def.fn = s.fn; }
+      this.pad = null; this.sound = null; this.paint();
+      toast('✓ ' + s.name + ' → ' + def.name);
+    };
+    if (!s.buf && s.idbId) { libEnsureBuf(s).then(put); return; }   // pull from disk first
+    put();
+  },
+};
+
 const LIB_TARGETS = [['lib-tabs', 'lib-grid'], ['lib-tabs-p', 'lib-grid-p']];
 function buildSoundLib() {
   LIB_TARGETS.forEach(([tabId]) => {
@@ -4958,10 +5025,12 @@ function buildSoundLibGrid() {
       btn.draggable = true;
       btn.addEventListener('dragstart', e => { libDragSound = s; document.body.classList.add('lib-dragging'); try { e.dataTransfer.setData('text/plain', s.name); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
       btn.addEventListener('dragend', () => { libDragSound = null; document.body.classList.remove('lib-dragging'); document.querySelectorAll('.drop-hi').forEach(el => el.classList.remove('drop-hi')); });
+      btn.classList.add('lib-sound'); btn.__sound = s;
       btn.addEventListener('click', e => {
         initAudio();
         if (e.ctrlKey || e.metaKey) { libAssignToKeys(s); return; }
-        s.fn(ctx.currentTime + 0.01);
+        s.fn(ctx.currentTime + 0.01);          // always audition, so you hear it
+        if (PROGRAM_MODE.on) PROGRAM_MODE.pickSound(s);
       });
       const assignPad = () => {
         if (!s.buf && s.idbId) { libEnsureBuf(s).then(() => assignPad()); return; } // pull from disk first
@@ -7137,6 +7206,8 @@ function importZipPack() {
   }
 }
 document.querySelectorAll('.zip-import-btn').forEach(b => b.addEventListener('click', importZipPack));
+// PROGRAM lives in both library surfaces — the modal and the SE glass window
+document.querySelectorAll('.program-btn').forEach(b => b.addEventListener('click', () => PROGRAM_MODE.toggle()));
 // AI: generate a sound from a plain-English description — wired in BOTH the
 // library modal and the standalone library panel (the SE glass window)
 document.querySelectorAll('.ai-gen-btn').forEach(gb => {
