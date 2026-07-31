@@ -115,6 +115,32 @@ class MainActivity : AppCompatActivity() {
         return if (!mf.isNullOrBlank()) mf else "MIDI DEVICE"
     }
 
+    // Every property Android actually holds for a device, flattened for the in-app
+    // MIDI monitor. When a controller still fails to identify, this is the ground
+    // truth that ends the guessing: it shows exactly which properties carry a name
+    // on THAT device, rather than us reasoning about what Android usually does.
+    private fun deviceProps(info: MidiDeviceInfo): String {
+        val out = StringBuilder()
+        try {
+            val p = info.properties
+            for (k in p.keySet()) {
+                val v = try { p.get(k) } catch (e: Exception) { null }
+                val s = when (v) {
+                    null -> "null"
+                    is android.bluetooth.BluetoothDevice ->
+                        "BluetoothDevice(name=" + (try { v.name } catch (e: SecurityException) { "<no permission>" }) + ")"
+                    else -> v.toString()
+                }
+                if (out.isNotEmpty()) out.append(" | ")
+                out.append(k).append('=').append(s.take(60))
+            }
+            out.append(" | type=").append(info.type)
+              .append(" outPorts=").append(info.outputPortCount)
+              .append(" inPorts=").append(info.inputPortCount)
+        } catch (e: Exception) { out.append("(props unavailable: ").append(e.javaClass.simpleName).append(')') }
+        return out.toString().replace("'", "").replace("\"", "").replace("\\", "")
+    }
+
     private fun publishDeviceList(mm: MidiManager) {
         val sb = StringBuilder("[")
         try {
@@ -122,9 +148,11 @@ class MainActivity : AppCompatActivity() {
                 if (info.outputPortCount <= 0) continue
                 val nm = deviceLabel(info).replace("'", "").replace("\"", "")
                 val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "").replace("\"", "")
+                val pr = deviceProps(info)
                 if (sb.length > 1) sb.append(',')
                 sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
-                  .append("\",\"manufacturer\":\"").append(mf).append("\"}")
+                  .append("\",\"manufacturer\":\"").append(mf)
+                  .append("\",\"props\":\"").append(pr).append("\"}")
             }
         } catch (e: Exception) {}
         sb.append("]")

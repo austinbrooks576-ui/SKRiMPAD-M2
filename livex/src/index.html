@@ -525,7 +525,32 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         }
       } catch (e) { L.push('BT granted    : (unavailable)'); }
       L.push('data seen     : ' + (io.hasLiveData() ? 'YES' : 'NO — nothing has ever arrived'));
+      // NATIVE DEVICES, with every property Android actually holds. This is the
+      // ground truth for "why did my controller not identify" — it shows which
+      // property carries a name on THIS device instead of us assuming.
+      const nat = (io.devices && io.devices()) || [];
+      L.push('native devices: ' + nat.length);
+      nat.forEach((d) => {
+        L.push('   • id=' + d.id + '  name="' + d.name + '"  mfr="' + (d.manufacturer || '-') + '"');
+        if (d.props) L.push('     props: ' + d.props);
+      });
+      // WHAT THE APP DECIDED — the matched profile and the live pad map, so a
+      // wrong grid can be read off directly instead of described.
       L.push('boards        : ' + manager.boards.size);
+      for (const b of manager.boards.values()) {
+        const p = b.profile, pd = p.pads;
+        L.push('   • "' + (p.portName || '?') + '"  →  profile=' + (p.id || 'UNIDENTIFIED') +
+               '  class=' + p.class + '  conf=' + p.confidence);
+        L.push('     keys=' + (p.keys ? p.keys.count + '@' + p.keys.firstNote : 'none') +
+               '  pads=' + (pd ? pd.count + ' ' + (pd.layout || []).join('x') + ' ch' + pd.channel +
+               ' banks=' + (pd.banks || 1) : 'none') +
+               '  knobs=' + p.knobs);
+        if (pd && pd.noteMap) {
+          const inv = [];
+          for (const note in pd.noteMap) inv.push('n' + note + '→draw' + pd.noteMap[note]);
+          L.push('     padmap(' + (pd.taught ? 'TAUGHT' : pd.learned ? 'auto-learned' : 'default') + '): ' + inv.join(' '));
+        }
+      }
       $('#diag-env').textContent = L.join('\n');
     }
     $('#diag').addEventListener('click', async () => {

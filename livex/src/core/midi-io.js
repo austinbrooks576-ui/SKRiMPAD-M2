@@ -57,7 +57,12 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // board-building path runs as on desktop — a controller that is plugged in
   // but not yet played still draws itself.
   window.onNativeMIDIDevices = (list) => {
-    nativeDevices = (list || []).map((d) => ({ id: d.id, name: d.name, manufacturer: d.manufacturer || '' }));
+    // `props` is every property Android holds for the device. It is not used for
+    // matching — it exists so the in-app MIDI monitor can show ground truth when
+    // a controller still fails to identify.
+    nativeDevices = (list || []).map((d) => ({
+      id: d.id, name: d.name, manufacturer: d.manufacturer || '', props: d.props || '',
+    }));
     if (nativeDevices.length && typeof nativeName !== 'undefined') { try { nativeName = nativeDevices[0].name; } catch (e) {} }
     onPorts && onPorts(nativeDevices);
   };
@@ -330,5 +335,8 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   return {
     start, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
     hasLiveData, access: () => access, _emit: emit,
+    // devices reported by the native bridge, with their raw Android properties —
+    // read by the MIDI monitor so an unidentified controller can be diagnosed
+    devices: () => nativeDevices,
   };
 }
