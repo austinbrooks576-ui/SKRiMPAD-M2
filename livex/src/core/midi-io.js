@@ -20,13 +20,32 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     if (!data || data.length < 1) return;
     const [status, d1 = 0, d2 = 0] = data;
     if (status < 0x80) return;   // stray data byte
-    // Drop System Real-Time / System Common (>= 0xF0): clock at 24 ppqn and
-    // active sensing several times a second are pure noise to us, and letting
-    // them through drove the router, the probe and the re-render loop hard
-    // enough to stall the app.
-    if (status >= 0xf0) return;
-    lastDataAt = Date.now();
-    onEvent && onEvent({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port });
+
+    // Only the FLOOD is noise: clock at 24 ppqn, active sensing several times a
+    // second, reset, and the undefined slots. Everything else at 0xF0+ is real
+    // control data — dropping the lot also threw away the transport messages the
+    // PLAY / STOP / REC buttons send, which is why they never did anything.
+    if (status === 0xf8 || status === 0xf9 || status === 0xfd || status === 0xfe || status === 0xff) return;
+
+    const fire = (e) => { lastDataAt = Date.now(); onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port, raw: data }, e)); };
+
+    // System Real-Time transport: Start / Continue / Stop
+    if (status === 0xfa || status === 0xfb) { fire({ transport: 'play' }); return; }
+    if (status === 0xfc) { fire({ transport: 'stop' }); return; }
+
+    // MMC over SysEx — how most transport buttons actually report:
+    //   F0 7F <dev> 06 <cmd> F7   ·  01 stop · 02 play · 03 deferred play · 06 record
+    if (status === 0xf0) {
+      if (data.length >= 5 && data[1] === 0x7f && data[3] === 0x06) {
+        const c = data[4];
+        const name = c === 0x01 ? 'stop' : (c === 0x02 || c === 0x03) ? 'play' : (c === 0x06 || c === 0x07) ? 'rec' : null;
+        if (name) fire({ transport: name });
+      }
+      return;
+    }
+    if (status >= 0xf1 && status <= 0xf7) return;   // other System Common: not playable
+
+    fire();
   };
   const hasLiveData = () => lastDataAt > 0;
 
@@ -69,7 +88,11 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       return { mode: 'native' };
     }
     if (typeof navigator !== 'undefined' && navigator.requestMIDIAccess) {
-      access = await navigator.requestMIDIAccess({ sysex: false });
+      // SysEx MUST be requested: MMC (F0 7F .. 06 ..) is how most PLAY/STOP/REC
+      // buttons report, and with sysex:false the browser silently drops it, so
+      // those buttons could never work no matter what we did downstream.
+      try { access = await navigator.requestMIDIAccess({ sysex: true }); }
+      catch (e) { access = await navigator.requestMIDIAccess({ sysex: false }); }
       const hook = () => access.inputs.forEach((inp) => { inp.onmidimessage = (e) => emit(e.data, inp); });
       hook();
       access.onstatechange = () => { hook(); onPorts && onPorts(listInputs()); };

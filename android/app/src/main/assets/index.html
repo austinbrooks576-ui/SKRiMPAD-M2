@@ -83,6 +83,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
+      <button class="hbtn" id="diag" title="MIDI monitor — what the app can see and every message arriving">🔎 MIDI</button>
       <button class="hbtn" id="upd" title="Check for updates now">⬇ v1.0.0</button>
       <button class="hbtn" id="updauto" title="Auto-update: ON installs updates itself; OFF shows a quiet update card instead">AUTO</button>
       <button class="hbtn" id="bt" style="border-color:var(--acc);color:var(--acc)">📶 BT</button>
@@ -128,6 +129,17 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <b>−/=</b> octave · <b>Space</b> play · <b>Enter</b> rec · <b>\</b> metro · <b>Esc</b> panic</div>
   </div>
   <div id="toast"></div>
+  <div id="diagpanel" style="display:none;position:fixed;inset:auto 12px 12px auto;width:min(430px,92vw);max-height:70vh;
+    overflow:auto;background:rgba(10,13,18,.97);border:1px solid var(--acc);border-radius:12px;padding:12px;z-index:9000;
+    font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--ink)">
+    <div class="row" style="margin-bottom:8px">
+      <b style="color:var(--acc);letter-spacing:.12em">MIDI MONITOR</b><span style="flex:1"></span>
+      <button class="hbtn" id="diag-copy">COPY</button><button class="hbtn" id="diag-close">✕</button>
+    </div>
+    <div id="diag-env" style="white-space:pre-wrap;color:var(--mut);margin-bottom:8px"></div>
+    <div style="color:var(--acc);margin-bottom:4px">INCOMING — press the buttons you want to work:</div>
+    <div id="diag-log" style="white-space:pre-wrap"></div>
+  </div>
 
   <script>
 (() => {
@@ -396,9 +408,29 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       if (!data || data.length < 1) return;
       const [status, d1 = 0, d2 = 0] = data;
       if (status < 128) return;
-      if (status >= 240) return;
-      lastDataAt = Date.now();
-      onEvent && onEvent({ status, d1, d2, cmd: status & 240, chan: status & 15, port });
+      if (status === 248 || status === 249 || status === 253 || status === 254 || status === 255) return;
+      const fire = (e) => {
+        lastDataAt = Date.now();
+        onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 240, chan: status & 15, port, raw: data }, e));
+      };
+      if (status === 250 || status === 251) {
+        fire({ transport: "play" });
+        return;
+      }
+      if (status === 252) {
+        fire({ transport: "stop" });
+        return;
+      }
+      if (status === 240) {
+        if (data.length >= 5 && data[1] === 127 && data[3] === 6) {
+          const c = data[4];
+          const name = c === 1 ? "stop" : c === 2 || c === 3 ? "play" : c === 6 || c === 7 ? "rec" : null;
+          if (name) fire({ transport: name });
+        }
+        return;
+      }
+      if (status >= 241 && status <= 247) return;
+      fire();
     };
     const hasLiveData = () => lastDataAt > 0;
     function listInputs() {
@@ -435,7 +467,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         return { mode: "native" };
       }
       if (typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
-        access = await navigator.requestMIDIAccess({ sysex: false });
+        try {
+          access = await navigator.requestMIDIAccess({ sysex: true });
+        } catch (e) {
+          access = await navigator.requestMIDIAccess({ sysex: false });
+        }
         const hook = () => access.inputs.forEach((inp) => {
           inp.onmidimessage = (e) => emit(e.data, inp);
         });
@@ -666,8 +702,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     mute: "#5b6774",
     font: "'Oswald','Arial Narrow',sans-serif"
   });
-  function contraryColor(hex, sat = 0.62) {
-    const { h, s, l } = hexToHsl(hex);
+  function contraryColor(hex2, sat = 0.62) {
+    const { h, s, l } = hexToHsl(hex2);
     const h2 = (h + 180) % 360;
     const l2 = l > 0.5 ? clamp(l - 0.42) : clamp(l + 0.42);
     const s2 = Math.max(s, sat);
@@ -676,8 +712,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   function clamp(x, lo = 0, hi = 1) {
     return Math.min(hi, Math.max(lo, x));
   }
-  function hexToHsl(hex) {
-    let c = hex.replace("#", "");
+  function hexToHsl(hex2) {
+    let c = hex2.replace("#", "");
     if (c.length === 3) c = c.split("").map((x) => x + x).join("");
     const r = parseInt(c.slice(0, 2), 16) / 255;
     const g2 = parseInt(c.slice(2, 4), 16) / 255;
@@ -1137,7 +1173,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
 
   // livex/src/core/router.js
+  var TRANSPORT_CC = { 116: "play", 117: "stop", 118: "rec", 114: "play", 115: "stop" };
   function createRouter({ container, profile, litColor = "#4bd6c8", onAction, onWindow } = {}) {
+    const learnedCC = {};
     const state = { knobBank: 0, padBank: 0, octave: 0, transpose: 0 };
     const q = (sel) => container.querySelector(sel);
     const keyEl = (note) => q(`[data-role="key"][data-note="${note}"]`);
@@ -1165,6 +1203,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     function handleMidi(ev) {
       const { cmd, chan, d1, d2 } = ev;
+      if (ev.transport) {
+        const el2 = q('[data-role="transport"][data-name="' + ev.transport + '"]');
+        if (el2) flash(el2, 180);
+        onAction && onAction({ type: "transport", name: ev.transport, source: "midi" });
+        return;
+      }
       const noteOn2 = cmd === 144 && d2 > 0;
       const noteOff = cmd === 128 || cmd === 144 && d2 === 0;
       if (noteOn2) {
@@ -1191,6 +1235,13 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         if (d1 === 120 || d1 === 123) {
           unlightAll();
           onAction && onAction({ type: "allnotesoff" });
+          return;
+        }
+        const tname = TRANSPORT_CC[d1] || learnedCC[d1];
+        if (tname && d2 > 0) {
+          const el2 = q('[data-role="transport"][data-name="' + tname + '"]');
+          if (el2) flash(el2, 180);
+          onAction && onAction({ type: "transport", name: tname, source: "cc" });
           return;
         }
         onAction && onAction({ type: "cc", cc: d1, val: d2, bank: state.knobBank });
@@ -2932,7 +2983,68 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     setTimeout(() => sync.classList.remove("flash"), 140);
     toast("Quantized to grid");
   });
-  var io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
+  var diagLog = [];
+  var hex = (n) => n.toString(16).toUpperCase().padStart(2, "0");
+  function diagNote(ev) {
+    const raw = (ev.raw || [ev.status, ev.d1, ev.d2]).map(hex).join(" ");
+    const kind = ev.transport ? "TRANSPORT " + ev.transport.toUpperCase() : ev.cmd === 144 && ev.d2 > 0 ? "note on  " + ev.d1 + " vel " + ev.d2 + " ch" + (ev.chan + 1) : ev.cmd === 128 || ev.cmd === 144 ? "note off " + ev.d1 + " ch" + (ev.chan + 1) : ev.cmd === 176 ? "CC " + ev.d1 + " = " + ev.d2 + " ch" + (ev.chan + 1) : ev.cmd === 224 ? "pitch " + (ev.d2 << 7 | ev.d1) : ev.status === 240 ? "sysex" : "status " + hex(ev.status);
+    diagLog.unshift(raw.padEnd(14) + "  " + kind + "   [" + (ev.port && ev.port.name || "?") + "]");
+    if (diagLog.length > 60) diagLog.pop();
+    const el2 = $("#diag-log");
+    if (el2 && $("#diagpanel").style.display !== "none") el2.textContent = diagLog.join("\n");
+  }
+  async function diagEnv() {
+    const L = [];
+    L.push("platform      : " + (upd ? upd.platform : "?") + "   " + navigator.userAgent.slice(0, 60));
+    L.push("Web MIDI API  : " + (navigator.requestMIDIAccess ? "present" : "ABSENT"));
+    L.push("Web Bluetooth : " + (navigator.bluetooth ? "present" : "ABSENT") + (navigator.bluetooth && navigator.bluetooth.getDevices ? " (getDevices ok)" : ""));
+    L.push("Android bridge: " + (window.AndroidMidi ? "present" : "absent"));
+    const acc = io.access && io.access();
+    if (acc) {
+      const ins = [...acc.inputs.values()];
+      L.push("MIDI inputs   : " + ins.length);
+      ins.forEach((i) => L.push("   \u2022 " + i.name + "   [" + i.state + "/" + i.connection + "]  mfr=" + (i.manufacturer || "-")));
+    } else L.push("MIDI inputs   : (no Web MIDI access object)");
+    try {
+      if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+        const d = await navigator.bluetooth.getDevices();
+        L.push("BT granted    : " + d.length + (d.length ? " \u2014 " + d.map((x) => x.name).join(", ") : ""));
+      }
+    } catch (e) {
+      L.push("BT granted    : (unavailable)");
+    }
+    L.push("data seen     : " + (io.hasLiveData() ? "YES" : "NO \u2014 nothing has ever arrived"));
+    L.push("boards        : " + manager.boards.size);
+    $("#diag-env").textContent = L.join("\n");
+  }
+  $("#diag").addEventListener("click", async () => {
+    const p = $("#diagpanel");
+    const open = p.style.display === "none";
+    p.style.display = open ? "block" : "none";
+    if (open) {
+      await diagEnv();
+      $("#diag-log").textContent = diagLog.join("\n") || "(nothing yet \u2014 play a key or press a button)";
+    }
+  });
+  $("#diag-close").addEventListener("click", () => {
+    $("#diagpanel").style.display = "none";
+  });
+  $("#diag-copy").addEventListener("click", async () => {
+    const txt = $("#diag-env").textContent + "\n\nINCOMING:\n" + diagLog.join("\n");
+    try {
+      await navigator.clipboard.writeText(txt);
+      toast("Copied \u2014 paste it to report the issue");
+    } catch (e) {
+      toast("Select the text to copy it");
+    }
+  });
+  var io = createMidiIO({
+    onEvent: (ev) => {
+      diagNote(ev);
+      manager.routeMidi(ev);
+    },
+    onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty)
+  });
   var btStatus = (s) => {
     if (s.mode === "gatt" && s.connected) toast(s.auto ? "\u{1F4F6} Reconnected " + (s.name || "controller") : "\u{1F4F6} Connected \u2014 " + (s.name || "BLE MIDI"));
     else if (s.mode === "gatt" && !s.connected) toast("\u{1F4F6} " + (s.name || "Controller") + " dropped \u2014 reconnecting\u2026");

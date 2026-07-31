@@ -11,7 +11,12 @@
 // `container` is the element the schematic lives in (queried live, so re-renders —
 // e.g. from window auto-follow — are picked up automatically).
 
+// CC numbers controllers commonly put PLAY / STOP / REC on. 116-118 is the
+// widely used trio; 114/115 show up on some M-Vave / Worlde firmware.
+const TRANSPORT_CC = { 116: 'play', 117: 'stop', 118: 'rec', 114: 'play', 115: 'stop' };
+
 export function createRouter({ container, profile, litColor = '#4bd6c8', onAction, onWindow } = {}) {
+  const learnedCC = {};   // cc -> 'play'|'stop'|'rec', taught by MIDI-learn
   const state = { knobBank: 0, padBank: 0, octave: 0, transpose: 0 };
 
   const q = (sel) => container.querySelector(sel);
@@ -38,6 +43,15 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
   // ---- MIDI in ----
   function handleMidi(ev) {
     const { cmd, chan, d1, d2 } = ev;
+
+    // Transport reported out-of-band (MMC SysEx / MIDI Start-Stop-Continue).
+    // Flash the matching drawn button so you can see the board respond.
+    if (ev.transport) {
+      const el = q('[data-role="transport"][data-name="' + ev.transport + '"]');
+      if (el) flash(el, 180);
+      onAction && onAction({ type: 'transport', name: ev.transport, source: 'midi' });
+      return;
+    }
     const noteOn = cmd === 0x90 && d2 > 0;
     const noteOff = cmd === 0x80 || (cmd === 0x90 && d2 === 0);
 
@@ -64,6 +78,15 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
       if (d1 === 120 || d1 === 123) {       // All Sound Off / All Notes Off
         unlightAll();
         onAction && onAction({ type: 'allnotesoff' });
+        return;
+      }
+      // CC transport — the other common way PLAY/STOP/REC report. Standard-ish
+      // assignments plus anything the user has learned onto a transport button.
+      const tname = TRANSPORT_CC[d1] || learnedCC[d1];
+      if (tname && d2 > 0) {
+        const el = q('[data-role="transport"][data-name="' + tname + '"]');
+        if (el) flash(el, 180);
+        onAction && onAction({ type: 'transport', name: tname, source: 'cc' });
         return;
       }
       onAction && onAction({ type: 'cc', cc: d1, val: d2, bank: state.knobBank });
