@@ -92,6 +92,37 @@ export const PATTERNS = [
     }),
   },
 
+  // --- JamJum JP mini / JP-1 (compact BLE-capable pad+key controllers) ---
+  // Matches the family across the spellings these report under: "JamJum",
+  // "JAM JUM", "JP mini", "JP-1", "JP1". The live capability probe refines the
+  // exact key/pad counts on first play, so a firmware variant still lands right.
+  {
+    test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
+    base: () => makeProfile({
+      id: 'jpmini', class: CLASSES.HYBRID,
+      keys: { count: 25, firstNote: 48 },
+      pads: { count: 8, layout: [2, 4], channel: 10 },
+      knobs: 4, wheels: ['pitch', 'mod'],
+      transport: ['play', 'stop', 'rec'],
+      buttons: ['oct-', 'oct+'],
+      features: ['octave', 'transpose', 'sustain', 'bt'],
+      confidence: 0.85,
+    }),
+  },
+  {
+    test: /\bjp[-\s]?1\b/i,
+    base: () => makeProfile({
+      id: 'jp1', class: CLASSES.HYBRID,
+      keys: { count: 25, firstNote: 48 },
+      pads: { count: 8, layout: [2, 4], channel: 10 },
+      knobs: 8, wheels: ['pitch', 'mod'],
+      transport: ['play', 'stop', 'rec'],
+      buttons: ['oct-', 'oct+'],
+      features: ['octave', 'transpose', 'sustain', 'bt'],
+      confidence: 0.85,
+    }),
+  },
+
   // --- Korg nano / micro series (very common, especially over BLE) ---
   {
     test: /\bnano\s?key\b|\bnanokey\b/i,

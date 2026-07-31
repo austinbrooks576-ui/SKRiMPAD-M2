@@ -102,6 +102,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       </select>
       <button class="hbtn" id="metro">🕩 METRO</button>
       <button class="hbtn" id="panic" title="PANIC — stop every sounding note (Esc)">✋ PANIC</button>
+      <button class="hbtn" id="clearloop" title="Clear the armed loop channel (Shift+Backspace clears all)">⌫ CLEAR LOOP</button>
       <span class="sep"></span>
       <button id="sync" class="hbtn">⟳ SYNC</button>
       <span class="sep"></span>
@@ -109,6 +110,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <span style="flex:1"></span>
       <span id="beat"></span>
     </div>
+
+    <div class="row" id="loopdeck"></div>
 
     <div id="main">
       <div id="lib">
@@ -278,6 +281,40 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         wheels: [],
         transport: [],
         confidence: 0.9
+      })
+    },
+    // --- JamJum JP mini / JP-1 (compact BLE-capable pad+key controllers) ---
+    // Matches the family across the spellings these report under: "JamJum",
+    // "JAM JUM", "JP mini", "JP-1", "JP1". The live capability probe refines the
+    // exact key/pad counts on first play, so a firmware variant still lands right.
+    {
+      test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
+      base: () => makeProfile({
+        id: "jpmini",
+        class: CLASSES.HYBRID,
+        keys: { count: 25, firstNote: 48 },
+        pads: { count: 8, layout: [2, 4], channel: 10 },
+        knobs: 4,
+        wheels: ["pitch", "mod"],
+        transport: ["play", "stop", "rec"],
+        buttons: ["oct-", "oct+"],
+        features: ["octave", "transpose", "sustain", "bt"],
+        confidence: 0.85
+      })
+    },
+    {
+      test: /\bjp[-\s]?1\b/i,
+      base: () => makeProfile({
+        id: "jp1",
+        class: CLASSES.HYBRID,
+        keys: { count: 25, firstNote: 48 },
+        pads: { count: 8, layout: [2, 4], channel: 10 },
+        knobs: 8,
+        wheels: ["pitch", "mod"],
+        transport: ["play", "stop", "rec"],
+        buttons: ["oct-", "oct+"],
+        features: ["octave", "transpose", "sustain", "bt"],
+        confidence: 0.85
       })
     },
     // --- Korg nano / micro series (very common, especially over BLE) ---
@@ -2252,10 +2289,13 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
 
   // livex/src/core/transport.js
+  var LOOP_CHANNELS = 5;
   function createTransport({ onState, onBeat } = {}) {
     let bpm = 100, beatsPerBar = 4, bars = 2;
     let playing = false, recording = false, metronome = false;
-    let events = [];
+    const chans = Array.from({ length: LOOP_CHANNELS }, () => ({ events: [], mute: false }));
+    let armed = 0;
+    const allEvents = () => chans.reduce((a, c) => a.concat(c.events), []);
     let vx = null, anchor = 0, schedIter = 0, timer = null;
     const openNotes = /* @__PURE__ */ new Map();
     const totalBeats = () => bars * beatsPerBar;
@@ -2267,7 +2307,17 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       return ((now() - anchor) / beatDur() % T + T) % T;
     };
     function emit() {
-      onState && onState({ playing, recording, metronome, bpm, bars, beatsPerBar, events: events.length });
+      onState && onState({
+        playing,
+        recording,
+        metronome,
+        bpm,
+        bars,
+        beatsPerBar,
+        events: allEvents().length,
+        armed,
+        channels: chans.map((c, i) => ({ i, count: c.events.length, mute: c.mute, armed: i === armed }))
+      });
     }
     function click(t, accent) {
       const c = context(), o = c.createOscillator(), g2 = c.createGain();
@@ -2288,11 +2338,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       while (anchor + schedIter * L < t0 + AHEAD) {
         const base = anchor + schedIter * L;
         if (metronome) for (let b = 0; b < totalBeats(); b++) click(base + b * bd, b % beatsPerBar === 0);
-        for (const e of events) {
-          const t = base + e.pos * bd;
-          if (t >= t0 - 0.02) {
-            if (e.type === "pad") vx.scheduleDrum(e.index, e.vel, t);
-            else vx.scheduleTone(e.note, e.vel, t, e.dur || 0.4);
+        for (const ch of chans) {
+          if (ch.mute) continue;
+          for (const e of ch.events) {
+            const t = base + e.pos * bd;
+            if (t >= t0 - 0.02) {
+              if (e.type === "pad") vx.scheduleDrum(e.index, e.vel, t);
+              else vx.scheduleTone(e.note, e.vel, t, e.dur || 0.4);
+            }
           }
         }
         schedIter++;
@@ -2331,10 +2384,39 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       if (!recording) openNotes.clear();
       emit();
     }
-    function clear() {
-      events = [];
+    function clear(i) {
+      const idx = i == null ? armed : i;
+      if (chans[idx]) chans[idx].events = [];
       openNotes.clear();
       emit();
+    }
+    function clearAll() {
+      chans.forEach((c) => {
+        c.events = [];
+      });
+      openNotes.clear();
+      emit();
+    }
+    function setArmed(i) {
+      if (chans[i]) {
+        armed = i;
+        openNotes.clear();
+        emit();
+      }
+      return armed;
+    }
+    function nextChannel(dir = 1) {
+      return setArmed((armed + dir + LOOP_CHANNELS) % LOOP_CHANNELS);
+    }
+    function toggleMute(i) {
+      if (chans[i]) {
+        chans[i].mute = !chans[i].mute;
+        emit();
+        return chans[i].mute;
+      }
+    }
+    function channels() {
+      return chans.map((c, i) => ({ i, count: c.events.length, mute: c.mute, armed: i === armed }));
     }
     function toggleMetronome() {
       metronome = !metronome;
@@ -2352,7 +2434,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     function recordNoteOn(note, vel) {
       if (!recording || !playing) return;
       const ev = { type: "note", note, vel: vel || 100, pos: posBeats(), dur: 0.4 };
-      events.push(ev);
+      chans[armed].events.push(ev);
       openNotes.set(note, ev);
     }
     function recordNoteOff(note) {
@@ -2364,17 +2446,18 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     function recordPad(index, vel) {
       if (!recording || !playing) return;
-      events.push({ type: "pad", index, vel: vel || 110, pos: posBeats() });
+      chans[armed].events.push({ type: "pad", index, vel: vel || 110, pos: posBeats() });
     }
     function quantize(grid = 0.25) {
       const T = totalBeats();
-      for (const e of events) e.pos = Math.round(e.pos / grid) * grid % T;
+      for (const e of allEvents()) e.pos = Math.round(e.pos / grid) * grid % T;
       emit();
     }
     async function exportWav() {
-      if (!events.length) return null;
+      const src = chans.filter((c) => !c.mute).reduce((a, c) => a.concat(c.events), []);
+      if (!src.length) return null;
       const bd = beatDur();
-      const evs = events.map((e) => ({ ...e, pos: e.pos * bd }));
+      const evs = src.map((e) => ({ ...e, pos: e.pos * bd }));
       const blob = await renderLoopToWav(evs, loopLenSec());
       download(blob, "skrimpad-livex-loop-" + Math.round(bpm) + "bpm.wav");
       return blob;
@@ -2384,16 +2467,21 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       stop,
       toggleRecord,
       clear,
+      clearAll,
       toggleMetronome,
       setBpm,
       setBars,
+      setArmed,
+      nextChannel,
+      toggleMute,
+      channels,
       recordNoteOn,
       recordNoteOff,
       recordPad,
       quantize,
       exportWav,
-      state: () => ({ playing, recording, metronome, bpm, bars, events: events.length }),
-      events: () => events
+      state: () => ({ playing, recording, metronome, bpm, bars, events: allEvents().length, armed }),
+      events: () => allEvents()
     };
   }
 
@@ -2708,6 +2796,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       $("#rec").classList.toggle("on", s.recording);
       $("#play").classList.toggle("on", s.playing);
       $("#metro").classList.toggle("on", s.metronome);
+      if (typeof paintDeck === "function") paintDeck();
     },
     onBeat: (beat, total, frac) => {
       const dots = $("#beat").children;
@@ -2715,6 +2804,41 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
   });
   for (let i = 0; i < 4; i++) $("#beat").appendChild(document.createElement("i"));
+  function paintDeck() {
+    const deck = $("#loopdeck");
+    const chs = transport.channels();
+    if (!deck.childElementCount) {
+      deck.innerHTML = '<label class="mini" style="letter-spacing:.14em">LOOPS</label>';
+      chs.forEach((c) => {
+        const w = document.createElement("span");
+        w.className = "lch";
+        w.dataset.i = c.i;
+        w.innerHTML = '<button class="hbtn lch-arm" data-i="' + c.i + '">' + (c.i + 1) + '</button><button class="hbtn lch-mute" data-i="' + c.i + '" title="Mute this loop">M</button><button class="hbtn lch-clr" data-i="' + c.i + '" title="Clear this loop">\u232B</button>';
+        deck.appendChild(w);
+      });
+      deck.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        const i = +b.dataset.i;
+        if (b.classList.contains("lch-arm")) {
+          transport.setArmed(i);
+          toast("Loop " + (i + 1) + " armed");
+        } else if (b.classList.contains("lch-mute")) transport.toggleMute(i);
+        else if (b.classList.contains("lch-clr")) {
+          transport.clear(i);
+          toast("Loop " + (i + 1) + " cleared");
+        }
+        paintDeck();
+      });
+    }
+    chs.forEach((c) => {
+      const w = deck.querySelector('.lch[data-i="' + c.i + '"]');
+      if (!w) return;
+      w.querySelector(".lch-arm").classList.toggle("on", c.armed);
+      w.querySelector(".lch-arm").textContent = c.i + 1 + (c.count ? " \u25CF" : "");
+      w.querySelector(".lch-mute").classList.toggle("on", c.mute);
+    });
+  }
   var manager = createDeviceManager({
     stage,
     litColor: "#4bd6c8",
@@ -2912,6 +3036,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     allNotesOff();
     toast("\u270B All notes stopped");
   });
+  $("#clearloop").addEventListener("click", () => {
+    transport.clear();
+    paintDeck();
+    toast("Loop " + (transport.state().armed + 1) + " cleared");
+  });
   var activeSig = null;
   var activeBoard = () => {
     const bs = [...manager.boards.values()];
@@ -2946,6 +3075,25 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     if (e.code === "Backslash") {
       e.preventDefault();
       transport.toggleMetronome();
+      return;
+    }
+    if (e.code === "Backspace") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        transport.clearAll();
+        toast("All loops cleared");
+      } else {
+        transport.clear();
+        toast("Loop " + (transport.state().armed + 1) + " cleared");
+      }
+      paintDeck();
+      return;
+    }
+    if (e.code === "Tab") {
+      e.preventDefault();
+      const i = transport.nextChannel(e.shiftKey ? -1 : 1);
+      toast("Loop " + (i + 1) + " armed");
+      paintDeck();
       return;
     }
     const b = activeBoard();
@@ -3094,6 +3242,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   paintAuto();
   window.addEventListener("pointerdown", () => initAudio(), { once: true });
   window.__sim = (portId, s, d1, d2) => manager.routeMidi({ port: { id: portId }, status: s, d1, d2, cmd: s & 240, chan: s & 15 });
+  paintDeck();
   refreshEmpty();
 })();
 

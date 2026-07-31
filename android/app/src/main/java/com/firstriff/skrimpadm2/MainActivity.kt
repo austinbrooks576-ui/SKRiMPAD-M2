@@ -131,7 +131,11 @@ class MainActivity : AppCompatActivity() {
                 val sb = StringBuilder()
                 while (i < end) {
                     val b = msg[i].toInt() and 0xFF
-                    if (b < 0xF0) { if (sb.isNotEmpty()) sb.append(','); sb.append(b) }
+                    // keep SysEx (F0-F7: MMC transport) and Start/Stop/Continue;
+                    // drop only the flood — clock F8, undefined F9/FD, sensing FE, reset FF
+                    if (b != 0xF8 && b != 0xF9 && b != 0xFD && b != 0xFE && b != 0xFF) {
+                        if (sb.isNotEmpty()) sb.append(','); sb.append(b)
+                    }
                     i++
                 }
                 if (sb.isEmpty()) return
@@ -148,7 +152,7 @@ class MainActivity : AppCompatActivity() {
     // permission. So we scan UNFILTERED, match by name or advertised service, and
     // also try every already-paired (bonded) device — the reliable path.
     private val bleTried = mutableSetOf<String>()
-    private val MIDI_NAME_RE = Regex("midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|keystation|mpk|mpd|launchkey|minilab|keylab|seaboard|roli|yamaha|casio|akai|arturia|novation|xkey|cme|widi", RegexOption.IGNORE_CASE)
+    private val MIDI_NAME_RE = Regex("midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|keystation|mpk|mpd|launchkey|minilab|keylab|seaboard|roli|yamaha|casio|akai|arturia|novation|xkey|cme|widi|jamjum|jam jum|jp mini|jp-mini|jp1|jp-1|smk|m-vave|mvave|worlde", RegexOption.IGNORE_CASE)
 
     private fun startBleMidiScan() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("BLE MIDI needs Android 6+"); return }
