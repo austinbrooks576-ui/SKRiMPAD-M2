@@ -171,6 +171,22 @@ class MainActivity : AppCompatActivity() {
     private val bleVerified = mutableSetOf<String>()
     private var bleScanning = false
 
+    // Worth CONNECTING to at all: must be LE (classic-only devices can never carry
+    // BLE MIDI) and either advertise the MIDI service or carry a MIDI-ish name.
+    // Final proof is the service check after connecting — this only decides who is
+    // worth the connection attempt, so we never touch headsets, watches or car kits.
+    private fun looksLikeMidiDevice(dev: android.bluetooth.BluetoothDevice): Boolean {
+        return try {
+            val type = dev.type
+            val isLe = type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE ||
+                       type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL
+            if (!isLe) return false
+            if (dev.uuids?.any { it.uuid == BLE_MIDI_UUID } == true) return true
+            val nm = dev.name ?: return false
+            MIDI_NAME_RE.containsMatchIn(nm)
+        } catch (e: SecurityException) { false } catch (e: Exception) { false }
+    }
+
     private fun startBleMidiScan() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("BLE MIDI needs Android 6+"); return }
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
