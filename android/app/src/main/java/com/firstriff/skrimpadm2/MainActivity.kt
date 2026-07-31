@@ -69,13 +69,34 @@ class MainActivity : AppCompatActivity() {
         for (info in mm.devices) openMidiInput(mm, info)
         if (midiCallback == null) {
             midiCallback = object : MidiManager.DeviceCallback() {
-                override fun onDeviceAdded(info: MidiDeviceInfo) { openMidiInput(mm, info) }
-                override fun onDeviceRemoved(info: MidiDeviceInfo) {}
+                override fun onDeviceAdded(info: MidiDeviceInfo) { openMidiInput(mm, info); publishDeviceList(mm) }
+                override fun onDeviceRemoved(info: MidiDeviceInfo) { publishDeviceList(mm) }
             }
             mm.registerDeviceCallback(midiCallback!!, Handler(Looper.getMainLooper()))
         }
+        publishDeviceList(mm)
         val n = mm.devices.count { it.outputPortCount > 0 }
-        jsMidiStatus(if (n > 0) "🟢 $n MIDI device(s) connected" else "🎹 Native MIDI on — connect a USB / BT controller")
+        jsMidiStatus(if (n > 0) "$n MIDI device(s) connected" else "Native MIDI on - connect a USB or BT controller")
+    }
+
+    // Tell the renderer WHICH devices are attached. Without this the APK only ever
+    // learned about a controller when a note arrived, so a keyboard that was
+    // plugged in but not yet played simply never appeared on screen.
+    private fun publishDeviceList(mm: MidiManager) {
+        val sb = StringBuilder("[")
+        try {
+            for (info in mm.devices) {
+                if (info.outputPortCount <= 0) continue
+                val nm = (info.properties.getString(MidiDeviceInfo.PROPERTY_NAME) ?: "MIDI device").replace("'", "")
+                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "")
+                if (sb.length > 1) sb.append(',')
+                sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
+                  .append("\",\"manufacturer\":\"").append(mf).append("\"}")
+            }
+        } catch (e: Exception) {}
+        sb.append("]")
+        val js = "window.onNativeMIDIDevices && onNativeMIDIDevices(" + sb.toString() + ")"
+        runOnUiThread { try { webView.evaluateJavascript(js, null) } catch (e: Exception) {} }
     }
 
     // Open the device's OUTPUT port (data flowing FROM the controller to us) and
@@ -86,6 +107,33 @@ class MainActivity : AppCompatActivity() {
         mm.openDevice(info, { device -> attachMidiDevice(device, name) }, Handler(Looper.getMainLooper()))
     }
 
+    // MIDI → WebView pump. Messages are buffered and flushed at most once per
+    // frame in ONE evaluateJavascript call, with a hard cap so a stuck or chatty
+    // controller can never queue without bound. Previously every packet became its
+    // own UI-thread JS evaluation, which is what made the app lock up.
+    private val midiQueue = ArrayDeque<String>()
+    private var midiFlushScheduled = false
+    private val midiHandler = Handler(Looper.getMainLooper())
+
+    private fun queueMidiToJs(arrayLiteral: String) {
+        synchronized(midiQueue) {
+            if (midiQueue.size > 256) midiQueue.removeFirst()   // shed load, never grow forever
+            midiQueue.addLast(arrayLiteral)
+            if (midiFlushScheduled) return
+            midiFlushScheduled = true
+        }
+        midiHandler.postDelayed({
+            val batch: List<String>
+            synchronized(midiQueue) {
+                midiFlushScheduled = false
+                if (midiQueue.isEmpty()) return@postDelayed
+                batch = midiQueue.toList(); midiQueue.clear()
+            }
+            val js = "window.onNativeMIDIBatch && onNativeMIDIBatch([" + batch.joinToString(",") + "])"
+            try { webView.evaluateJavascript(js, null) } catch (e: Exception) {}
+        }, 16)
+    }
+
     // Shared for USB + BLE — connect a MidiReceiver to the device's output port.
     private fun attachMidiDevice(device: MidiDevice?, name: String) {
         if (device == null) return                       // not a MIDI device (e.g. a bonded headset) — stay quiet
@@ -94,11 +142,25 @@ class MainActivity : AppCompatActivity() {
         port.connect(object : MidiReceiver() {
             override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
                 if (count <= 0) return
-                val sb = StringBuilder("[")
-                for (k in 0 until count) { if (k > 0) sb.append(','); sb.append(msg[offset + k].toInt() and 0xFF) }
-                sb.append("]")
-                val js = "window.onNativeMIDIMessage && onNativeMIDIMessage($sb)"
-                runOnUiThread { webView.evaluateJavascript(js, null) }
+                // Drop System Real-Time / System Common (0xF8 clock, 0xFE active
+                // sensing, …). Controllers emit active sensing several times a
+                // second and clock 24x a beat; forwarding that torrent one
+                // evaluateJavascript at a time pinned the UI thread and froze the
+                // app within seconds of connecting. None of it is playable input.
+                var i = offset
+                val end = offset + count
+                val sb = StringBuilder()
+                while (i < end) {
+                    val b = msg[i].toInt() and 0xFF
+                    // keep SysEx (F0-F7: MMC transport) and Start/Stop/Continue;
+                    // drop only the flood — clock F8, undefined F9/FD, sensing FE, reset FF
+                    if (b != 0xF8 && b != 0xF9 && b != 0xFD && b != 0xFE && b != 0xFF) {
+                        if (sb.isNotEmpty()) sb.append(','); sb.append(b)
+                    }
+                    i++
+                }
+                if (sb.isEmpty()) return
+                queueMidiToJs("[$sb]")
             }
         })
         jsMidiStatus("🟢 $name")
@@ -111,15 +173,45 @@ class MainActivity : AppCompatActivity() {
     // permission. So we scan UNFILTERED, match by name or advertised service, and
     // also try every already-paired (bonded) device — the reliable path.
     private val bleTried = mutableSetOf<String>()
-    private val MIDI_NAME_RE = Regex("midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|keystation|mpk|mpd|launchkey|minilab|keylab|seaboard|roli|yamaha|casio|akai|arturia|novation|xkey|cme|widi", RegexOption.IGNORE_CASE)
+    private val MIDI_NAME_RE = Regex("midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|keystation|mpk|mpd|launchkey|minilab|keylab|seaboard|roli|yamaha|casio|akai|arturia|novation|xkey|cme|widi|jamjum|jam jum|jp mini|jp-mini|jp1|jp-1|smk|m-vave|mvave|worlde", RegexOption.IGNORE_CASE)
+
+    // ================= SKRiMPAD'S OWN BLE MIDI STACK =================
+    // Raw GATT. No MidiManager.openBluetoothDevice(), no vendor driver, no OS MIDI
+    // subsystem — we scan, connect, discover, subscribe and decode ourselves, so
+    // Android behaves exactly like the desktop build.
+    //
+    // RECOGNISING "ALL BLE MIDI CONTROLLERS" is done by VERIFICATION, not names:
+    // a candidate is a MIDI controller if, once connected, it exposes the BLE-MIDI
+    // service. Many controllers never advertise that UUID, so filtering the scan on
+    // it finds nothing — and filtering on names misses everything unlisted. We scan
+    // unfiltered, connect to plausible LE candidates, and keep the ones that have
+    // the service. Name hints only decide who to try first.
+    private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    private val BLE_MIDI_CHAR_UUID = UUID.fromString("7772e5db-3868-4112-a1a9-f2669d106bf3")
+    private val bleGatts = mutableMapOf<String, android.bluetooth.BluetoothGatt>()
+    private val bleVerified = mutableSetOf<String>()
+    private var bleScanning = false
+
+    // Worth CONNECTING to at all: must be LE (classic-only devices can never carry
+    // BLE MIDI) and either advertise the MIDI service or carry a MIDI-ish name.
+    // Final proof is the service check after connecting — this only decides who is
+    // worth the connection attempt, so we never touch headsets, watches or car kits.
+    private fun looksLikeMidiDevice(dev: android.bluetooth.BluetoothDevice): Boolean {
+        return try {
+            val type = dev.type
+            val isLe = type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE ||
+                       type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL
+            if (!isLe) return false
+            if (dev.uuids?.any { it.uuid == BLE_MIDI_UUID } == true) return true
+            val nm = dev.name ?: return false
+            MIDI_NAME_RE.containsMatchIn(nm)
+        } catch (e: SecurityException) { false } catch (e: Exception) { false }
+    }
 
     private fun startBleMidiScan() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { jsMidiStatus("BLE MIDI needs Android 6+"); return }
-        if (midiManager == null) midiManager = getSystemService(Context.MIDI_SERVICE) as? MidiManager
-        val mm = midiManager ?: run { jsMidiStatus("MIDI unavailable on this device"); return }
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
-        if (adapter == null || !adapter.isEnabled) { jsMidiStatus("Turn Bluetooth ON, then tap 📶 again"); return }
-        // permissions: SCAN/CONNECT on 12+, FINE_LOCATION on 6–11
+        if (adapter == null || !adapter.isEnabled) { jsMidiStatus("Turn Bluetooth ON, then tap the BT button again"); return }
         val need = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) need.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -127,42 +219,124 @@ class MainActivity : AppCompatActivity() {
         } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             need.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        if (need.isNotEmpty()) { ActivityCompat.requestPermissions(this, need.toTypedArray(), BLE_PERMISSION_REQUEST); jsMidiStatus("Grant Bluetooth permission, then tap 📶 again"); return }
+        if (need.isNotEmpty()) { ActivityCompat.requestPermissions(this, need.toTypedArray(), BLE_PERMISSION_REQUEST); jsMidiStatus("Grant Bluetooth permission, then tap BT again"); return }
 
         bleTried.clear()
-        // 1) already-paired devices are the most reliable — try to open each.
-        var bonded = 0
-        try { adapter.bondedDevices?.forEach { dev -> bonded++; tryOpenBle(mm, dev, "BLE MIDI") } } catch (e: Exception) {}
+        // Bonded devices first — instant, no scan needed. Still LE-only + plausible.
+        try {
+            adapter.bondedDevices?.forEach { dev -> if (looksLikeMidiDevice(dev)) connectGatt(dev, dev.name ?: "BLE MIDI") }
+        } catch (e: Exception) {}
 
-        // 2) scan UNFILTERED for unpaired controllers.
-        val scanner = adapter.bluetoothLeScanner
-        if (scanner == null) { if (bonded == 0) jsMidiStatus("No paired MIDI device — pair it in Bluetooth settings first"); return }
+        val scanner = adapter.bluetoothLeScanner ?: run { jsMidiStatus("BLE scanning unavailable on this device"); return }
         bleScanCb?.let { try { scanner.stopScan(it) } catch (e: Exception) {} }
         bleScanner = scanner
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        // LOW_POWER while we sweep broadly: LOW_LATENCY for 15s is a battery and
+        // stability hazard, and was part of what destabilised the radio.
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build()
         bleScanCb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val dev = result.device ?: return
                 val advertisesMidi = result.scanRecord?.serviceUuids?.any { it.uuid == BLE_MIDI_UUID } == true
                 val nm = try { dev.name } catch (e: SecurityException) { null }
-                val looksMidi = nm != null && MIDI_NAME_RE.containsMatchIn(nm)
-                if (advertisesMidi || looksMidi) tryOpenBle(mm, dev, nm ?: "BLE MIDI")
+                // advertised service = certain; a MIDI-ish name = worth verifying
+                if (advertisesMidi || (nm != null && MIDI_NAME_RE.containsMatchIn(nm))) connectGatt(dev, nm ?: "BLE MIDI")
             }
-            override fun onScanFailed(errorCode: Int) { jsMidiStatus("BLE scan failed ($errorCode) — pair the controller in Bluetooth settings") }
+            override fun onScanFailed(errorCode: Int) {
+                bleScanning = false
+                jsMidiStatus("BLE scan failed (" + errorCode + ")")
+            }
         }
-        jsMidiStatus("📶 Scanning for Korg / BLE MIDI — make sure it's paired + in range…")
-        try { scanner.startScan(emptyList(), settings, bleScanCb) } catch (e: Exception) { jsMidiStatus("BLE scan error: ${e.message}"); return }
+        jsMidiStatus("Scanning for BLE MIDI controllers...")
+        bleScanning = true
+        try { scanner.startScan(emptyList(), settings, bleScanCb) } catch (e: Exception) { jsMidiStatus("BLE scan error: " + e.message); return }
         Handler(Looper.getMainLooper()).postDelayed({
             try { bleScanCb?.let { scanner.stopScan(it) } } catch (e: Exception) {}
-            if (bleTried.isEmpty()) jsMidiStatus("No BLE MIDI found — pair it in Android Bluetooth settings, then tap 📶")
-        }, 15000)
+            bleScanning = false
+            if (bleVerified.isEmpty()) jsMidiStatus("No BLE MIDI controller found - make sure it is on and in range")
+        }, 12000)
     }
 
-    private fun tryOpenBle(mm: MidiManager, dev: android.bluetooth.BluetoothDevice, label: String) {
+    // Connect and VERIFY. If the device turns out not to expose the BLE-MIDI
+    // service we disconnect immediately and never touch it again this session.
+    private fun connectGatt(dev: android.bluetooth.BluetoothDevice, label: String) {
         val addr = try { dev.address } catch (e: Exception) { return }
-        if (!bleTried.add(addr)) return // only attempt each address once per scan
-        val nm = try { dev.name } catch (e: SecurityException) { null } ?: label
-        try { mm.openBluetoothDevice(dev, { device -> attachMidiDevice(device, nm) }, Handler(Looper.getMainLooper())) } catch (e: Exception) {}
+        if (!bleTried.add(addr)) return
+        if (bleGatts.containsKey(addr)) return
+        val cb = object : android.bluetooth.BluetoothGattCallback() {
+            override fun onConnectionStateChange(g: android.bluetooth.BluetoothGatt, status: Int, newState: Int) {
+                if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
+                    try { g.discoverServices() } catch (e: Exception) {}
+                } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                    bleGatts.remove(addr)
+                    try { g.close() } catch (e: Exception) {}
+                    if (bleVerified.contains(addr)) {
+                        jsMidiStatus(label + " disconnected - reconnecting")
+                        // controllers sleep constantly; come back when they wake
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            bleTried.remove(addr); connectGatt(dev, label)
+                        }, 2500)
+                    }
+                }
+            }
+            override fun onServicesDiscovered(g: android.bluetooth.BluetoothGatt, status: Int) {
+                val svc = g.getService(BLE_MIDI_UUID)
+                if (svc == null) {  // not a MIDI controller after all - let it go
+                    bleGatts.remove(addr)
+                    try { g.disconnect(); g.close() } catch (e: Exception) {}
+                    return
+                }
+                val ch = svc.getCharacteristic(BLE_MIDI_CHAR_UUID) ?: return
+                try {
+                    g.setCharacteristicNotification(ch, true)
+                    val cccd = ch.getDescriptor(CCCD_UUID)
+                    if (cccd != null) {
+                        cccd.value = android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        g.writeDescriptor(cccd)
+                    }
+                    try { g.requestMtu(96) } catch (e: Exception) {}   // room for SysEx
+                } catch (e: Exception) {}
+                bleVerified.add(addr)
+                jsMidiStatus(label + " connected")
+            }
+            override fun onCharacteristicChanged(g: android.bluetooth.BluetoothGatt, ch: android.bluetooth.BluetoothGattCharacteristic) {
+                val v = ch.value ?: return
+                // Hand the RAW BLE packet to the renderer, which owns the decoder
+                // (header/timestamp bytes, running status, SysEx across packets).
+                val sb = StringBuilder()
+                for (b in v) { if (sb.isNotEmpty()) sb.append(','); sb.append(b.toInt() and 0xFF) }
+                if (sb.isNotEmpty()) queueBleToJs("[" + sb + "]", addr, label)
+            }
+        }
+        try {
+            val g = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                dev.connectGatt(this, true, cb, android.bluetooth.BluetoothDevice.TRANSPORT_LE)
+            else dev.connectGatt(this, true, cb)
+            if (g != null) bleGatts[addr] = g
+        } catch (e: Exception) {}
+    }
+
+    // Raw BLE packets go to their own JS entry point, batched like MIDI so a busy
+    // controller cannot flood the WebView.
+    private val bleQueue = ArrayDeque<String>()
+    private var bleFlush = false
+    private fun queueBleToJs(arrayLiteral: String, addr: String, label: String) {
+        val safeAddr = addr.replace("'", ""); val safeName = label.replace("'", "")
+        synchronized(bleQueue) {
+            if (bleQueue.size > 256) bleQueue.removeFirst()
+            bleQueue.addLast(arrayLiteral)
+            if (bleFlush) return
+            bleFlush = true
+        }
+        midiHandler.postDelayed({
+            val batch: List<String>
+            synchronized(bleQueue) {
+                bleFlush = false
+                if (bleQueue.isEmpty()) return@postDelayed
+                batch = bleQueue.toList(); bleQueue.clear()
+            }
+            val js = "window.onNativeBLEPackets && onNativeBLEPackets([" + batch.joinToString(",") + "],'" + safeAddr + "','" + safeName + "')"
+            try { webView.evaluateJavascript(js, null) } catch (e: Exception) {}
+        }, 16)
     }
 
     // Voice bridge — the WebView has no Web Speech API, so the AI console's
@@ -314,9 +488,12 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(fileHandler, "AndroidFileHandler")
         webView.addJavascriptInterface(VoiceBridge(), "AndroidVoice")
-        if (packageManager.hasSystemFeature(PackageManager.FEATURE_MIDI)) {
-            webView.addJavascriptInterface(MidiBridge(), "AndroidMidi")
-        }
+        // ALWAYS expose the MIDI bridge. Gating it behind FEATURE_MIDI meant any
+        // phone that does not advertise that feature — common, and unrelated to
+        // whether android.media.midi actually works, especially for BLE — never
+        // received the interface at all, so the app had no MIDI path whatsoever
+        // and could never see a controller. setupMidi() reports the real state.
+        webView.addJavascriptInterface(MidiBridge(), "AndroidMidi")
         webView.loadUrl("file:///android_asset/index.html")
     }
 

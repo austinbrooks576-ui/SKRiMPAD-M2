@@ -1957,12 +1957,18 @@ function initAudio() {
   try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = new AC(); }
   if (ctx.state === 'suspended') ctx.resume();
 
+  // Everything in the app meets here, so ANY real compression at this point is
+  // programme-dependent ducking: holding keys — sustained, unlike short drum
+  // hits — kept a 3:1 / 250ms release compressor clamped and audibly sucked the
+  // whole kit quiet for as long as a chord was held. This stage is now nearly
+  // transparent (gentle, fast release, high threshold) and the brick-wall
+  // limiter below does the actual peak control, which it can do without pumping.
   masterComp = ctx.createDynamicsCompressor();
-  masterComp.threshold.value = -6;
-  masterComp.knee.value = 6;
-  masterComp.ratio.value = 3;
+  masterComp.threshold.value = -2;
+  masterComp.knee.value = 2;
+  masterComp.ratio.value = 1.4;
   masterComp.attack.value = 0.003;
-  masterComp.release.value = 0.25;
+  masterComp.release.value = 0.06;
 
   masterGain = ctx.createGain();
   masterGain.gain.value = 0.7;
@@ -7430,9 +7436,36 @@ function midiPadFor(d1, chan) {
   if (midiMap.padsFromKeys && d1 < midiMap.keySplit) { const p = d1 - midiMap.padBase; if (p >= 0 && p < drumDefs.length) return p; }
   return -1;
 }
+// Common transport CCs, and the MMC/real-time equivalents, so the PLAY / STOP /
+// REC buttons on a controller actually drive the app instead of doing nothing.
+const TRANSPORT_CC = { 116: 'play', 117: 'stop', 118: 'rec', 114: 'play', 115: 'stop' };
+function midiTransport(name) {
+  const id = name === 'stop' ? 'seq-playpause' : name === 'rec' ? 'loop-all-play' : 'seq-playpause';
+  const el = document.getElementById(id) || document.getElementById('daw-' + (name === 'rec' ? 'play' : name));
+  if (el) el.click();
+}
 function onMIDI(e) {
-  const [st, d1, d2] = e.data, cmd = st & 0xf0, chan = st & 0x0f;
+  const data = e.data, st = data[0], d1 = data[1] || 0, d2 = data[2] || 0;
+  const cmd = st & 0xf0, chan = st & 0x0f;
+  // Drop ONLY the flood — clock (F8) at 24 ppqn and active sensing (FE) several
+  // times a second. Left in, they drive every downstream handler hard enough to
+  // stall the app within seconds of a controller connecting.
+  if (st === 0xf8 || st === 0xf9 || st === 0xfd || st === 0xfe || st === 0xff) return;
   if (!audioReady) initAudio();
+  // Real-time transport: Start / Continue / Stop
+  if (st === 0xfa || st === 0xfb) { midiTransport('play'); return; }
+  if (st === 0xfc) { midiTransport('stop'); return; }
+  // MMC over SysEx: F0 7F <dev> 06 <cmd> F7 — 01 stop, 02/03 play, 06 record
+  if (st === 0xf0) {
+    if (data.length >= 5 && data[1] === 0x7f && data[3] === 0x06) {
+      const c = data[4];
+      const nm = c === 0x01 ? 'stop' : (c === 0x02 || c === 0x03) ? 'play' : (c === 0x06 || c === 0x07) ? 'rec' : null;
+      if (nm) midiTransport(nm);
+    }
+    return;
+  }
+  if (st >= 0xf1 && st <= 0xf7) return;
+  if (cmd === 0xb0 && TRANSPORT_CC[d1] && d2 > 0) { midiTransport(TRANSPORT_CC[d1]); return; }
   if (cmd === 0x90 && d2 > 0) {
     if (padBindArm != null) { // universal bind: this MIDI note becomes the armed pad's trigger
       Object.keys(midiMap.notes).forEach(k => { if (midiMap.notes[k] === padBindArm) delete midiMap.notes[k]; });
@@ -7526,6 +7559,31 @@ window.onNativeMIDIMessage = function (arr) {
   feedRawMIDI(arr);
 };
 window.onNativeMIDIStatus = function (txt) { const el = document.getElementById('midi-status'); if (el) el.textContent = txt; };
+// Batched MIDI — the bridge coalesces a frame's worth of packets into one call
+// so a chatty controller cannot flood the WebView (that flood froze the app).
+window.onNativeMIDIBatch = function (list) {
+  if (!list || !list.length) return;
+  if (!audioReady) initAudio();
+  for (let i = 0; i < list.length; i++) feedRawMIDI(list[i]);
+};
+// RAW BLE packets from the app's own Android GATT stack — decoded by the very
+// same BLE-MIDI parser the desktop Web Bluetooth path uses.
+window.onNativeBLEPackets = function (packets, addr, name) {
+  if (!packets || !packets.length) return;
+  if (!audioReady) initAudio();
+  for (let i = 0; i < packets.length; i++) parseBLEMIDI(Uint8Array.from(packets[i]));
+  const el = document.getElementById('midi-status');
+  if (el && name) el.textContent = '\uD83D\uDFE2 ' + name;
+};
+// The attached-device list, so a controller that is plugged in but not yet
+// played still reports itself instead of leaving the app looking dead.
+window.onNativeMIDIDevices = function (list) {
+  const el = document.getElementById('midi-status');
+  if (!el) return;
+  el.textContent = (list && list.length)
+    ? '\uD83D\uDFE2 ' + list.length + ' MIDI: ' + list.map(function (d) { return d.name; }).join(', ').slice(0, 44)
+    : 'No MIDI device - connect a USB or BT controller';
+};
 function initNativeMIDI() {
   try {
     window.AndroidMidi.enable();
@@ -7536,7 +7594,8 @@ function initNativeMIDI() {
 }
 function initMIDI() {
   if (navigator.requestMIDIAccess) {
-    navigator.requestMIDIAccess({ sysex: false }).then(acc => {
+    (navigator.requestMIDIAccess({ sysex: true })
+      .catch(() => navigator.requestMIDIAccess({ sysex: false }))).then(acc => {
       midiAccess = acc;
       const hook = () => acc.inputs.forEach(inp => inp.onmidimessage = onMIDI);
       hook();
@@ -7560,22 +7619,57 @@ function initMIDI() {
 const BLE_MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
 const BLE_MIDI_CHAR = '7772e5db-3868-4112-a1a9-f2669d106bf3';
 let bleMidiStatus = 0;
+// BLE-MIDI 1.0 decoder. The previous version mangled two cases that matter:
+// SysEx SPANNING packets (which is exactly how MMC transport arrives) and the
+// one-byte messages — program change / channel pressure — whose wrong length
+// desynchronises everything after them in the same packet.
+let bleRunning = 0, bleSysex = null;
+function bleDataLen(status) {
+  const t = status & 0xf0;
+  if (t === 0xc0 || t === 0xd0) return 1;
+  if (t === 0xf0) { if (status === 0xf1 || status === 0xf3) return 1; if (status === 0xf2) return 2; return 0; }
+  return 2;
+}
 function parseBLEMIDI(dv) {
-  const bytes = new Uint8Array(dv.buffer);
-  if (bytes.length < 3) return;
-  let i = 1; // skip header byte
+  const bytes = new Uint8Array(dv.buffer || dv);
+  if (bytes.length < 2) return;
+  let i = 1;                                   // skip header
   while (i < bytes.length) {
-    if (bytes[i] & 0x80) i++;                    // timestamp byte
-    if (i >= bytes.length) break;
-    if (bytes[i] & 0x80) { bleMidiStatus = bytes[i]; i++; } // new status (else running status)
-    const type = bleMidiStatus & 0xf0;
-    if (type < 0x80) break;                      // not a channel-voice message
-    const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
-    const d = [bleMidiStatus];
-    for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 0x80); k++) d.push(bytes[i++]);
-    if (d.length >= (len + 1)) onMIDI({ data: d });
+    const b = bytes[i];
+    if (bleSysex) {                            // inside SysEx
+      if (b === 0xf7) { bleSysex.push(0xf7); onMIDI({ data: bleSysex }); bleSysex = null; i++; continue; }
+      if (b & 0x80) { i++; continue; }          // interleaved timestamp
+      bleSysex.push(b); i++; continue;
+    }
+    if (b & 0x80) {
+      i++;                                      // timestamp
+      if (i >= bytes.length) break;
+      const st = bytes[i];
+      if (st & 0x80) {
+        i++;
+        if (st === 0xf0) { bleSysex = [0xf0]; continue; }
+        if (st >= 0xf8) { onMIDI({ data: [st] }); continue; }
+        bleRunning = st < 0xf0 ? st : 0;
+        const need = bleDataLen(st), msg = [st];
+        for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
+        if (msg.length === need + 1) onMIDI({ data: msg });
+        continue;
+      }
+      if (!bleRunning) continue;                // running status
+      const need = bleDataLen(bleRunning), msg = [bleRunning];
+      for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
+      if (msg.length === need + 1) onMIDI({ data: msg });
+      continue;
+    }
+    if (bleRunning) {
+      const need = bleDataLen(bleRunning), msg = [bleRunning];
+      for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
+      if (msg.length === need + 1) { onMIDI({ data: msg }); continue; }
+    }
+    i++;
   }
 }
+
 async function initBluetoothMIDI() {
   // ANDROID: the WebView has no Web Bluetooth, so a Korg/BLE controller can only
   // be reached through the native MidiManager.openBluetoothDevice() path.
