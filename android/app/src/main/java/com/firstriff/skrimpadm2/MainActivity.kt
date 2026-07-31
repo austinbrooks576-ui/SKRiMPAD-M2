@@ -86,6 +86,33 @@ class MainActivity : AppCompatActivity() {
         mm.openDevice(info, { device -> attachMidiDevice(device, name) }, Handler(Looper.getMainLooper()))
     }
 
+    // MIDI → WebView pump. Messages are buffered and flushed at most once per
+    // frame in ONE evaluateJavascript call, with a hard cap so a stuck or chatty
+    // controller can never queue without bound. Previously every packet became its
+    // own UI-thread JS evaluation, which is what made the app lock up.
+    private val midiQueue = ArrayDeque<String>()
+    private var midiFlushScheduled = false
+    private val midiHandler = Handler(Looper.getMainLooper())
+
+    private fun queueMidiToJs(arrayLiteral: String) {
+        synchronized(midiQueue) {
+            if (midiQueue.size > 256) midiQueue.removeFirst()   // shed load, never grow forever
+            midiQueue.addLast(arrayLiteral)
+            if (midiFlushScheduled) return
+            midiFlushScheduled = true
+        }
+        midiHandler.postDelayed({
+            val batch: List<String>
+            synchronized(midiQueue) {
+                midiFlushScheduled = false
+                if (midiQueue.isEmpty()) return@postDelayed
+                batch = midiQueue.toList(); midiQueue.clear()
+            }
+            val js = "window.onNativeMIDIBatch && onNativeMIDIBatch([" + batch.joinToString(",") + "])"
+            try { webView.evaluateJavascript(js, null) } catch (e: Exception) {}
+        }, 16)
+    }
+
     // Shared for USB + BLE — connect a MidiReceiver to the device's output port.
     private fun attachMidiDevice(device: MidiDevice?, name: String) {
         if (device == null) return                       // not a MIDI device (e.g. a bonded headset) — stay quiet
@@ -94,11 +121,21 @@ class MainActivity : AppCompatActivity() {
         port.connect(object : MidiReceiver() {
             override fun onSend(msg: ByteArray, offset: Int, count: Int, timestamp: Long) {
                 if (count <= 0) return
-                val sb = StringBuilder("[")
-                for (k in 0 until count) { if (k > 0) sb.append(','); sb.append(msg[offset + k].toInt() and 0xFF) }
-                sb.append("]")
-                val js = "window.onNativeMIDIMessage && onNativeMIDIMessage($sb)"
-                runOnUiThread { webView.evaluateJavascript(js, null) }
+                // Drop System Real-Time / System Common (0xF8 clock, 0xFE active
+                // sensing, …). Controllers emit active sensing several times a
+                // second and clock 24x a beat; forwarding that torrent one
+                // evaluateJavascript at a time pinned the UI thread and froze the
+                // app within seconds of connecting. None of it is playable input.
+                var i = offset
+                val end = offset + count
+                val sb = StringBuilder()
+                while (i < end) {
+                    val b = msg[i].toInt() and 0xFF
+                    if (b < 0xF0) { if (sb.isNotEmpty()) sb.append(','); sb.append(b) }
+                    i++
+                }
+                if (sb.isEmpty()) return
+                queueMidiToJs("[$sb]")
             }
         })
         jsMidiStatus("🟢 $name")
@@ -130,9 +167,17 @@ class MainActivity : AppCompatActivity() {
         if (need.isNotEmpty()) { ActivityCompat.requestPermissions(this, need.toTypedArray(), BLE_PERMISSION_REQUEST); jsMidiStatus("Grant Bluetooth permission, then tap 📶 again"); return }
 
         bleTried.clear()
-        // 1) already-paired devices are the most reliable — try to open each.
+        // 1) already-paired devices are the most reliable — but ONLY ones that look
+        //    like MIDI gear. Blindly calling openBluetoothDevice() on every bonded
+        //    device forced a GATT connection to headphones, watches, car stereos and
+        //    anything else the phone had ever paired with; hammering the Bluetooth
+        //    stack that way is what made handsets lock up and reboot.
         var bonded = 0
-        try { adapter.bondedDevices?.forEach { dev -> bonded++; tryOpenBle(mm, dev, "BLE MIDI") } } catch (e: Exception) {}
+        try {
+            adapter.bondedDevices?.forEach { dev ->
+                if (looksLikeMidiDevice(dev)) { bonded++; tryOpenBle(mm, dev, "BLE MIDI") }
+            }
+        } catch (e: Exception) {}
 
         // 2) scan UNFILTERED for unpaired controllers.
         val scanner = adapter.bluetoothLeScanner
@@ -156,6 +201,22 @@ class MainActivity : AppCompatActivity() {
             try { bleScanCb?.let { scanner.stopScan(it) } } catch (e: Exception) {}
             if (bleTried.isEmpty()) jsMidiStatus("No BLE MIDI found — pair it in Android Bluetooth settings, then tap 📶")
         }, 15000)
+    }
+
+    // Only ever touch devices that plausibly ARE MIDI controllers. Opening a GATT
+    // link to a paired headset / watch / car stereo is both useless and dangerous:
+    // it hammers the Bluetooth stack and was destabilising the whole phone.
+    private fun looksLikeMidiDevice(dev: android.bluetooth.BluetoothDevice): Boolean {
+        return try {
+            val type = dev.type
+            val isLe = type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE ||
+                       type == android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL
+            if (!isLe) return false                                  // classic-only: never a BLE MIDI port
+            val nm = dev.name ?: return false
+            if (MIDI_NAME_RE.containsMatchIn(nm)) return true
+            // an explicitly advertised MIDI service also qualifies
+            dev.uuids?.any { it.uuid == BLE_MIDI_UUID } == true
+        } catch (e: SecurityException) { false } catch (e: Exception) { false }
     }
 
     private fun tryOpenBle(mm: MidiManager, dev: android.bluetooth.BluetoothDevice, label: String) {
@@ -314,9 +375,12 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(fileHandler, "AndroidFileHandler")
         webView.addJavascriptInterface(VoiceBridge(), "AndroidVoice")
-        if (packageManager.hasSystemFeature(PackageManager.FEATURE_MIDI)) {
-            webView.addJavascriptInterface(MidiBridge(), "AndroidMidi")
-        }
+        // ALWAYS expose the MIDI bridge. Gating it behind FEATURE_MIDI meant any
+        // phone that does not advertise that feature — common, and unrelated to
+        // whether android.media.midi actually works, especially for BLE — never
+        // received the interface at all, so the app had no MIDI path whatsoever
+        // and could never see a controller. setupMidi() reports the real state.
+        webView.addJavascriptInterface(MidiBridge(), "AndroidMidi")
         webView.loadUrl("file:///android_asset/index.html")
     }
 

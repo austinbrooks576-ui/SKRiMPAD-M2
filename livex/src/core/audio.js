@@ -5,26 +5,51 @@
 
 export const freqFromMidi = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-let ctx = null, master = null, ready = false;
+let ctx = null, master = null, toneBus = null, drumBus = null, ready = false;
 const samples = Object.create(null); // 'pad:3' / 'key:60' -> AudioBuffer
 
 export function isReady() { return ready; }
 export function context() { return ctx; }
+
+// Build the mix bus. THE RULE: drums and keys never share a compressor.
+// Everything used to run through one 3:1 compressor, so holding keys — which are
+// sustained, unlike short drum hits — kept it clamped down and audibly sucked the
+// whole kit quiet for as long as you held a chord. Now the synth has its own
+// compressor to tame its own sustain, the drums run clean, and the only shared
+// stage is a fast brick-wall limiter that just catches peaks instead of pumping.
+function buildBuses(c, dest) {
+  const out = c.createGain(); out.gain.value = 0.85;
+
+  const limiter = c.createDynamicsCompressor();
+  limiter.threshold.value = -1.5; limiter.knee.value = 0; limiter.ratio.value = 20;
+  limiter.attack.value = 0.002; limiter.release.value = 0.05;
+
+  const tone = c.createGain(); tone.gain.value = 0.9;
+  const toneComp = c.createDynamicsCompressor();
+  toneComp.threshold.value = -14; toneComp.knee.value = 8; toneComp.ratio.value = 3;
+  toneComp.attack.value = 0.005; toneComp.release.value = 0.18;
+
+  const drum = c.createGain(); drum.gain.value = 1.0;   // straight through, no ducking
+
+  tone.connect(toneComp); toneComp.connect(out);
+  drum.connect(out);
+  out.connect(limiter); limiter.connect(dest);
+  return { out, tone, drum };
+}
 
 export function initAudio() {
   if (ready) return ctx;
   const AC = window.AudioContext || window.webkitAudioContext;
   try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = new AC(); }
   if (ctx.state === 'suspended') ctx.resume();
-  const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -6; comp.knee.value = 6; comp.ratio.value = 3;
-  comp.attack.value = 0.003; comp.release.value = 0.25;
-  master = ctx.createGain(); master.gain.value = 0.8;
-  master.connect(comp); comp.connect(ctx.destination);
+  const b = buildBuses(ctx, ctx.destination);
+  master = b.out; toneBus = b.tone; drumBus = b.drum;
   ready = true;
   return ctx;
 }
 export function output() { return master; }
+export function toneOut() { return toneBus; }
+export function drumOut() { return drumBus; }
 export function setMasterVolume(v) { if (master) master.gain.value = Math.max(0, Math.min(1, v)); }
 
 // CC1 (mod wheel) → synth brightness: scales every voice's lowpass cutoff.
@@ -36,6 +61,22 @@ export function getBrightness() { return brightness; }
 // assign a decoded sample to a pad index / key note (from the library / drop)
 export function setSample(role, id, buffer) { samples[role + ':' + id] = buffer; }
 export function clearSample(role, id) { delete samples[role + ':' + id]; }
+
+// SPLASH — lay one sample across the WHOLE keyboard, repitched per key from a
+// root note. It is a FALLBACK layer, never an overwrite: any key you have
+// programmed individually still wins, so you can splash a pad across the board
+// and then replace single keys without losing either.
+let splash = null; // { buffer, root }
+export function setSplash(buffer, rootNote = 60) { splash = buffer ? { buffer, root: rootNote } : null; }
+export function getSplash() { return splash; }
+export function clearSplash() { splash = null; }
+// resolve what a key should play: explicit assignment first, then the splash layer
+function keyVoiceFor(midi) {
+  const own = samples['key:' + midi];
+  if (own) return { buffer: own, rate: 1 };
+  if (splash) return { buffer: splash.buffer, rate: Math.pow(2, (midi - splash.root) / 12) };
+  return null;
+}
 
 // ---- one noise buffer per context (snare / hat / clap) ----
 const noiseCache = new WeakMap();
@@ -49,7 +90,10 @@ function noise(c) {
 }
 
 // ---- voice factory bound to a context + destination ----
-export function createVoices(c, out) {
+// `outTone` carries pitched/synth material, `outDrum` the kit. Keeping them on
+// separate destinations is what stops a held chord from ducking the drums.
+export function createVoices(c, out, outDrum) {
+  const drumOutNode = outDrum || out;
   const env = (g, t, a, d, peak) => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + a);
@@ -95,8 +139,8 @@ export function createVoices(c, out) {
   // scheduled (fixed-length) — used by the looper + offline export
   function scheduleTone(midi, vel, t, dur) {
     const v = Math.max(0.06, (vel || 100) / 127) * 0.34;
-    const smp = samples['key:' + midi];
-    if (smp) { sampleVoice(smp, t, out, v * 2, 1); return; }
+    const kv = keyVoiceFor(midi);
+    if (kv) { sampleVoice(kv.buffer, t, out, v * 2, kv.rate); return; }
     const g = c.createGain(), o1 = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter();
     o1.type = 'sawtooth'; o2.type = 'square'; o2.detune.value = -9;
     const f = freqFromMidi(midi); o1.frequency.value = f; o2.frequency.value = f;
@@ -111,24 +155,24 @@ export function createVoices(c, out) {
   function scheduleDrum(index, vel, t) {
     const v = Math.max(0.15, (vel || 110) / 127);
     const smp = samples['pad:' + index];
-    if (smp) { sampleVoice(smp, t, out, v, 1); return; }
-    (DRUMS[index % DRUMS.length] || kick)(t, out, v);
+    if (smp) { sampleVoice(smp, t, drumOutNode, v, 1); return; }
+    (DRUMS[index % DRUMS.length] || kick)(t, drumOutNode, v);
   }
   return { scheduleTone, scheduleDrum, sampleVoice };
 }
 
 // ---- LIVE playback ----
 let liveVoices = null;
-function voices() { if (!ready) initAudio(); if (!liveVoices) liveVoices = createVoices(ctx, master); return liveVoices; }
+function voices() { if (!ready) initAudio(); if (!liveVoices) liveVoices = createVoices(ctx, toneBus, drumBus); return liveVoices; }
 
 // sustaining key voice (held until release); returns {release(), bend(cents)}.
 // bend() retunes the live oscillators — wired to the pitch wheel (±200 cents).
 export function noteOn(midi, vel = 100, bendCents = 0) {
   if (!ready) initAudio();
-  const smp = samples['key:' + midi];
+  const kv = keyVoiceFor(midi);
   const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
-  if (smp) {
-    const h = voices().sampleVoice(smp, t, master, v * 2, Math.pow(2, bendCents / 1200));
+  if (kv) {
+    const h = voices().sampleVoice(kv.buffer, t, toneBus, v * 2, kv.rate * Math.pow(2, bendCents / 1200));
     return {
       release() { try { h.s.stop(ctx.currentTime + 0.3); } catch (e) {} },
       bend(c) { try { h.s.playbackRate.value = Math.pow(2, c / 1200); } catch (e) {} },
@@ -140,7 +184,7 @@ export function noteOn(midi, vel = 100, bendCents = 0) {
   o1.detune.value = bendCents;
   lp.type = 'lowpass'; lp.frequency.value = Math.min(9000, f * 7 * brightness);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.01);
-  o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(master);
+  o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(toneBus);
   o1.start(t); o2.start(t);
   return {
     release() {
@@ -171,8 +215,8 @@ export function bufferToWav(buf) {
 // events: [{ pos (s), type:'note'|'pad', note|index, vel, dur }]
 export async function renderLoopToWav(events, lengthSec, sampleRate = 44100) {
   const oc = new OfflineAudioContext(2, Math.max(1, Math.ceil(lengthSec * sampleRate)), sampleRate);
-  const g = oc.createGain(); g.gain.value = 0.8; g.connect(oc.destination);
-  const vx = createVoices(oc, g);
+  const b = buildBuses(oc, oc.destination);      // identical bus split offline
+  const vx = createVoices(oc, b.tone, b.drum);
   for (const e of events) {
     if (e.type === 'pad') vx.scheduleDrum(e.index, e.vel, e.pos);
     else vx.scheduleTone(e.note, e.vel, e.pos, e.dur || 0.35);

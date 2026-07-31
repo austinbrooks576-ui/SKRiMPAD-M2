@@ -115,7 +115,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         <div id="drop">⬇ Drop audio / .zip<br>or tap to browse</div>
         <input id="file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.zip" multiple hidden />
         <ul id="libList"></ul>
-        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.</div>
+        <button class="hbtn" id="splash" style="width:100%;margin-top:6px">🌊 SPLASH → ALL KEYS</button>
+        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.<br>
+          <b>SPLASH</b> lays the selected sound across the whole keyboard, pitched per key — individually
+          programmed keys and pads still keep their own sound.</div>
       </div>
       <div id="stage"></div>
     </div>
@@ -393,6 +396,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       if (!data || data.length < 1) return;
       const [status, d1 = 0, d2 = 0] = data;
       if (status < 128) return;
+      if (status >= 240) return;
       lastDataAt = Date.now();
       onEvent && onEvent({ status, d1, d2, cmd: status & 240, chan: status & 15, port });
     };
@@ -407,7 +411,13 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     async function _start() {
       if (typeof window !== "undefined" && window.AndroidMidi) {
         let nativeName = "MIDI DEVICE";
-        window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), { id: "native", name: nativeName, native: true });
+        const nativePort = () => ({ id: "native", name: nativeName, native: true });
+        window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
+        window.onNativeMIDIBatch = (list) => {
+          if (!list || !list.length) return;
+          const p = nativePort();
+          for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
+        };
         window.onNativeMIDIStatus = (txt) => {
           const m = String(txt || "").match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
           if (m) nativeName = m[1].trim();
@@ -1814,11 +1824,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   __export(audio_exports, {
     bufferToWav: () => bufferToWav,
     clearSample: () => clearSample,
+    clearSplash: () => clearSplash,
     context: () => context,
     createVoices: () => createVoices,
     download: () => download,
+    drumOut: () => drumOut,
     freqFromMidi: () => freqFromMidi,
     getBrightness: () => getBrightness,
+    getSplash: () => getSplash,
     initAudio: () => initAudio,
     isReady: () => isReady,
     noteOn: () => noteOn,
@@ -1828,11 +1841,15 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     renderLoopToWav: () => renderLoopToWav,
     setBrightness: () => setBrightness,
     setMasterVolume: () => setMasterVolume,
-    setSample: () => setSample
+    setSample: () => setSample,
+    setSplash: () => setSplash,
+    toneOut: () => toneOut
   });
   var freqFromMidi = (m) => 440 * Math.pow(2, (m - 69) / 12);
   var ctx = null;
   var master = null;
+  var toneBus = null;
+  var drumBus = null;
   var ready = false;
   var samples = /* @__PURE__ */ Object.create(null);
   function isReady() {
@@ -1840,6 +1857,32 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
   function context() {
     return ctx;
+  }
+  function buildBuses(c, dest) {
+    const out = c.createGain();
+    out.gain.value = 0.85;
+    const limiter = c.createDynamicsCompressor();
+    limiter.threshold.value = -1.5;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 2e-3;
+    limiter.release.value = 0.05;
+    const tone = c.createGain();
+    tone.gain.value = 0.9;
+    const toneComp = c.createDynamicsCompressor();
+    toneComp.threshold.value = -14;
+    toneComp.knee.value = 8;
+    toneComp.ratio.value = 3;
+    toneComp.attack.value = 5e-3;
+    toneComp.release.value = 0.18;
+    const drum = c.createGain();
+    drum.gain.value = 1;
+    tone.connect(toneComp);
+    toneComp.connect(out);
+    drum.connect(out);
+    out.connect(limiter);
+    limiter.connect(dest);
+    return { out, tone, drum };
   }
   function initAudio() {
     if (ready) return ctx;
@@ -1850,21 +1893,21 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       ctx = new AC();
     }
     if (ctx.state === "suspended") ctx.resume();
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -6;
-    comp.knee.value = 6;
-    comp.ratio.value = 3;
-    comp.attack.value = 3e-3;
-    comp.release.value = 0.25;
-    master = ctx.createGain();
-    master.gain.value = 0.8;
-    master.connect(comp);
-    comp.connect(ctx.destination);
+    const b = buildBuses(ctx, ctx.destination);
+    master = b.out;
+    toneBus = b.tone;
+    drumBus = b.drum;
     ready = true;
     return ctx;
   }
   function output() {
     return master;
+  }
+  function toneOut() {
+    return toneBus;
+  }
+  function drumOut() {
+    return drumBus;
   }
   function setMasterVolume(v) {
     if (master) master.gain.value = Math.max(0, Math.min(1, v));
@@ -1882,6 +1925,22 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   function clearSample(role, id) {
     delete samples[role + ":" + id];
   }
+  var splash = null;
+  function setSplash(buffer, rootNote = 60) {
+    splash = buffer ? { buffer, root: rootNote } : null;
+  }
+  function getSplash() {
+    return splash;
+  }
+  function clearSplash() {
+    splash = null;
+  }
+  function keyVoiceFor(midi) {
+    const own = samples["key:" + midi];
+    if (own) return { buffer: own, rate: 1 };
+    if (splash) return { buffer: splash.buffer, rate: Math.pow(2, (midi - splash.root) / 12) };
+    return null;
+  }
   var noiseCache = /* @__PURE__ */ new WeakMap();
   function noise(c) {
     let b = noiseCache.get(c);
@@ -1892,7 +1951,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     noiseCache.set(c, b);
     return b;
   }
-  function createVoices(c, out) {
+  function createVoices(c, out, outDrum) {
+    const drumOutNode = outDrum || out;
     const env = (g2, t, a, d, peak) => {
       g2.gain.setValueAtTime(1e-4, t);
       g2.gain.exponentialRampToValueAtTime(peak, t + a);
@@ -1985,9 +2045,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     function scheduleTone(midi, vel, t, dur) {
       const v = Math.max(0.06, (vel || 100) / 127) * 0.34;
-      const smp = samples["key:" + midi];
-      if (smp) {
-        sampleVoice(smp, t, out, v * 2, 1);
+      const kv = keyVoiceFor(midi);
+      if (kv) {
+        sampleVoice(kv.buffer, t, out, v * 2, kv.rate);
         return;
       }
       const g2 = c.createGain(), o1 = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter();
@@ -2016,25 +2076,25 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       const v = Math.max(0.15, (vel || 110) / 127);
       const smp = samples["pad:" + index];
       if (smp) {
-        sampleVoice(smp, t, out, v, 1);
+        sampleVoice(smp, t, drumOutNode, v, 1);
         return;
       }
-      (DRUMS[index % DRUMS.length] || kick)(t, out, v);
+      (DRUMS[index % DRUMS.length] || kick)(t, drumOutNode, v);
     }
     return { scheduleTone, scheduleDrum, sampleVoice };
   }
   var liveVoices = null;
   function voices() {
     if (!ready) initAudio();
-    if (!liveVoices) liveVoices = createVoices(ctx, master);
+    if (!liveVoices) liveVoices = createVoices(ctx, toneBus, drumBus);
     return liveVoices;
   }
   function noteOn(midi, vel = 100, bendCents2 = 0) {
     if (!ready) initAudio();
-    const smp = samples["key:" + midi];
+    const kv = keyVoiceFor(midi);
     const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
-    if (smp) {
-      const h = voices().sampleVoice(smp, t, master, v * 2, Math.pow(2, bendCents2 / 1200));
+    if (kv) {
+      const h = voices().sampleVoice(kv.buffer, t, toneBus, v * 2, kv.rate * Math.pow(2, bendCents2 / 1200));
       return {
         release() {
           try {
@@ -2065,7 +2125,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     o1.connect(lp);
     o2.connect(lp);
     lp.connect(g2);
-    g2.connect(master);
+    g2.connect(toneBus);
     o1.start(t);
     o2.start(t);
     return {
@@ -2121,10 +2181,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
   async function renderLoopToWav(events, lengthSec, sampleRate = 44100) {
     const oc = new OfflineAudioContext(2, Math.max(1, Math.ceil(lengthSec * sampleRate)), sampleRate);
-    const g2 = oc.createGain();
-    g2.gain.value = 0.8;
-    g2.connect(oc.destination);
-    const vx = createVoices(oc, g2);
+    const b = buildBuses(oc, oc.destination);
+    const vx = createVoices(oc, b.tone, b.drum);
     for (const e of events) {
       if (e.type === "pad") vx.scheduleDrum(e.index, e.vel, e.pos);
       else vx.scheduleTone(e.note, e.vel, e.pos, e.dur || 0.35);
@@ -2362,7 +2420,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         onChange && onChange(items);
       }
     }
-    return { importFiles, assign, items: () => items };
+    function touch() {
+      onChange && onChange(items);
+    }
+    return { importFiles, assign, touch, items: () => items };
   }
 
   // livex/src/core/update.js
@@ -2705,6 +2766,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   window.__transport = transport;
   window.__audio = audio_exports;
   window.__mkIO = createMidiIO;
+  var libSel = 0;
   var lib = createLibrary({
     onChange: (items) => {
       const ul = $("#libList");
@@ -2714,10 +2776,32 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         li.textContent = it.name;
         li.draggable = true;
         li.dataset.idx = i;
+        if (i === libSel) li.style.borderColor = "var(--acc)";
+        li.addEventListener("click", () => {
+          libSel = i;
+          lib.touch();
+        });
         li.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/livex-sample", String(i)));
         ul.appendChild(li);
       });
     }
+  });
+  $("#splash").addEventListener("click", () => {
+    const items = lib.items();
+    if (!items.length) {
+      toast("Import a sound first, then SPLASH it");
+      return;
+    }
+    if (getSplash()) {
+      clearSplash();
+      $("#splash").classList.remove("on");
+      toast("Splash cleared \u2014 synth keys restored");
+      return;
+    }
+    const it = items[Math.min(libSel, items.length - 1)];
+    setSplash(it.buffer, 60);
+    $("#splash").classList.add("on");
+    toast("\u{1F30A} \u201C" + it.name + "\u201D across all keys \u2014 per-key sounds still win");
   });
   $("#drop").addEventListener("click", () => $("#file").click());
   $("#file").addEventListener("change", async (e) => {

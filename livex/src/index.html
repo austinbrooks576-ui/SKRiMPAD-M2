@@ -115,7 +115,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         <div id="drop">⬇ Drop audio / .zip<br>or tap to browse</div>
         <input id="file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.zip" multiple hidden />
         <ul id="libList"></ul>
-        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.</div>
+        <button class="hbtn" id="splash" style="width:100%;margin-top:6px">🌊 SPLASH → ALL KEYS</button>
+        <div id="libhint">Drag a sound onto any <b>pad</b> or <b>key</b> to trigger it. Or drop a file straight on a pad.<br>
+          <b>SPLASH</b> lays the selected sound across the whole keyboard, pitched per key — individually
+          programmed keys and pads still keep their own sound.</div>
       </div>
       <div id="stage"></div>
     </div>
@@ -253,15 +256,28 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     window.__mkIO = createMidiIO;   // diagnostics / test hook for the I/O layer
 
     // ---- library ----
+    let libSel = 0;   // which library sound SPLASH will use
     const lib = createLibrary({
       onChange: (items) => {
         const ul = $('#libList'); ul.innerHTML = '';
         items.forEach((it, i) => {
           const li = document.createElement('li'); li.textContent = it.name; li.draggable = true; li.dataset.idx = i;
+          if (i === libSel) li.style.borderColor = 'var(--acc)';
+          li.addEventListener('click', () => { libSel = i; lib.touch(); });
           li.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/livex-sample', String(i)));
           ul.appendChild(li);
         });
       },
+    });
+    // SPLASH the selected sound across every key (repitched), or clear it again.
+    $('#splash').addEventListener('click', () => {
+      const items = lib.items();
+      if (!items.length) { toast('Import a sound first, then SPLASH it'); return; }
+      if (audio.getSplash()) { audio.clearSplash(); $('#splash').classList.remove('on'); toast('Splash cleared — synth keys restored'); return; }
+      const it = items[Math.min(libSel, items.length - 1)];
+      audio.setSplash(it.buffer, 60);
+      $('#splash').classList.add('on');
+      toast('🌊 “' + it.name + '” across all keys — per-key sounds still win');
     });
     $('#drop').addEventListener('click', () => $('#file').click());
     $('#file').addEventListener('change', async (e) => { const n = (await lib.importFiles(e.target.files)).length; if (n) toast(n + ' sound(s) added'); });

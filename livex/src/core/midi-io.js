@@ -19,7 +19,12 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   const emit = (data, port) => {
     if (!data || data.length < 1) return;
     const [status, d1 = 0, d2 = 0] = data;
-    if (status < 0x80) return; // ignore stray data / clock bytes handled elsewhere
+    if (status < 0x80) return;   // stray data byte
+    // Drop System Real-Time / System Common (>= 0xF0): clock at 24 ppqn and
+    // active sensing several times a second are pure noise to us, and letting
+    // them through drove the router, the probe and the re-render loop hard
+    // enough to stall the app.
+    if (status >= 0xf0) return;
     lastDataAt = Date.now();
     onEvent && onEvent({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port });
   };
@@ -42,7 +47,15 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     // exact global MUST exist or the APK never hears a single MIDI byte.
     if (typeof window !== 'undefined' && window.AndroidMidi) {
       let nativeName = 'MIDI DEVICE';
-      window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), { id: 'native', name: nativeName, native: true });
+      const nativePort = () => ({ id: 'native', name: nativeName, native: true });
+      window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
+      // batched form — the bridge coalesces a frame's worth of packets into one
+      // call so a chatty controller can't flood the WebView
+      window.onNativeMIDIBatch = (list) => {
+        if (!list || !list.length) return;
+        const p = nativePort();
+        for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
+      };
       window.onNativeMIDIStatus = (txt) => {
         // status lines look like "🎹 SMK25 connected" — harvest a device name so the
         // board gets a real title instead of the generic fallback

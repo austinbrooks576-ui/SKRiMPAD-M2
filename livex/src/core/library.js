@@ -71,5 +71,8 @@ export function createLibrary({ onChange } = {}) {
   // assign a library item to a target: {role:'pad'|'key', id: index|note}
   function assign(item, role, id) { if (item && item.buffer) { setSample(role, id, item.buffer); onChange && onChange(items); } }
 
-  return { importFiles, assign, items: () => items };
+  // re-emit the current list (selection highlight, etc.) without re-importing
+  function touch() { onChange && onChange(items); }
+
+  return { importFiles, assign, touch, items: () => items };
 }
