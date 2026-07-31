@@ -118,11 +118,17 @@ app.whenReady().then(() => {
   // Grant mic (voice/hum-to-notes) AND MIDI — Chromium gates Web MIDI behind a
   // permission, so requestMIDIAccess() rejects without this and hardware
   // controllers never connect on Windows.
-  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex'];
+  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex', 'bluetooth'];
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
     callback(GRANTED.includes(permission));
   });
   session.defaultSession.setPermissionCheckHandler((wc, permission) => GRANTED.includes(permission));
+
+  // Persist permission for BLE MIDI controllers the user already picked in the
+  // chooser. Without this, navigator.bluetooth.getDevices() comes back empty on
+  // every launch and the app cannot silently re-open the controller — which is
+  // what forced people through a vendor control panel to reconnect each session.
+  session.defaultSession.setDevicePermissionHandler((details) => details.deviceType === 'bluetooth');
   createWindow();
 });
 

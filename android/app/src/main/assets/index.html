@@ -332,12 +332,15 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     let access = null;
     let bleStatus = 0;
     let bleName = "BLE MIDI";
+    let lastDataAt = 0;
     const emit = (data, port) => {
       if (!data || data.length < 1) return;
       const [status, d1 = 0, d2 = 0] = data;
       if (status < 128) return;
+      lastDataAt = Date.now();
       onEvent && onEvent({ status, d1, d2, cmd: status & 240, chan: status & 15, port });
     };
+    const hasLiveData = () => lastDataAt > 0;
     function listInputs() {
       return access ? [...access.inputs.values()] : [];
     }
@@ -419,25 +422,68 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         await start();
       }
       const n = inputCount();
-      if (n > 0) {
-        onStatus && onStatus({
-          mode: "port",
-          count: n,
-          hint: "Windows + KORG: open the KORG BLE-MIDI panel and press CONNECT so the port transmits."
-        });
+      if (n > 0 && hasLiveData()) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) connected and live." });
         return { mode: "port", count: n };
       }
       if (typeof navigator !== "undefined" && navigator.bluetooth) {
-        const dev = await connectBLE({ onStatus });
-        return { mode: "gatt", device: dev && dev.name };
+        if (n > 0) {
+          onStatus && onStatus({
+            mode: "silent-port",
+            count: n,
+            hint: "A MIDI port exists but has sent nothing \u2014 connecting over Bluetooth directly\u2026"
+          });
+        }
+        try {
+          const dev = await connectBLE({ onStatus });
+          return { mode: "gatt", device: dev && dev.name };
+        } catch (err) {
+          if (err && /GATT|connect|Network/i.test(String(err.message || err)) && n > 0) {
+            onStatus && onStatus({
+              mode: "held",
+              hint: "The controller is held by its vendor driver (e.g. the KORG BLE-MIDI panel). Disconnect it there, then tap \u{1F4F6} again."
+            });
+            return { mode: "held", count: n };
+          }
+          throw err;
+        }
       }
-      onStatus && onStatus({
-        mode: "none",
-        hint: "No MIDI port \u2014 pair it (or open the KORG BLE-MIDI panel and CONNECT), then retry."
-      });
+      if (n > 0) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) found \u2014 play a key to confirm." });
+        return { mode: "port", count: n };
+      }
+      onStatus && onStatus({ mode: "none", hint: "No MIDI device found \u2014 pair the controller, then tap \u{1F4F6} again." });
       return { mode: "none" };
     }
     const KNOWN = ["SMK", "SMK25", "WORLDE", "M-VAVE", "MVAVE", "M-WAVE", "KORG", "nanoKEY", "microKEY", "MPK", "LPK", "MPD", "Launchkey"];
+    const bound = /* @__PURE__ */ new Set();
+    async function attachDevice(dev, { onStatus } = {}) {
+      if (dev && dev.name) bleName = dev.name;
+      const attach = async () => {
+        const server = await dev.gatt.connect();
+        const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+        const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
+        await ch.startNotifications();
+        ch.addEventListener("characteristicvaluechanged", (e) => parseBLE(e.target.value));
+        onStatus && onStatus({ mode: "gatt", connected: true, name: dev.name });
+      };
+      if (!bound.has(dev)) {
+        bound.add(dev);
+        dev.addEventListener("gattserverdisconnected", () => {
+          onStatus && onStatus({ mode: "gatt", connected: false, name: dev.name });
+          let tries = 0;
+          const retry = () => {
+            if (dev.gatt.connected) return;
+            attach().catch(() => {
+              if (++tries < 8) setTimeout(retry, Math.min(1e3 * 2 ** tries, 2e4));
+            });
+          };
+          setTimeout(retry, 600);
+        });
+      }
+      await attach();
+      return dev;
+    }
     async function connectBLE({ onStatus } = {}) {
       if (!(typeof navigator !== "undefined" && navigator.bluetooth)) {
         throw new Error("Web Bluetooth unavailable \u2014 on Windows the controller instead appears as a MIDI port.");
@@ -450,24 +496,52 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
           dev = await navigator.bluetooth.requestDevice({ filters: KNOWN.map((namePrefix) => ({ namePrefix })), optionalServices: [BLE_MIDI_SERVICE] }).catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
         } else throw e;
       }
-      if (dev && dev.name) bleName = dev.name;
-      const attach = async () => {
-        const server = await dev.gatt.connect();
-        const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
-        const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
-        await ch.startNotifications();
-        ch.addEventListener("characteristicvaluechanged", (e) => parseBLE(e.target.value));
-        onStatus && onStatus({ mode: "gatt", connected: true, name: dev.name });
-      };
-      dev.addEventListener("gattserverdisconnected", () => {
-        onStatus && onStatus({ mode: "gatt", connected: false, name: dev.name });
-        attach().catch(() => {
-        });
-      });
-      await attach();
-      return dev;
+      return attachDevice(dev, { onStatus });
     }
-    return { start, listInputs, inputCount, connectBluetooth, connectBLE, access: () => access, _emit: emit };
+    async function autoReconnect({ onStatus } = {}) {
+      if (typeof navigator === "undefined" || !navigator.bluetooth || !navigator.bluetooth.getDevices) {
+        return { mode: "unsupported", devices: 0 };
+      }
+      let devs = [];
+      try {
+        devs = await navigator.bluetooth.getDevices();
+      } catch (e) {
+        return { mode: "none", devices: 0 };
+      }
+      if (!devs.length) return { mode: "none", devices: 0 };
+      let connected = 0;
+      for (const dev of devs) {
+        try {
+          await attachDevice(dev, { onStatus });
+          connected++;
+        } catch (e) {
+          try {
+            if (!bound.has(dev)) {
+              dev.addEventListener("advertisementreceived", function once() {
+                dev.removeEventListener("advertisementreceived", once);
+                attachDevice(dev, { onStatus }).catch(() => {
+                });
+              });
+            }
+            if (dev.watchAdvertisements) await dev.watchAdvertisements();
+          } catch (e2) {
+          }
+        }
+      }
+      if (connected) onStatus && onStatus({ mode: "gatt", connected: true, auto: true, count: connected });
+      return { mode: connected ? "gatt" : "watching", devices: devs.length, connected };
+    }
+    return {
+      start,
+      listInputs,
+      inputCount,
+      connectBluetooth,
+      connectBLE,
+      autoReconnect,
+      hasLiveData,
+      access: () => access,
+      _emit: emit
+    };
   }
 
   // livex/src/core/gamepad.js
@@ -2373,7 +2447,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     toast("Quantized to grid");
   });
   var io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
+  var btStatus = (s) => {
+    if (s.mode === "gatt" && s.connected) toast(s.auto ? "\u{1F4F6} Reconnected " + (s.name || "controller") : "\u{1F4F6} Connected \u2014 " + (s.name || "BLE MIDI"));
+    else if (s.mode === "gatt" && !s.connected) toast("\u{1F4F6} " + (s.name || "Controller") + " dropped \u2014 reconnecting\u2026");
+    else if (s.hint) toast(s.hint);
+  };
   io.start().then((m) => console.info("[LIVEx] MIDI:", m.mode)).catch(() => {
+  });
+  io.autoReconnect({ onStatus: btStatus }).catch(() => {
   });
   createGamepad({
     onButton: (i, gp) => manager.routeGamepad(i, gp),
@@ -2389,11 +2470,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }).start();
   $("#bt").addEventListener("click", async () => {
     try {
-      const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || "BT: " + s.mode) });
-      if (r.mode === "port") toast(r.count + " MIDI port(s). KORG: press CONNECT in the KORG BLE-MIDI panel.");
-      else if (r.mode === "gatt") toast("Connected: " + (r.device || "BLE MIDI"));
+      const r = await io.connectBluetooth({ onStatus: btStatus });
+      if (r.mode === "port") toast("\u{1F3B9} " + r.count + " MIDI port(s) live \u2014 play away.");
+      else if (r.mode === "gatt") toast("\u{1F4F6} Connected: " + (r.device || "BLE MIDI"));
+      else if (r.mode === "native") toast("\u{1F4F6} Scanning for paired Bluetooth MIDI\u2026");
     } catch (e) {
-      toast("\u{1F4F6} " + (e && e.message || "no device"));
+      const msg = String(e && e.message || e || "");
+      if (/NotFoundError|cancell?ed|chooser/i.test(msg)) toast("\u{1F4F6} No controller selected");
+      else toast("\u{1F4F6} " + (msg || "could not connect"));
     }
   });
   var upd = initUpdater({ toast });

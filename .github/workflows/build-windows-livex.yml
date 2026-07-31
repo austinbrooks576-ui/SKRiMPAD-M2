@@ -90,11 +90,15 @@ jobs:
             **metronome + BPM**, one-shot **SYNC** quantize, and **Export** the loop to a
             WAV. Displays and connects to **all** attached controllers at once.
 
-            **Bluetooth MIDI is fixed** — on Windows it uses the KORG driver-bridged
-            MIDI port instead of fighting it over GATT (a BLE device allows one GATT
-            link). KORG note: open the KORG BLE-MIDI panel and press CONNECT so the
-            port transmits. Web MIDI is auto-enabled at boot. Auto-update with fail-safe
-            rollback is built in. **Requires:** Windows 10+ (64-bit).
+            **Bluetooth MIDI connects itself — no vendor control panel.** A MIDI port
+            that is actually carrying data is used as-is (never fought over GATT, since
+            a BLE device allows only one link). But a port that has never sent a byte —
+            exactly what Windows' KORG BLE-MIDI driver publishes while it sits idle —
+            is no longer trusted: LIVEx opens the controller over Bluetooth itself.
+            **Pair once and that's it** — the controller is re-opened silently on every
+            later launch, and if it sleeps or wanders out of range LIVEx reconnects the
+            moment it comes back. Auto-update with fail-safe rollback is built in.
+            **Requires:** Windows 10+ (64-bit).
           files: |
             electron/dist/*.exe
             electron/dist/latest*.yml

@@ -10,12 +10,20 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   let bleStatus = 0; // BLE running-status latch
   let bleName = 'BLE MIDI'; // set on GATT connect so the board titles correctly
 
+  // Has any real MIDI byte ever arrived? This distinguishes a LIVE port from a
+  // bridged-but-SILENT one — on Windows the KORG BLE-MIDI driver publishes a port
+  // the moment the controller is paired, but it stays mute until you press
+  // CONNECT in the KORG panel. Trusting the port's mere existence is what left
+  // people staring at a dead keyboard.
+  let lastDataAt = 0;
   const emit = (data, port) => {
     if (!data || data.length < 1) return;
     const [status, d1 = 0, d2 = 0] = data;
     if (status < 0x80) return; // ignore stray data / clock bytes handled elsewhere
+    lastDataAt = Date.now();
     onEvent && onEvent({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port });
   };
+  const hasLiveData = () => lastDataAt > 0;
 
   function listInputs() { return access ? [...access.inputs.values()] : []; }
 
@@ -78,17 +86,19 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
 
   function inputCount() { return access ? access.inputs.size : 0; }
 
-  // The CORRECT desktop Bluetooth flow — the hard-won fix from SKRiMPAD-M2
-  // (commit 7397e19 "use the driver-bridged port, don't fight it over GATT"):
+  // The desktop Bluetooth flow. Two ways a wireless controller reaches us:
   //
-  //   A wireless controller reaches us one of two ways —
-  //   (a) the OS/vendor driver already bridges it as a normal MIDI PORT. On
-  //       Windows the KORG BLE-MIDI driver does this for the SMK-25 V2, BUT the
-  //       port stays SILENT until you press CONNECT in the KORG BLE-MIDI panel.
-  //       When a port exists we MUST use it and must NOT also open Web Bluetooth
-  //       GATT — a BLE device allows a single GATT link, so a second connection
-  //       fights the driver and neither side gets data. (This was the bug.)
-  //   (b) nothing bridges it → we open the BLE-MIDI GATT service ourselves.
+  //   (a) the OS/vendor driver bridges it as a normal MIDI PORT. A port that is
+  //       actually CARRYING DATA is the best path — use it and never also open
+  //       GATT, because a BLE device allows one GATT link and a second connection
+  //       fights the driver until neither side works.
+  //   (b) nothing usable bridges it → we open the BLE-MIDI GATT service ourselves.
+  //
+  // The trap in between: Windows' KORG BLE-MIDI driver publishes a port as soon
+  // as the controller is paired, but that port stays MUTE until you press CONNECT
+  // in the KORG panel. Existence alone therefore proves nothing — so a port we
+  // have never received a byte from is treated as NOT connected, and we take over
+  // via GATT instead of sending the player off to a control panel.
   //
   // Must run inside the click gesture (requestDevice needs a live user activation;
   // a setTimeout drops it and the chooser silently never opens).
@@ -105,24 +115,75 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       await start(); // Web MIDI is pre-granted in Electron → bridged ports already hooked
     }
     const n = inputCount();
-    if (n > 0) { // already bridged as MIDI port(s) — use them, DO NOT touch GATT
-      onStatus && onStatus({ mode: 'port', count: n,
-        hint: 'Windows + KORG: open the KORG BLE-MIDI panel and press CONNECT so the port transmits.' });
+    if (n > 0 && hasLiveData()) {
+      // a port that has actually delivered MIDI — the ideal path, leave GATT alone
+      onStatus && onStatus({ mode: 'port', count: n, hint: n + ' MIDI port(s) connected and live.' });
       return { mode: 'port', count: n };
     }
+    // No ports, or ports that have never made a sound: connect it ourselves.
     if (typeof navigator !== 'undefined' && navigator.bluetooth) {
-      const dev = await connectBLE({ onStatus });
-      return { mode: 'gatt', device: dev && dev.name };
+      if (n > 0) {
+        onStatus && onStatus({ mode: 'silent-port', count: n,
+          hint: 'A MIDI port exists but has sent nothing — connecting over Bluetooth directly…' });
+      }
+      try {
+        const dev = await connectBLE({ onStatus });
+        return { mode: 'gatt', device: dev && dev.name };
+      } catch (err) {
+        // The one case we genuinely cannot take over: the vendor driver is holding
+        // the single GATT link. Say so precisely instead of failing silently.
+        if (err && /GATT|connect|Network/i.test(String(err.message || err)) && n > 0) {
+          onStatus && onStatus({ mode: 'held',
+            hint: 'The controller is held by its vendor driver (e.g. the KORG BLE-MIDI panel). Disconnect it there, then tap 📶 again.' });
+          return { mode: 'held', count: n };
+        }
+        throw err;
+      }
     }
-    onStatus && onStatus({ mode: 'none',
-      hint: 'No MIDI port — pair it (or open the KORG BLE-MIDI panel and CONNECT), then retry.' });
+    if (n > 0) {
+      onStatus && onStatus({ mode: 'port', count: n, hint: n + ' MIDI port(s) found — play a key to confirm.' });
+      return { mode: 'port', count: n };
+    }
+    onStatus && onStatus({ mode: 'none', hint: 'No MIDI device found — pair the controller, then tap 📶 again.' });
     return { mode: 'none' };
   }
 
-  // Direct BLE-MIDI GATT (fallback only, when nothing bridges the device). Tries
-  // the standard service first; some units (incl. SMK25V2) don't advertise it, so
-  // it falls back to known name-prefixes, then accept-all. Auto-reconnects on drop.
   const KNOWN = ['SMK', 'SMK25', 'WORLDE', 'M-VAVE', 'MVAVE', 'M-WAVE', 'KORG', 'nanoKEY', 'microKEY', 'MPK', 'LPK', 'MPD', 'Launchkey'];
+  const bound = new Set(); // devices already wired, so we never double-attach
+
+  // Wire one BluetoothDevice: open GATT, subscribe to the BLE-MIDI characteristic,
+  // and keep it alive. Controllers sleep and drop the link constantly, so a
+  // disconnect schedules backing-off retries rather than giving up — that plus
+  // autoReconnect() is what removes the manual reconnect step for good.
+  async function attachDevice(dev, { onStatus } = {}) {
+    if (dev && dev.name) bleName = dev.name;
+    const attach = async () => {
+      const server = await dev.gatt.connect();
+      const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+      const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged', (e) => parseBLE(e.target.value));
+      onStatus && onStatus({ mode: 'gatt', connected: true, name: dev.name });
+    };
+    if (!bound.has(dev)) {
+      bound.add(dev);
+      dev.addEventListener('gattserverdisconnected', () => {
+        onStatus && onStatus({ mode: 'gatt', connected: false, name: dev.name });
+        let tries = 0;
+        const retry = () => {
+          if (dev.gatt.connected) return;
+          attach().catch(() => { if (++tries < 8) setTimeout(retry, Math.min(1000 * 2 ** tries, 20000)); });
+        };
+        setTimeout(retry, 600);
+      });
+    }
+    await attach();
+    return dev;
+  }
+
+  // Direct BLE-MIDI GATT via the device chooser. Tries the standard MIDI service
+  // first; some units (incl. SMK25V2) don't advertise it, so it falls back to
+  // known name-prefixes, then accept-all.
   async function connectBLE({ onStatus } = {}) {
     if (!(typeof navigator !== 'undefined' && navigator.bluetooth)) {
       throw new Error('Web Bluetooth unavailable — on Windows the controller instead appears as a MIDI port.');
@@ -136,22 +197,44 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
           .catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
       } else throw e;
     }
-    if (dev && dev.name) bleName = dev.name;
-    const attach = async () => {
-      const server = await dev.gatt.connect();
-      const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
-      const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
-      await ch.startNotifications();
-      ch.addEventListener('characteristicvaluechanged', (e) => parseBLE(e.target.value));
-      onStatus && onStatus({ mode: 'gatt', connected: true, name: dev.name });
-    };
-    dev.addEventListener('gattserverdisconnected', () => {
-      onStatus && onStatus({ mode: 'gatt', connected: false, name: dev.name });
-      attach().catch(() => {}); // controllers drop/resume BLE frequently — try once
-    });
-    await attach();
-    return dev;
+    return attachDevice(dev, { onStatus });
   }
 
-  return { start, listInputs, inputCount, connectBluetooth, connectBLE, access: () => access, _emit: emit };
+  // AUTO-RECONNECT — the reason you only ever pair once.
+  // getDevices() returns controllers this app was already granted, so at boot we
+  // silently re-open them with NO chooser and NO vendor control panel. If one is
+  // out of range we watch for its advertisement and connect the moment it wakes.
+  async function autoReconnect({ onStatus } = {}) {
+    if (typeof navigator === 'undefined' || !navigator.bluetooth || !navigator.bluetooth.getDevices) {
+      return { mode: 'unsupported', devices: 0 };
+    }
+    let devs = [];
+    try { devs = await navigator.bluetooth.getDevices(); } catch (e) { return { mode: 'none', devices: 0 }; }
+    if (!devs.length) return { mode: 'none', devices: 0 };
+    let connected = 0;
+    for (const dev of devs) {
+      try {
+        await attachDevice(dev, { onStatus });
+        connected++;
+      } catch (e) {
+        // asleep / out of range — connect it the instant it advertises
+        try {
+          if (!bound.has(dev)) {
+            dev.addEventListener('advertisementreceived', function once() {
+              dev.removeEventListener('advertisementreceived', once);
+              attachDevice(dev, { onStatus }).catch(() => {});
+            });
+          }
+          if (dev.watchAdvertisements) await dev.watchAdvertisements();
+        } catch (e2) { /* advertisement watching unavailable — user can tap 📶 */ }
+      }
+    }
+    if (connected) onStatus && onStatus({ mode: 'gatt', connected: true, auto: true, count: connected });
+    return { mode: connected ? 'gatt' : 'watching', devices: devs.length, connected };
+  }
+
+  return {
+    start, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
+    hasLiveData, access: () => access, _emit: emit,
+  };
 }

@@ -258,15 +258,31 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
 
     // ---- live input (all devices) ----
     const io = createMidiIO({ onEvent: (ev) => manager.routeMidi(ev), onPorts: (ins) => manager.syncPorts(ins).then(refreshEmpty) });
+    const btStatus = (s) => {
+      if (s.mode === 'gatt' && s.connected) toast(s.auto ? '📶 Reconnected ' + (s.name || 'controller') : '📶 Connected — ' + (s.name || 'BLE MIDI'));
+      else if (s.mode === 'gatt' && !s.connected) toast('📶 ' + (s.name || 'Controller') + ' dropped — reconnecting…');
+      else if (s.hint) toast(s.hint);
+    };
     io.start().then((m) => console.info('[LIVEx] MIDI:', m.mode)).catch(() => {});
+    // Pair once, then never again: silently re-open any controller this app was
+    // already granted, and watch for it to wake if it is out of range.
+    io.autoReconnect({ onStatus: btStatus }).catch(() => {});
     createGamepad({
       onButton: (i, gp) => manager.routeGamepad(i, gp),
       onConnect: (gp) => { manager.addGamepadBoard(gp); refreshEmpty(); toast('🎮 ' + ((gp && gp.id) || 'Gamepad').slice(0, 42)); },
       onDisconnect: (gp) => { manager.removeGamepadBoard(gp); refreshEmpty(); },
     }).start();
     $('#bt').addEventListener('click', async () => {
-      try { const r = await io.connectBluetooth({ onStatus: (s) => toast(s.hint || ('BT: ' + s.mode)) }); if (r.mode === 'port') toast(r.count + ' MIDI port(s). KORG: press CONNECT in the KORG BLE-MIDI panel.'); else if (r.mode === 'gatt') toast('Connected: ' + (r.device || 'BLE MIDI')); }
-      catch (e) { toast('📶 ' + (e && e.message || 'no device')); }
+      try {
+        const r = await io.connectBluetooth({ onStatus: btStatus });
+        if (r.mode === 'port') toast('🎹 ' + r.count + ' MIDI port(s) live — play away.');
+        else if (r.mode === 'gatt') toast('📶 Connected: ' + (r.device || 'BLE MIDI'));
+        else if (r.mode === 'native') toast('📶 Scanning for paired Bluetooth MIDI…');
+      } catch (e) {
+        const msg = String((e && e.message) || e || '');
+        if (/NotFoundError|cancell?ed|chooser/i.test(msg)) toast('📶 No controller selected');
+        else toast('📶 ' + (msg || 'could not connect'));
+      }
     });
 
     // ---- auto-update (ghosted window + fail-safe rollback) ----
