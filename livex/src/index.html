@@ -47,7 +47,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     .board { width: 100%; max-width: 620px; }
     .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
     .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
-    .board-b svg { max-width: 100%; height: auto; }
+    .board-b svg { max-width: 100%; height: auto; touch-action: none; }
+    /* every drawn control is live — show it */
+    .board-b [data-role="key"], .board-b [data-role="pad"],
+    .board-b [data-role="transport"], .board-b [data-role="button"],
+    .board-b [data-role="octnav"] { cursor: pointer; }
+    .board-b [data-role="knob"], .board-b [data-role="wheel"] { cursor: ns-resize; }
+    .board.active { outline: 1px solid rgba(75,214,200,.35); outline-offset: 4px; border-radius: 10px; }
+    #kbhint { font-size: 9px; color: var(--mut); letter-spacing: .04em; }
     #empty { color: var(--mut); font-size: 12px; margin: 30px auto; }
     #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--pan);
       border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
@@ -93,6 +100,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         <option>1</option><option selected>2</option><option>4</option><option>8</option>
       </select>
       <button class="hbtn" id="metro">🕩 METRO</button>
+      <button class="hbtn" id="panic" title="PANIC — stop every sounding note (Esc)">✋ PANIC</button>
       <span class="sep"></span>
       <button id="sync" class="hbtn">⟳ SYNC</button>
       <span class="sep"></span>
@@ -112,6 +120,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <div id="stage"></div>
     </div>
     <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
+    <div id="kbhint">MOUSE: click keys/pads · drag knobs &amp; wheels · every button is live &nbsp;·&nbsp;
+      KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play · <b>1–8</b> pads ·
+      <b>−/=</b> octave · <b>Space</b> play · <b>Enter</b> rec · <b>\</b> metro · <b>Esc</b> panic</div>
   </div>
   <div id="toast"></div>
 
@@ -139,6 +150,19 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     let sustainOn = false;
     const sustained = [];
 
+    // PANIC — the unconditional escape hatch. Releases every sounding voice, drops
+    // the sustain pedal, and unlights every board. Wired to the ✋ button, Escape,
+    // MIDI All-Notes-Off, board removal, and the window losing focus, so a note can
+    // never outlive the gesture that started it.
+    function allNotesOff() {
+      for (const v of held.values()) { try { v.release(); } catch (e) {} }
+      held.clear();
+      for (const v of sustained.splice(0)) { try { v.release(); } catch (e) {} }
+      sustainOn = false;
+      try { manager.boards.forEach((b) => b.router && b.router.unlightAll && b.router.unlightAll()); } catch (e) {}
+    }
+    window.__allNotesOff = allNotesOff;
+
     // ---- transport ----
     const transport = createTransport({
       onState: (s) => {
@@ -164,11 +188,33 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
           board.startWhite = Math.max(0, Math.min(board.startWhite + a.dir * 7, max));
           manager.renderBoard(board); return;
         }
-        if (a.type === 'noteon') { const v = audio.noteOn(a.note, a.vel, bendCents); held.set(board.sig + ':' + a.note, v); transport.recordNoteOn(a.note, a.vel); }
+        if (a.type === 'noteon') {
+          // Re-trigger without an intervening note-off (duplicate ports, echoing
+          // controllers, key repeat) must not orphan the previous voice — an
+          // orphaned voice has no handle left and would ring forever.
+          const k = board.sig + ':' + a.note;
+          const prev = held.get(k); if (prev) { try { prev.release(); } catch (e) {} }
+          const v = audio.noteOn(a.note, a.vel, bendCents);
+          held.set(k, v); transport.recordNoteOn(a.note, a.vel);
+        }
         else if (a.type === 'noteoff') {
           const k = board.sig + ':' + a.note; const v = held.get(k);
-          if (v) { if (sustainOn) sustained.push(v); else v.release(); held.delete(k); }
+          if (v) { held.delete(k); if (sustainOn) sustained.push(v); else { try { v.release(); } catch (e) {} } }
+          else {
+            // Note-off whose note-on landed under a different board key (a board
+            // renamed or replaced mid-press). Release any voice for that note so a
+            // re-identified device can never strand a held note.
+            for (const [kk, vv] of [...held]) {
+              if (kk.endsWith(':' + a.note)) { held.delete(kk); try { vv.release(); } catch (e) {} }
+            }
+          }
           transport.recordNoteOff(a.note);
+        }
+        else if (a.type === 'allnotesoff') allNotesOff();
+        else if (a.type === 'kboctave') toast('Octave ' + (a.octave > 0 ? '+' : '') + a.octave);
+        else if (a.type === 'button') {
+          if (a.name === 'bt') $('#bt').click();
+          else toast(String(a.name).toUpperCase() + ' — hold a key to use it');
         }
         else if (a.type === 'pad') { const pi = padIndexFor(board, a); audio.playPad(pi, a.vel); transport.recordPad(pi, a.vel); }
         else if (a.type === 'gpbutton') { const pi = a.index % 16; audio.playPad(pi, 110); transport.recordPad(pi, 110); }
@@ -242,7 +288,49 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       k61: () => makeProfile({ id: 'k61', class: CLASSES.KEYBOARD, portName: 'GENERIC 61', keys: { count: 61, firstNote: 36 }, wheels: ['pitch', 'mod'] }),
     };
     document.querySelectorAll('[data-dev]').forEach((b) => b.addEventListener('click', () => { manager.addDemoBoard(demo[b.dataset.dev]()); refreshEmpty(); }));
-    $('#clear').addEventListener('click', () => { manager.clear(); refreshEmpty(); });
+    $('#clear').addEventListener('click', () => { allNotesOff(); manager.clear(); refreshEmpty(); });
+
+    // Panic paths: the button, Escape, and losing focus (alt-tab / screen lock must
+    // never leave a note droning). Removing a board also drops its voices.
+    $('#panic').addEventListener('click', () => { allNotesOff(); toast('✋ All notes stopped'); });
+
+    // ---- COMPUTER KEYBOARD → the schematic --------------------------------
+    // Play with no hardware at all. Keys go to the ACTIVE board (click a board to
+    // aim at it; the first one is active by default), so this scales to several
+    // controllers on screen at once.
+    let activeSig = null;
+    const activeBoard = () => {
+      const bs = [...manager.boards.values()];
+      return bs.find((b) => b.sig === activeSig) || bs[0] || null;
+    };
+    function setActive(sig) {
+      activeSig = sig;
+      manager.boards.forEach((b) => b.wrap.classList.toggle('active', b.sig === sig));
+    }
+    stage.addEventListener('pointerdown', (e) => {
+      const w = e.target.closest && e.target.closest('.board');
+      if (w && w.dataset.sig) setActive(w.dataset.sig);
+    }, true);
+
+    const typing = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    window.addEventListener('keydown', (e) => {
+      if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'Escape') { allNotesOff(); toast('✋ All notes stopped'); return; }
+      if (e.code === 'Space') { e.preventDefault(); transport.state().playing ? transport.stop() : transport.play(); return; }
+      if (e.code === 'Enter') { e.preventDefault(); transport.toggleRecord(); return; }
+      if (e.code === 'Backslash') { e.preventDefault(); transport.toggleMetronome(); return; }
+      const b = activeBoard(); if (!b || !b.router) return;
+      if (b.router.handleComputerKey(e.code, true)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => {
+      if (typing(e.target)) return;
+      const b = activeBoard(); if (!b || !b.router) return;
+      if (b.router.handleComputerKey(e.code, false)) e.preventDefault();
+    });
+    // a released key must never be left sounding because focus moved away
+    window.addEventListener('blur', () => manager.boards.forEach((b) => b.router && b.router.releaseAllKeyboard && b.router.releaseAllKeyboard()));
+    window.addEventListener('blur', allNotesOff);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) allNotesOff(); });
 
     // ---- transport bar ----
     $('#rec').addEventListener('click', () => transport.toggleRecord());

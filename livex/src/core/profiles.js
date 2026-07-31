@@ -92,6 +92,39 @@ export const PATTERNS = [
     }),
   },
 
+  // --- Korg nano / micro series (very common, especially over BLE) ---
+  {
+    test: /\bnano\s?key\b|\bnanokey\b/i,
+    base: () => makeProfile({
+      id: 'nanokey', class: CLASSES.KEYBOARD,
+      keys: { count: 25, firstNote: 48 }, knobs: 0, wheels: [], confidence: 0.9,
+    }),
+  },
+  {
+    test: /\bnano\s?pad\b|\bnanopad\b/i,
+    base: () => makeProfile({
+      id: 'nanopad', class: CLASSES.PADS,
+      pads: { count: 16, layout: [2, 8], channel: 10 }, confidence: 0.9,
+    }),
+  },
+  {
+    test: /\bmicro\s?key\b|\bmicrokey\b/i,
+    base: (m) => makeProfile({
+      id: 'microkey', class: CLASSES.KEYBOARD,
+      keys: { count: /61/.test(m.input || '') ? 61 : 37, firstNote: 48 },
+      wheels: ['pitch', 'mod'], confidence: 0.88,
+    }),
+  },
+  // --- Akai MPK / LPK / Arturia / Novation / Alesis / Roland / Nektar keys ---
+  {
+    test: /\b(mpk\s?\d+|lpk\s?\d*|keystep|minilab|microfreak|impulse|sl\s?mk|axiom|hammer\s?\d+|v(?:25|49|61)\b|vi\s?\d+|a-?(?:49|88|300|500|800)|se25|impact\s?gx|komplete\s?kontrol|arturia|nektar)\b/i,
+    base: () => makeProfile({
+      id: 'keyctrl', class: CLASSES.HYBRID,
+      keys: { count: 25, firstNote: 48 }, pads: { count: 8, layout: [2, 4], channel: 10 },
+      knobs: 8, wheels: ['pitch', 'mod'], transport: ['play', 'stop', 'rec'], confidence: 0.7,
+    }),
+  },
+
   // --- Pad banks (MPD / LPD / SPD / Maschine) ---
   {
     test: /\b(mpd\d*|lpd\d*|spd|maschine|drum\s?pad|beatpad)\b/i,

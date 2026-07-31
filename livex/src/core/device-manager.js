@@ -50,7 +50,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     if (onFit) onFit(b.fit, b);
     if (!b.router) {
       b.router = createRouter({
-        container: b.body, litColor,
+        container: b.body, litColor, profile: b.profile,
         onWindow: (note) => followWindow(b, note),
         onAction: (a) => onAction && onAction(b, a),
       });
@@ -71,15 +71,30 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
   // (upgraded) profile is persisted so next plug-in identifies instantly.
   function armProbe(b, inputLike) {
     b.probe = createProbe(b.profile, {});
+    b.probeSnap = JSON.stringify(strip(b.profile));
     if (b.probeTimer) clearTimeout(b.probeTimer);
     b.probeTimer = setTimeout(async () => {
       b.probeTimer = null;
-      const before = JSON.stringify(strip(b.profile));
-      b.probe.refine();
+      probeApply(b);                                   // final refinement
       try { await remember(inputLike || { name: b.profile.portName }, b.profile); } catch (e) {}
-      if (JSON.stringify(strip(b.profile)) !== before) renderBoard(b); // face upgraded
       b.probe = null;
     }, PROBE_MS);
+  }
+  // Fold observations in and redraw only when the face actually changed. Called
+  // live (debounced) so an unrecognised controller stops looking like a blank
+  // control surface within a second of being played, instead of after the whole
+  // probe window has elapsed.
+  function probeApply(b) {
+    if (!b.probe) return;
+    b.probe.refine();
+    const now = JSON.stringify(strip(b.profile));
+    if (now !== b.probeSnap) { b.probeSnap = now; renderBoard(b); }
+  }
+  function probeFeed(b, ev) {
+    if (!b.probe) return;
+    b.probe.feed(ev.status, ev.d1, ev.d2);
+    if (b.liveTimer) return;
+    b.liveTimer = setTimeout(() => { b.liveTimer = null; probeApply(b); }, 300);
   }
   const strip = (p) => ({ c: p.class, k: p.keys, pd: p.pads, w: p.wheels, kn: p.knobs });
 
@@ -113,6 +128,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
       const b = boards.get(sig);
       if (b.live && !b.adhoc && b.profile.class !== CLASSES.GAMEPAD && !bySig.has(sig)) {
         if (b.probeTimer) clearTimeout(b.probeTimer);
+        if (b.liveTimer) clearTimeout(b.liveTimer);
         b.wrap.remove(); boards.delete(sig);
         onBoards && onBoards(boards);
       }
@@ -143,7 +159,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     if (pid) {
       for (const b of boards.values()) {
         if (b.ports.has(pid)) {
-          if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+          probeFeed(b, ev);
           b.router.handleMidi(ev);
           return;
         }
@@ -151,13 +167,13 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     }
     if (ev.port && (ev.port.native || ev.port.ble)) {
       const b = ensureAdhocBoard(ev);
-      if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+      probeFeed(b, ev);
       b.router.handleMidi(ev);
       return;
     }
     // truly unknown origin — broadcast (keeps demo boards playable from tests)
     for (const b of boards.values()) {
-      if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+      probeFeed(b, ev);
       b.router.handleMidi(ev);
     }
   }
@@ -189,7 +205,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     return addBoard(sig, profile, [portId || sig], false);
   }
   function clear() {
-    for (const b of boards.values()) { if (b.probeTimer) clearTimeout(b.probeTimer); b.wrap.remove(); }
+    for (const b of boards.values()) { if (b.probeTimer) clearTimeout(b.probeTimer); if (b.liveTimer) clearTimeout(b.liveTimer); b.wrap.remove(); }
     boards.clear();
     onBoards && onBoards(boards);
   }

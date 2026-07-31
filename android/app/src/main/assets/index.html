@@ -47,7 +47,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     .board { width: 100%; max-width: 620px; }
     .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
     .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
-    .board-b svg { max-width: 100%; height: auto; }
+    .board-b svg { max-width: 100%; height: auto; touch-action: none; }
+    /* every drawn control is live — show it */
+    .board-b [data-role="key"], .board-b [data-role="pad"],
+    .board-b [data-role="transport"], .board-b [data-role="button"],
+    .board-b [data-role="octnav"] { cursor: pointer; }
+    .board-b [data-role="knob"], .board-b [data-role="wheel"] { cursor: ns-resize; }
+    .board.active { outline: 1px solid rgba(75,214,200,.35); outline-offset: 4px; border-radius: 10px; }
+    #kbhint { font-size: 9px; color: var(--mut); letter-spacing: .04em; }
     #empty { color: var(--mut); font-size: 12px; margin: 30px auto; }
     #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--pan);
       border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
@@ -93,6 +100,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         <option>1</option><option selected>2</option><option>4</option><option>8</option>
       </select>
       <button class="hbtn" id="metro">🕩 METRO</button>
+      <button class="hbtn" id="panic" title="PANIC — stop every sounding note (Esc)">✋ PANIC</button>
       <span class="sep"></span>
       <button id="sync" class="hbtn">⟳ SYNC</button>
       <span class="sep"></span>
@@ -112,6 +120,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <div id="stage"></div>
     </div>
     <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
+    <div id="kbhint">MOUSE: click keys/pads · drag knobs &amp; wheels · every button is live &nbsp;·&nbsp;
+      KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play · <b>1–8</b> pads ·
+      <b>−/=</b> octave · <b>Space</b> play · <b>Enter</b> rec · <b>\</b> metro · <b>Esc</b> panic</div>
   </div>
   <div id="toast"></div>
 
@@ -254,6 +265,51 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         confidence: 0.9
       })
     },
+    // --- Korg nano / micro series (very common, especially over BLE) ---
+    {
+      test: /\bnano\s?key\b|\bnanokey\b/i,
+      base: () => makeProfile({
+        id: "nanokey",
+        class: CLASSES.KEYBOARD,
+        keys: { count: 25, firstNote: 48 },
+        knobs: 0,
+        wheels: [],
+        confidence: 0.9
+      })
+    },
+    {
+      test: /\bnano\s?pad\b|\bnanopad\b/i,
+      base: () => makeProfile({
+        id: "nanopad",
+        class: CLASSES.PADS,
+        pads: { count: 16, layout: [2, 8], channel: 10 },
+        confidence: 0.9
+      })
+    },
+    {
+      test: /\bmicro\s?key\b|\bmicrokey\b/i,
+      base: (m) => makeProfile({
+        id: "microkey",
+        class: CLASSES.KEYBOARD,
+        keys: { count: /61/.test(m.input || "") ? 61 : 37, firstNote: 48 },
+        wheels: ["pitch", "mod"],
+        confidence: 0.88
+      })
+    },
+    // --- Akai MPK / LPK / Arturia / Novation / Alesis / Roland / Nektar keys ---
+    {
+      test: /\b(mpk\s?\d+|lpk\s?\d*|keystep|minilab|microfreak|impulse|sl\s?mk|axiom|hammer\s?\d+|v(?:25|49|61)\b|vi\s?\d+|a-?(?:49|88|300|500|800)|se25|impact\s?gx|komplete\s?kontrol|arturia|nektar)\b/i,
+      base: () => makeProfile({
+        id: "keyctrl",
+        class: CLASSES.HYBRID,
+        keys: { count: 25, firstNote: 48 },
+        pads: { count: 8, layout: [2, 4], channel: 10 },
+        knobs: 8,
+        wheels: ["pitch", "mod"],
+        transport: ["play", "stop", "rec"],
+        confidence: 0.7
+      })
+    },
     // --- Pad banks (MPD / LPD / SPD / Maschine) ---
     {
       test: /\b(mpd\d*|lpd\d*|spd|maschine|drum\s?pad|beatpad)\b/i,
@@ -383,23 +439,24 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       return { mode: "none" };
     }
-    function parseBLE(dv) {
+    function parseBLE(dv, ctx2) {
       const bytes = new Uint8Array(dv.buffer);
       if (bytes.length < 3) return;
+      const st = ctx2 || { status: 0, port: { id: "ble", name: bleName, ble: true } };
       let i = 1;
       while (i < bytes.length) {
         if (bytes[i] & 128) i++;
         if (i >= bytes.length) break;
         if (bytes[i] & 128) {
-          bleStatus = bytes[i];
+          st.status = bytes[i];
           i++;
         }
-        const type = bleStatus & 240;
+        const type = st.status & 240;
         if (type < 128) break;
         const len = type === 192 || type === 208 ? 1 : 2;
-        const d = [bleStatus];
+        const d = [st.status];
         for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 128); k++) d.push(bytes[i++]);
-        if (d.length >= len + 1) emit(d, { id: "ble", name: bleName, ble: true });
+        if (d.length >= len + 1) emit(d, st.port);
       }
     }
     function inputCount() {
@@ -459,12 +516,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const bound = /* @__PURE__ */ new Set();
     async function attachDevice(dev, { onStatus } = {}) {
       if (dev && dev.name) bleName = dev.name;
+      const ctx2 = {
+        status: 0,
+        port: { id: "ble:" + (dev.id || dev.name || Math.random().toString(36).slice(2)), name: dev.name || "BLE MIDI", ble: true }
+      };
       const attach = async () => {
         const server = await dev.gatt.connect();
         const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
         const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
         await ch.startNotifications();
-        ch.addEventListener("characteristicvaluechanged", (e) => parseBLE(e.target.value));
+        ch.addEventListener("characteristicvaluechanged", (e) => parseBLE(e.target.value, ctx2));
         onStatus && onStatus({ mode: "gatt", connected: true, name: dev.name });
       };
       if (!bound.has(dev)) {
@@ -1117,6 +1178,11 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         return;
       }
       if (cmd === 176) {
+        if (d1 === 120 || d1 === 123) {
+          unlightAll();
+          onAction && onAction({ type: "allnotesoff" });
+          return;
+        }
         onAction && onAction({ type: "cc", cc: d1, val: d2, bank: state.knobBank });
         return;
       }
@@ -1142,24 +1208,235 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       onAction && onAction({ type: "bank", which, value: state[k] });
       return state[k];
     }
+    const tapNotes = /* @__PURE__ */ new Map();
+    let drag = null, dragId = null;
+    function releaseTap(id) {
+      if (!tapNotes.has(id)) return;
+      const note = tapNotes.get(id);
+      tapNotes.delete(id);
+      lightOff(keyEl(note));
+      onAction && onAction({ type: "noteoff", note, source: "tap" });
+    }
+    function releaseAllTaps() {
+      for (const id of [...tapNotes.keys()]) releaseTap(id);
+    }
     function wire() {
       container.addEventListener("pointerdown", (e) => {
         const t = e.target.closest && e.target.closest("[data-role]");
         if (!t) return;
         const role = t.getAttribute("data-role");
-        if (role === "key" || role === "pad") {
+        if (role === "key") {
+          const note = +t.getAttribute("data-note");
+          releaseTap(e.pointerId);
+          tapNotes.set(e.pointerId, note);
+          lightOn(t);
+          try {
+            t.setPointerCapture && t.setPointerCapture(e.pointerId);
+          } catch (err) {
+          }
+          onAction && onAction({ type: "noteon", note, vel: 100, source: "tap" });
+        } else if (role === "pad") {
           flash(t);
-          onAction && onAction({ type: role === "pad" ? "pad" : "noteon", note: +t.getAttribute("data-note"), vel: 100, source: "tap" });
-        } else if (role === "button" && t.getAttribute("data-bank-toggle") === "1") {
-          setBank(t.getAttribute("data-name") === "knobB" ? "knob" : "pad");
+          onAction && onAction({ type: "pad", note: +t.getAttribute("data-note"), vel: 100, source: "tap" });
+        } else if (role === "knob" || role === "wheel") {
+          const isKnob = role === "knob";
+          const key = isKnob ? +t.getAttribute("data-index") : t.getAttribute("data-name");
+          const start = (isKnob ? knobVals : wheelVals).get(key);
+          drag = { el: t, isKnob, y: e.clientY, v: start != null ? start : key === "pitch" ? 0.5 : 0.5 };
+          try {
+            t.setPointerCapture && t.setPointerCapture(e.pointerId);
+          } catch (err) {
+          }
+          dragId = e.pointerId;
+          e.preventDefault();
+        } else if (role === "button") {
+          if (t.getAttribute("data-bank-toggle") === "1") {
+            setBank(t.getAttribute("data-name") === "knobB" ? "knob" : "pad");
+          } else {
+            const name = t.getAttribute("data-name");
+            t.setAttribute("stroke-width", "2.6");
+            setTimeout(() => t.setAttribute("stroke-width", "1.4"), 160);
+            if (name === "oct-" || name === "oct+") onAction && onAction({ type: "octnav", dir: name === "oct+" ? 1 : -1, source: "button" });
+            else onAction && onAction({ type: "button", name });
+          }
         } else if (role === "transport") {
           onAction && onAction({ type: "transport", name: t.getAttribute("data-name") });
         } else if (role === "octnav" && t.getAttribute("data-enabled") === "1") {
           onAction && onAction({ type: "octnav", dir: +t.getAttribute("data-dir") });
         }
       });
+      const move = (e) => {
+        if (!drag || e.pointerId !== dragId) return;
+        const dv = (drag.y - e.clientY) / 140;
+        const v = Math.max(0, Math.min(1, drag.v + dv));
+        if (drag.isKnob) setKnob(drag.el, v);
+        else setWheel(drag.el, v);
+        e.preventDefault();
+      };
+      const dragEnd = (e) => {
+        if (!drag || e.pointerId !== dragId) return;
+        if (!drag.isKnob && drag.el.getAttribute("data-name") === "pitch") setWheel(drag.el, 0.5);
+        drag = null;
+        dragId = null;
+      };
+      if (typeof window !== "undefined") {
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", dragEnd);
+        window.addEventListener("pointercancel", dragEnd);
+      }
+      const end = (e) => releaseTap(e.pointerId);
+      if (typeof window !== "undefined") {
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+        window.addEventListener("blur", releaseAllTaps);
+      }
     }
-    return { handleMidi, handleGamepadButton, setBank, wire, flash, lightOn, lightOff, state };
+    function unlightAll() {
+      container.querySelectorAll('[data-role="key"],[data-role="pad"]').forEach(lightOff);
+      tapNotes.clear();
+    }
+    const knobVals = /* @__PURE__ */ new Map();
+    const wheelVals = /* @__PURE__ */ new Map();
+    function paintKnob(el2, v) {
+      const line = el2.parentNode && el2.parentNode.querySelector("line");
+      if (!line) return;
+      const cx = +el2.getAttribute("cx"), cy = +el2.getAttribute("cy"), r = +el2.getAttribute("r");
+      const a = (-135 + v * 270) * Math.PI / 180;
+      line.setAttribute("x2", cx + Math.sin(a) * r * 0.7);
+      line.setAttribute("y2", cy - Math.cos(a) * r * 0.7);
+    }
+    function paintWheel(el2, v) {
+      const line = el2.parentNode && el2.parentNode.querySelector("line");
+      if (!line) return;
+      const y = +el2.getAttribute("y"), h = +el2.getAttribute("height");
+      const py = y + h - v * h;
+      line.setAttribute("y1", py);
+      line.setAttribute("y2", py);
+    }
+    const knobCC = (i) => i === 0 ? 7 : i === 1 ? 1 : 20 + i;
+    function setKnob(el2, v) {
+      const i = +el2.getAttribute("data-index");
+      v = Math.max(0, Math.min(1, v));
+      knobVals.set(i, v);
+      paintKnob(el2, v);
+      onAction && onAction({ type: "cc", cc: knobCC(i), val: Math.round(v * 127), bank: state.knobBank, source: "knob", index: i });
+    }
+    function setWheel(el2, v) {
+      const name = el2.getAttribute("data-name");
+      v = Math.max(0, Math.min(1, v));
+      wheelVals.set(name, v);
+      paintWheel(el2, v);
+      if (name === "pitch") onAction && onAction({ type: "pitch", val: Math.round(v * 16383), source: "wheel" });
+      else onAction && onAction({ type: "cc", cc: 1, val: Math.round(v * 127), source: "wheel" });
+    }
+    const KEY_SEMITONE = {
+      KeyZ: 0,
+      KeyS: 1,
+      KeyX: 2,
+      KeyD: 3,
+      KeyC: 4,
+      KeyV: 5,
+      KeyG: 6,
+      KeyB: 7,
+      KeyH: 8,
+      KeyN: 9,
+      KeyJ: 10,
+      KeyM: 11,
+      KeyQ: 12,
+      KeyW: 14,
+      KeyE: 16,
+      KeyR: 17,
+      KeyT: 19,
+      KeyY: 21,
+      KeyU: 23,
+      KeyI: 24,
+      KeyO: 26,
+      KeyP: 28
+    };
+    const PAD_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8"];
+    const kbHeld = /* @__PURE__ */ new Map();
+    let kbOctave = 0;
+    function kbBaseNote() {
+      const first = profile && profile.keys && profile.keys.firstNote;
+      const el2 = container.querySelector('[data-role="key"]');
+      const base = first != null ? first : el2 ? +el2.getAttribute("data-note") : 60;
+      return base + kbOctave * 12;
+    }
+    function handleComputerKey(code, down) {
+      if (code === "Minus" || code === "BracketLeft") {
+        if (down) {
+          kbOctave--;
+          onAction && onAction({ type: "kboctave", octave: kbOctave });
+        }
+        return true;
+      }
+      if (code === "Equal" || code === "BracketRight") {
+        if (down) {
+          kbOctave++;
+          onAction && onAction({ type: "kboctave", octave: kbOctave });
+        }
+        return true;
+      }
+      const padIdx = PAD_KEYS.indexOf(code);
+      if (padIdx >= 0) {
+        const pads = container.querySelectorAll('[data-role="pad"]');
+        if (!pads.length) return false;
+        if (down && !kbHeld.has(code)) {
+          kbHeld.set(code, -1);
+          const el2 = pads[padIdx % pads.length];
+          flash(el2);
+          onAction && onAction({ type: "pad", note: +el2.getAttribute("data-note"), index: +el2.getAttribute("data-index"), vel: 110, source: "kb" });
+        } else if (!down) kbHeld.delete(code);
+        return true;
+      }
+      const semi = KEY_SEMITONE[code];
+      if (semi === void 0) return false;
+      if (!container.querySelector('[data-role="key"]')) return false;
+      if (down) {
+        if (kbHeld.has(code)) return true;
+        const note = kbBaseNote() + semi;
+        kbHeld.set(code, note);
+        let el2 = keyEl(note);
+        if (!el2 && onWindow) {
+          onWindow(note);
+          el2 = keyEl(note);
+        }
+        lightOn(el2);
+        onAction && onAction({ type: "noteon", note, vel: 100, source: "kb" });
+      } else {
+        if (!kbHeld.has(code)) return true;
+        const note = kbHeld.get(code);
+        kbHeld.delete(code);
+        lightOff(keyEl(note));
+        onAction && onAction({ type: "noteoff", note, source: "kb" });
+      }
+      return true;
+    }
+    function releaseAllKeyboard() {
+      for (const [code, note] of [...kbHeld]) {
+        kbHeld.delete(code);
+        if (note >= 0) {
+          lightOff(keyEl(note));
+          onAction && onAction({ type: "noteoff", note, source: "kb" });
+        }
+      }
+    }
+    return {
+      handleMidi,
+      handleGamepadButton,
+      setBank,
+      wire,
+      flash,
+      lightOn,
+      lightOff,
+      unlightAll,
+      releaseAllTaps,
+      handleComputerKey,
+      releaseAllKeyboard,
+      setKnob,
+      setWheel,
+      state
+    };
   }
 
   // livex/src/core/devicecache.js
@@ -1369,6 +1646,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         b.router = createRouter({
           container: b.body,
           litColor,
+          profile: b.profile,
           onWindow: (note) => followWindow(b, note),
           onAction: (a) => onAction && onAction(b, a)
         });
@@ -1386,18 +1664,35 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     function armProbe(b, inputLike) {
       b.probe = createProbe(b.profile, {});
+      b.probeSnap = JSON.stringify(strip(b.profile));
       if (b.probeTimer) clearTimeout(b.probeTimer);
       b.probeTimer = setTimeout(async () => {
         b.probeTimer = null;
-        const before = JSON.stringify(strip(b.profile));
-        b.probe.refine();
+        probeApply(b);
         try {
           await remember(inputLike || { name: b.profile.portName }, b.profile);
         } catch (e) {
         }
-        if (JSON.stringify(strip(b.profile)) !== before) renderBoard(b);
         b.probe = null;
       }, PROBE_MS);
+    }
+    function probeApply(b) {
+      if (!b.probe) return;
+      b.probe.refine();
+      const now = JSON.stringify(strip(b.profile));
+      if (now !== b.probeSnap) {
+        b.probeSnap = now;
+        renderBoard(b);
+      }
+    }
+    function probeFeed(b, ev) {
+      if (!b.probe) return;
+      b.probe.feed(ev.status, ev.d1, ev.d2);
+      if (b.liveTimer) return;
+      b.liveTimer = setTimeout(() => {
+        b.liveTimer = null;
+        probeApply(b);
+      }, 300);
     }
     const strip = (p) => ({ c: p.class, k: p.keys, pd: p.pads, w: p.wheels, kn: p.knobs });
     function addBoard(sig, profile, portIds, live = true) {
@@ -1429,6 +1724,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         const b = boards.get(sig);
         if (b.live && !b.adhoc && b.profile.class !== CLASSES.GAMEPAD && !bySig.has(sig)) {
           if (b.probeTimer) clearTimeout(b.probeTimer);
+          if (b.liveTimer) clearTimeout(b.liveTimer);
           b.wrap.remove();
           boards.delete(sig);
           onBoards && onBoards(boards);
@@ -1454,7 +1750,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       if (pid) {
         for (const b of boards.values()) {
           if (b.ports.has(pid)) {
-            if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+            probeFeed(b, ev);
             b.router.handleMidi(ev);
             return;
           }
@@ -1462,12 +1758,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       if (ev.port && (ev.port.native || ev.port.ble)) {
         const b = ensureAdhocBoard(ev);
-        if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+        probeFeed(b, ev);
         b.router.handleMidi(ev);
         return;
       }
       for (const b of boards.values()) {
-        if (b.probe) b.probe.feed(ev.status, ev.d1, ev.d2);
+        probeFeed(b, ev);
         b.router.handleMidi(ev);
       }
     }
@@ -1504,6 +1800,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     function clear() {
       for (const b of boards.values()) {
         if (b.probeTimer) clearTimeout(b.probeTimer);
+        if (b.liveTimer) clearTimeout(b.liveTimer);
         b.wrap.remove();
       }
       boards.clear();
@@ -2273,6 +2570,27 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   var bendCents = 0;
   var sustainOn = false;
   var sustained = [];
+  function allNotesOff() {
+    for (const v of held.values()) {
+      try {
+        v.release();
+      } catch (e) {
+      }
+    }
+    held.clear();
+    for (const v of sustained.splice(0)) {
+      try {
+        v.release();
+      } catch (e) {
+      }
+    }
+    sustainOn = false;
+    try {
+      manager.boards.forEach((b) => b.router && b.router.unlightAll && b.router.unlightAll());
+    } catch (e) {
+    }
+  }
+  window.__allNotesOff = allNotesOff;
   var transport = createTransport({
     onState: (s) => {
       $("#rec").classList.toggle("on", s.recording);
@@ -2298,18 +2616,46 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         return;
       }
       if (a.type === "noteon") {
+        const k = board.sig + ":" + a.note;
+        const prev = held.get(k);
+        if (prev) {
+          try {
+            prev.release();
+          } catch (e) {
+          }
+        }
         const v = noteOn(a.note, a.vel, bendCents);
-        held.set(board.sig + ":" + a.note, v);
+        held.set(k, v);
         transport.recordNoteOn(a.note, a.vel);
       } else if (a.type === "noteoff") {
         const k = board.sig + ":" + a.note;
         const v = held.get(k);
         if (v) {
-          if (sustainOn) sustained.push(v);
-          else v.release();
           held.delete(k);
+          if (sustainOn) sustained.push(v);
+          else {
+            try {
+              v.release();
+            } catch (e) {
+            }
+          }
+        } else {
+          for (const [kk, vv] of [...held]) {
+            if (kk.endsWith(":" + a.note)) {
+              held.delete(kk);
+              try {
+                vv.release();
+              } catch (e) {
+              }
+            }
+          }
         }
         transport.recordNoteOff(a.note);
+      } else if (a.type === "allnotesoff") allNotesOff();
+      else if (a.type === "kboctave") toast("Octave " + (a.octave > 0 ? "+" : "") + a.octave);
+      else if (a.type === "button") {
+        if (a.name === "bt") $("#bt").click();
+        else toast(String(a.name).toUpperCase() + " \u2014 hold a key to use it");
       } else if (a.type === "pad") {
         const pi = padIndexFor(board, a);
         playPad(pi, a.vel);
@@ -2423,8 +2769,64 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     refreshEmpty();
   }));
   $("#clear").addEventListener("click", () => {
+    allNotesOff();
     manager.clear();
     refreshEmpty();
+  });
+  $("#panic").addEventListener("click", () => {
+    allNotesOff();
+    toast("\u270B All notes stopped");
+  });
+  var activeSig = null;
+  var activeBoard = () => {
+    const bs = [...manager.boards.values()];
+    return bs.find((b) => b.sig === activeSig) || bs[0] || null;
+  };
+  function setActive(sig) {
+    activeSig = sig;
+    manager.boards.forEach((b) => b.wrap.classList.toggle("active", b.sig === sig));
+  }
+  stage.addEventListener("pointerdown", (e) => {
+    const w = e.target.closest && e.target.closest(".board");
+    if (w && w.dataset.sig) setActive(w.dataset.sig);
+  }, true);
+  var typing = (t) => t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+  window.addEventListener("keydown", (e) => {
+    if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === "Escape") {
+      allNotesOff();
+      toast("\u270B All notes stopped");
+      return;
+    }
+    if (e.code === "Space") {
+      e.preventDefault();
+      transport.state().playing ? transport.stop() : transport.play();
+      return;
+    }
+    if (e.code === "Enter") {
+      e.preventDefault();
+      transport.toggleRecord();
+      return;
+    }
+    if (e.code === "Backslash") {
+      e.preventDefault();
+      transport.toggleMetronome();
+      return;
+    }
+    const b = activeBoard();
+    if (!b || !b.router) return;
+    if (b.router.handleComputerKey(e.code, true)) e.preventDefault();
+  });
+  window.addEventListener("keyup", (e) => {
+    if (typing(e.target)) return;
+    const b = activeBoard();
+    if (!b || !b.router) return;
+    if (b.router.handleComputerKey(e.code, false)) e.preventDefault();
+  });
+  window.addEventListener("blur", () => manager.boards.forEach((b) => b.router && b.router.releaseAllKeyboard && b.router.releaseAllKeyboard()));
+  window.addEventListener("blur", allNotesOff);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) allNotesOff();
   });
   $("#rec").addEventListener("click", () => transport.toggleRecord());
   $("#play").addEventListener("click", () => transport.play());

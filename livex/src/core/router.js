@@ -58,7 +58,17 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
       onAction && onAction({ type: 'noteoff', note: d1 });
       return;
     }
-    if (cmd === 0xb0) { onAction && onAction({ type: 'cc', cc: d1, val: d2, bank: state.knobBank }); return; }
+    if (cmd === 0xb0) {
+      // Channel-mode messages every controller and DAW sends. Ignoring these is a
+      // classic source of hung notes — 123 is literally "All Notes Off".
+      if (d1 === 120 || d1 === 123) {       // All Sound Off / All Notes Off
+        unlightAll();
+        onAction && onAction({ type: 'allnotesoff' });
+        return;
+      }
+      onAction && onAction({ type: 'cc', cc: d1, val: d2, bank: state.knobBank });
+      return;
+    }
     if (cmd === 0xe0) { onAction && onAction({ type: 'pitch', val: (d2 << 7) | d1 }); return; }
     if (cmd === 0xd0) { onAction && onAction({ type: 'aftertouch', val: d1 }); return; }
   }
@@ -81,23 +91,208 @@ export function createRouter({ container, profile, litColor = '#4bd6c8', onActio
   }
 
   // ---- tap-to-play + on-screen controls (touch board) ----
+  // A tapped key is a HELD note, exactly like a MIDI key: press sounds it, release
+  // stops it. Tracked per pointerId so multi-touch chords work and so a finger that
+  // slides off the board, or a pointer the OS cancels, still releases its note —
+  // pressing without ever releasing is what left notes ringing forever.
+  const tapNotes = new Map(); // pointerId -> note
+  let drag = null, dragId = null; // active knob/wheel drag
+  function releaseTap(id) {
+    if (!tapNotes.has(id)) return;
+    const note = tapNotes.get(id);
+    tapNotes.delete(id);
+    lightOff(keyEl(note));
+    onAction && onAction({ type: 'noteoff', note, source: 'tap' });
+  }
+  function releaseAllTaps() { for (const id of [...tapNotes.keys()]) releaseTap(id); }
+
   function wire() {
     container.addEventListener('pointerdown', (e) => {
       const t = e.target.closest && e.target.closest('[data-role]');
       if (!t) return;
       const role = t.getAttribute('data-role');
-      if (role === 'key' || role === 'pad') {
-        flash(t);
-        onAction && onAction({ type: role === 'pad' ? 'pad' : 'noteon', note: +t.getAttribute('data-note'), vel: 100, source: 'tap' });
-      } else if (role === 'button' && t.getAttribute('data-bank-toggle') === '1') {
-        setBank(t.getAttribute('data-name') === 'knobB' ? 'knob' : 'pad');
+      if (role === 'key') {
+        const note = +t.getAttribute('data-note');
+        releaseTap(e.pointerId);            // re-press without a release (shouldn't happen, but never leak)
+        tapNotes.set(e.pointerId, note);
+        lightOn(t);
+        try { t.setPointerCapture && t.setPointerCapture(e.pointerId); } catch (err) {}
+        onAction && onAction({ type: 'noteon', note, vel: 100, source: 'tap' });
+      } else if (role === 'pad') {
+        flash(t);                            // pads are one-shots — no release needed
+        onAction && onAction({ type: 'pad', note: +t.getAttribute('data-note'), vel: 100, source: 'tap' });
+      } else if (role === 'knob' || role === 'wheel') {
+        // vertical drag: grab the pointer so it keeps tracking off the control
+        const isKnob = role === 'knob';
+        const key = isKnob ? +t.getAttribute('data-index') : t.getAttribute('data-name');
+        const start = (isKnob ? knobVals : wheelVals).get(key);
+        drag = { el: t, isKnob, y: e.clientY, v: start != null ? start : (key === 'pitch' ? 0.5 : 0.5) };
+        try { t.setPointerCapture && t.setPointerCapture(e.pointerId); } catch (err) {}
+        dragId = e.pointerId;
+        e.preventDefault();
+      } else if (role === 'button') {
+        if (t.getAttribute('data-bank-toggle') === '1') {
+          setBank(t.getAttribute('data-name') === 'knobB' ? 'knob' : 'pad');
+        } else {
+          // every other printed button (ARP / SC-CH / BT / OCT± ) is live too
+          const name = t.getAttribute('data-name');
+          t.setAttribute('stroke-width', '2.6');
+          setTimeout(() => t.setAttribute('stroke-width', '1.4'), 160);
+          if (name === 'oct-' || name === 'oct+') onAction && onAction({ type: 'octnav', dir: name === 'oct+' ? 1 : -1, source: 'button' });
+          else onAction && onAction({ type: 'button', name });
+        }
       } else if (role === 'transport') {
         onAction && onAction({ type: 'transport', name: t.getAttribute('data-name') });
       } else if (role === 'octnav' && t.getAttribute('data-enabled') === '1') {
         onAction && onAction({ type: 'octnav', dir: +t.getAttribute('data-dir') });
       }
     });
+
+    // knob / wheel drag tracking
+    const move = (e) => {
+      if (!drag || e.pointerId !== dragId) return;
+      const dv = (drag.y - e.clientY) / 140;          // ~140px = full sweep
+      const v = Math.max(0, Math.min(1, drag.v + dv));
+      if (drag.isKnob) setKnob(drag.el, v); else setWheel(drag.el, v);
+      e.preventDefault();
+    };
+    const dragEnd = (e) => {
+      if (!drag || e.pointerId !== dragId) return;
+      // the pitch strip springs back to centre, exactly like the hardware
+      if (!drag.isKnob && drag.el.getAttribute('data-name') === 'pitch') setWheel(drag.el, 0.5);
+      drag = null; dragId = null;
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', dragEnd);
+      window.addEventListener('pointercancel', dragEnd);
+    }
+    // Release on every way a press can end — including pointers that end outside
+    // the board, which is why these listen on the window, not the container.
+    const end = (e) => releaseTap(e.pointerId);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+      window.addEventListener('blur', releaseAllTaps);
+    }
   }
 
-  return { handleMidi, handleGamepadButton, setBank, wire, flash, lightOn, lightOff, state };
+  // Kill every lit element on this board — used by panic / all-notes-off so the
+  // schematic can never be left glowing after the sound has stopped.
+  function unlightAll() {
+    container.querySelectorAll('[data-role="key"],[data-role="pad"]').forEach(lightOff);
+    tapNotes.clear();
+  }
+
+  // ---- KNOBS + WHEELS: drag with the mouse ---------------------------------
+  // Every control on the drawing is live, not decoration. Knobs and wheels are
+  // vertical drags (up = increase), the pitch wheel springs back to centre on
+  // release like the real strip, and each one emits the same event its hardware
+  // counterpart would, so nothing downstream needs to care where it came from.
+  const knobVals = new Map();   // index -> 0..1
+  const wheelVals = new Map();  // name  -> 0..1
+
+  function paintKnob(el, v) {
+    const line = el.parentNode && el.parentNode.querySelector('line');
+    if (!line) return;
+    const cx = +el.getAttribute('cx'), cy = +el.getAttribute('cy'), r = +el.getAttribute('r');
+    const a = (-135 + v * 270) * Math.PI / 180;
+    line.setAttribute('x2', cx + Math.sin(a) * r * 0.7);
+    line.setAttribute('y2', cy - Math.cos(a) * r * 0.7);
+  }
+  function paintWheel(el, v) {
+    const line = el.parentNode && el.parentNode.querySelector('line');
+    if (!line) return;
+    const y = +el.getAttribute('y'), h = +el.getAttribute('height');
+    const py = y + h - v * h;
+    line.setAttribute('y1', py); line.setAttribute('y2', py);
+  }
+  // knob index -> CC: knob 1 is volume (CC7), knob 2 tone (CC1), rest are free
+  const knobCC = (i) => (i === 0 ? 7 : i === 1 ? 1 : 20 + i);
+
+  function setKnob(el, v) {
+    const i = +el.getAttribute('data-index');
+    v = Math.max(0, Math.min(1, v));
+    knobVals.set(i, v); paintKnob(el, v);
+    onAction && onAction({ type: 'cc', cc: knobCC(i), val: Math.round(v * 127), bank: state.knobBank, source: 'knob', index: i });
+  }
+  function setWheel(el, v) {
+    const name = el.getAttribute('data-name');
+    v = Math.max(0, Math.min(1, v));
+    wheelVals.set(name, v); paintWheel(el, v);
+    if (name === 'pitch') onAction && onAction({ type: 'pitch', val: Math.round(v * 16383), source: 'wheel' });
+    else onAction && onAction({ type: 'cc', cc: 1, val: Math.round(v * 127), source: 'wheel' });
+  }
+
+  // ---- COMPUTER KEYBOARD ---------------------------------------------------
+  // Play the board with no hardware attached at all. Two chromatic octaves on the
+  // letter rows (the layout trackers and DAWs have used for decades), pads on the
+  // number row, and transport where your thumb already is.
+  const KEY_SEMITONE = {
+    KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6,
+    KeyB: 7, KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11,
+    KeyQ: 12, KeyW: 14, KeyE: 16, KeyR: 17, KeyT: 19, KeyY: 21, KeyU: 23,
+    KeyI: 24, KeyO: 26, KeyP: 28,
+  };
+  const PAD_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'];
+  const kbHeld = new Map(); // code -> note
+  let kbOctave = 0;
+
+  function kbBaseNote() {
+    const first = (profile && profile.keys && profile.keys.firstNote);
+    const el = container.querySelector('[data-role="key"]');
+    const base = first != null ? first : (el ? +el.getAttribute('data-note') : 60);
+    return base + kbOctave * 12;
+  }
+
+  // Returns true when the key was consumed, so the host can preventDefault.
+  function handleComputerKey(code, down) {
+    if (code === 'Minus' || code === 'BracketLeft') { if (down) { kbOctave--; onAction && onAction({ type: 'kboctave', octave: kbOctave }); } return true; }
+    if (code === 'Equal' || code === 'BracketRight') { if (down) { kbOctave++; onAction && onAction({ type: 'kboctave', octave: kbOctave }); } return true; }
+
+    const padIdx = PAD_KEYS.indexOf(code);
+    if (padIdx >= 0) {
+      const pads = container.querySelectorAll('[data-role="pad"]');
+      if (!pads.length) return false;
+      if (down && !kbHeld.has(code)) {
+        kbHeld.set(code, -1);
+        const el = pads[padIdx % pads.length];
+        flash(el);
+        onAction && onAction({ type: 'pad', note: +el.getAttribute('data-note'), index: +el.getAttribute('data-index'), vel: 110, source: 'kb' });
+      } else if (!down) kbHeld.delete(code);
+      return true;
+    }
+
+    const semi = KEY_SEMITONE[code];
+    if (semi === undefined) return false;
+    if (!container.querySelector('[data-role="key"]')) return false;   // pad-only board
+    if (down) {
+      if (kbHeld.has(code)) return true;                                // ignore auto-repeat
+      const note = kbBaseNote() + semi;
+      kbHeld.set(code, note);
+      let el = keyEl(note);
+      if (!el && onWindow) { onWindow(note); el = keyEl(note); }         // scroll it into view
+      lightOn(el);
+      onAction && onAction({ type: 'noteon', note, vel: 100, source: 'kb' });
+    } else {
+      if (!kbHeld.has(code)) return true;
+      const note = kbHeld.get(code);
+      kbHeld.delete(code);
+      lightOff(keyEl(note));
+      onAction && onAction({ type: 'noteoff', note, source: 'kb' });
+    }
+    return true;
+  }
+  function releaseAllKeyboard() {
+    for (const [code, note] of [...kbHeld]) {
+      kbHeld.delete(code);
+      if (note >= 0) { lightOff(keyEl(note)); onAction && onAction({ type: 'noteoff', note, source: 'kb' }); }
+    }
+  }
+
+  return {
+    handleMidi, handleGamepadButton, setBank, wire, flash, lightOn, lightOff,
+    unlightAll, releaseAllTaps, handleComputerKey, releaseAllKeyboard,
+    setKnob, setWheel, state,
+  };
 }

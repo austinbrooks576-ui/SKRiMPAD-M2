@@ -67,20 +67,25 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   }
 
   // --- BLE-MIDI via Web Bluetooth (desktop fallback / direct connect) -------
-  function parseBLE(dv) {
+  // Every connected BLE controller gets its OWN port identity and its OWN
+  // running-status latch. Sharing either one means a second wireless controller
+  // lands on the first one's board and corrupts its running-status stream — so
+  // only one BLE device could ever really work at a time.
+  function parseBLE(dv, ctx) {
     const bytes = new Uint8Array(dv.buffer);
     if (bytes.length < 3) return;
+    const st = ctx || { status: 0, port: { id: 'ble', name: bleName, ble: true } };
     let i = 1; // skip BLE header byte
     while (i < bytes.length) {
       if (bytes[i] & 0x80) i++;                 // timestamp byte
       if (i >= bytes.length) break;
-      if (bytes[i] & 0x80) { bleStatus = bytes[i]; i++; } // new status else running status
-      const type = bleStatus & 0xf0;
+      if (bytes[i] & 0x80) { st.status = bytes[i]; i++; } // new status else running status
+      const type = st.status & 0xf0;
       if (type < 0x80) break;
       const len = (type === 0xc0 || type === 0xd0) ? 1 : 2;
-      const d = [bleStatus];
+      const d = [st.status];
       for (let k = 0; k < len && i < bytes.length && !(bytes[i] & 0x80); k++) d.push(bytes[i++]);
-      if (d.length >= len + 1) emit(d, { id: 'ble', name: bleName, ble: true });
+      if (d.length >= len + 1) emit(d, st.port);
     }
   }
 
@@ -157,12 +162,18 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // autoReconnect() is what removes the manual reconnect step for good.
   async function attachDevice(dev, { onStatus } = {}) {
     if (dev && dev.name) bleName = dev.name;
+    // one parse context per device: its own running-status latch + port identity,
+    // so several wireless controllers can play at once without colliding
+    const ctx = {
+      status: 0,
+      port: { id: 'ble:' + (dev.id || dev.name || Math.random().toString(36).slice(2)), name: dev.name || 'BLE MIDI', ble: true },
+    };
     const attach = async () => {
       const server = await dev.gatt.connect();
       const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
       const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
       await ch.startNotifications();
-      ch.addEventListener('characteristicvaluechanged', (e) => parseBLE(e.target.value));
+      ch.addEventListener('characteristicvaluechanged', (e) => parseBLE(e.target.value, ctx));
       onStatus && onStatus({ mode: 'gatt', connected: true, name: dev.name });
     };
     if (!bound.has(dev)) {
