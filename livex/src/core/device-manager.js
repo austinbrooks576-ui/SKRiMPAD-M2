@@ -118,6 +118,15 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     }
     for (const [sig, ports] of bySig) {
       if (boards.has(sig)) { boards.get(sig).ports = new Set(ports.map((p) => p.id)); continue; }
+      // An ad-hoc board for this same controller (created from its first byte,
+      // before the device list arrived) IS this device — adopt it rather than
+      // drawing the same hardware twice.
+      const adhoc = boards.get('adhoc:' + sig);
+      if (adhoc) {
+        ports.forEach((p) => adhoc.ports.add(p.id));
+        if (ports[0] && ports[0].name) relabelBoard(adhoc, ports[0].name);
+        continue;
+      }
       const { profile, learned } = await identifyDevice(ports[0]);
       profile.portName = ports[0].name;
       const b = addBoard(sig, profile, ports.map((p) => p.id));
@@ -139,7 +148,20 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
   // creates the board, the probe fleshes out the face from the live stream.
   function ensureAdhocBoard(ev) {
     const name = (ev.port && ev.port.name) || 'MIDI DEVICE';
-    const sig = 'adhoc:' + deviceSignature(name);
+    const dsig = deviceSignature(name);
+    const sig = 'adhoc:' + dsig;
+    // ONE PHYSICAL CONTROLLER = ONE BOARD. A device can reach us by several
+    // routes at once — the device list (port id "natN"), the byte pump, and the
+    // BLE GATT stack — and each route carries a different port id. Keying only on
+    // the port id made each route mint its OWN board, so a single JP-Mini showed
+    // up four times. Match on the DEVICE signature first and adopt the new port
+    // into the board that already represents that controller.
+    for (const [k, existing] of boards) {
+      if (k === sig || k === dsig || deviceSignature(existing.profile.portName || '') === dsig) {
+        if (ev.port && ev.port.id) existing.ports.add(ev.port.id);
+        return existing;
+      }
+    }
     let b = boards.get(sig);
     if (!b) {
       const profile = identifyMidiInput({ name });

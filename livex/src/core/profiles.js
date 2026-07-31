@@ -136,7 +136,10 @@ export const PATTERNS = [
   // Also the family catch-all: a unit reporting only "JamJum"/"JAM JUM" lands
   // here and the probe refines it from what it plays.
   {
-    test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
+    // A real unit reports as "KUWEE Technology JP-Mini" — KUWEE is the OEM behind
+    // these, so match the maker name too. A unit that reports only its maker still
+    // lands on the right face.
+    test: /\bjam\s?jum\b|\bjp[-\s]?mini\b|\bkuwee\b/i,
     base: () => makeProfile({
       id: 'jpmini', class: CLASSES.PADS,
       keys: null,

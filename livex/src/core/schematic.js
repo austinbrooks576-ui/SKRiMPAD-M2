@@ -334,8 +334,16 @@ export function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, start
   svg.insertBefore(bg, frame);
   const title = label(svg, W / 2, P + 6, (profile.portName || profile.id || 'CONTROLLER').toUpperCase(), theme.accent, 12);
   title.setAttribute('letter-spacing', '.22em');
-  if (profile.learned) {
-    const badge = label(svg, W - P - 6, P + 6, '★ LEARNED', theme.mute, 8);
+  // Say plainly where the pad map stands. A half-learned grid is a guess in
+  // progress, and silently drawing it as final is what makes a wrong pad look
+  // like a bug rather than an unfinished pass.
+  const pd = profile.pads;
+  let badgeText = profile.learned ? '★ LEARNED' : '';
+  if (pd && pd.taught) badgeText = '✓ PADS MAPPED';
+  else if (pd && pd.provisional) badgeText = 'LEARNING PADS ' + (pd.seen || 0) + '/' + pd.count + ' — ⌗ MAP PADS to set';
+  else if (pd && pd.learned) badgeText = '★ PADS LEARNED';
+  if (badgeText) {
+    const badge = label(svg, W - P - 6, P + 6, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8);
     badge.setAttribute('text-anchor', 'end');
   }
 

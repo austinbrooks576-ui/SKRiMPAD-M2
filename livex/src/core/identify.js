@@ -214,27 +214,60 @@ export function setPadMapFromPresses(pads, pressed) {
 //   notes[]  — the bank-A note per DRAWN pad, used for the drawn `data-note`
 //   noteMap  — { note: drawIndex } across ALL banks, so a pad still lights and
 //              fires after a bank switch changes the notes it sends.
+// STABILITY IS THE WHOLE POINT HERE. Re-sorting the full set on every new note
+// looks harmless but is not: a real JP-Mini ships a GM drum map whose notes are
+// NOT contiguous (36 37 38 40 42 43 44 45 46 47 49 … 82), so as you discover
+// pads in any order, every newly-found LOWER note pushed all the previously
+// assigned pads up a slot. One pad measured walking 5→6→7→8→9 while its
+// neighbours were being pressed — which is exactly "pad 9 fires pad 13".
+//
+// So an assignment, once made, is never moved. A new note takes the free slot
+// nearest its ascending rank; already-placed pads stay put.
 export function learnPadGrid(pads, padNotes) {
   if (!pads || pads.learn === false || !padNotes || !padNotes.size) return pads;
   const notes = [...padNotes].sort((a, b) => a - b);
   const count = pads.count || nextPadCount(notes.length);
   if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
   const [rows, cols] = pads.layout;
-  // Grow the grid if the unit clearly has more pads than the seed claimed, but
-  // never past what its bank count can explain.
   const cap = count * (pads.banks || 1);
-  const map = {};
+
+  const map = Object.assign({}, pads.noteMap || {});   // keep every prior placement
+  // Work in HARDWARE pad numbers throughout; convert to draw order only at the
+  // end. Prior placements are stored as draw indices, so map them back first.
+  const takenPads = new Set();
+  for (const k in map) takenPads.add(padNumberAt(map[k], rows, cols) - 1);
+  const freeNear = (want) => {
+    if (!takenPads.has(want)) return want;
+    for (let d = 1; d < count; d++) {
+      const up = want + d, dn = want - d;
+      if (up < count && !takenPads.has(up)) return up;
+      if (dn >= 0 && !takenPads.has(dn)) return dn;
+    }
+    return want;
+  };
+
+  let rank = 0;
+  for (const n of notes) {
+    if (rank >= cap) break;
+    const padNo = rank % count;                                  // ascending rank
+    rank++;
+    if (map[n] != null) continue;                                // already placed — never move it
+    const slot = freeNear(padNo);
+    map[n] = drawIndexOfPad(slot, rows, cols);
+    takenPads.add(slot);
+  }
+
   const drawn = new Array(count);
-  notes.slice(0, cap).forEach((n, i) => {
-    const padNo = i % count;                       // hardware pad, 0-based
-    const di = drawIndexOfPad(padNo, rows, cols);  // where that pad is drawn
-    map[n] = di;
-    if (i < count) drawn[di] = n;
-  });
+  for (const k in map) { const di = map[k]; if (di < count && drawn[di] == null) drawn[di] = +k; }
+
   pads.count = count;
   pads.notes = drawn;
   pads.noteMap = map;
   pads.learned = true;
+  // Until every pad has been played the map is a best guess in progress; the
+  // face says so, and MAP PADS settles it exactly at any time.
+  pads.provisional = notes.length < count;
+  pads.seen = notes.length;
   return pads;
 }
 
