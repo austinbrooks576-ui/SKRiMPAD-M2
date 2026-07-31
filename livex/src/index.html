@@ -83,6 +83,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="jp1">+ JP-1</button>
       <button class="hbtn" data-dev="jpmini">+ JP MINI</button>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
+      <button class="hbtn" id="mappads" title="Bind the drawn grid to YOUR controller — press pad 1, then 2, then 3…">⌗ MAP PADS</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
       <span id="midistat" title="MIDI ports the app can see" style="font-size:9px;letter-spacing:.08em;color:var(--mut);padding:0 6px">MIDI: —</span>
@@ -383,6 +384,37 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       k61: () => makeProfile({ id: 'k61', class: CLASSES.KEYBOARD, portName: 'GENERIC 61', keys: { count: 61, firstNote: 36 }, wheels: ['pitch', 'mod'] }),
     };
     document.querySelectorAll('[data-dev]').forEach((b) => b.addEventListener('click', () => { manager.addDemoBoard(demo[b.dataset.dev]()); refreshEmpty(); }));
+
+    // ---- MAP PADS ------------------------------------------------------------
+    // Auto-learn orders pads by ascending note, which is the usual convention but
+    // is only a convention. This binds the drawn grid to what you ACTUALLY press,
+    // in the order you press it, so pad 9 can never end up firing pad 13.
+    const mapBtn = $('#mappads');
+    function stopMapping(msg) {
+      manager.cancelPadMap();
+      mapBtn.textContent = '⌗ MAP PADS';
+      mapBtn.style.borderColor = '';
+      if (msg) toast(msg);
+    }
+    mapBtn.addEventListener('click', () => {
+      if (manager.padMapActive()) {
+        // a second click ends it early and keeps whatever was taught so far
+        manager.finishPadMap();
+        stopMapping('Pad map saved (partial — the rest keep their current notes)');
+        return;
+      }
+      if (!manager.boards.size) { toast('Connect a controller first'); return; }
+      mapBtn.style.borderColor = 'var(--acc)';
+      mapBtn.textContent = '⌗ PRESS PAD 1';
+      toast('Press pad 1 on your controller, then 2, then 3… (click again to stop)');
+      manager.beginPadMap({
+        onProgress: (n, total, note) => {
+          mapBtn.textContent = '⌗ PRESS PAD ' + Math.min(n + 1, total);
+          toast('Pad ' + n + ' → note ' + note + '  (' + n + '/' + total + ')');
+        },
+        onDone: (b, notes) => stopMapping('✓ ' + notes.length + ' pads mapped on ' + (b.profile.portName || 'controller') + ' — saved'),
+      });
+    });
     $('#clear').addEventListener('click', () => { allNotesOff(); manager.clear(); refreshEmpty(); });
 
     // Panic paths: the button, Escape, and losing focus (alt-tab / screen lock must

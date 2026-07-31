@@ -16,7 +16,7 @@
 
 import { renderSchematic, fitHint } from './schematic.js';
 import { createRouter } from './router.js';
-import { identifyDevice, identifyMidiInput, identifyGamepad, createProbe } from './identify.js';
+import { identifyDevice, identifyMidiInput, identifyGamepad, createProbe, setPadMapFromPresses } from './identify.js';
 import { deviceSignature, CLASSES } from './profiles.js';
 import { remember } from './devicecache.js';
 
@@ -183,6 +183,55 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     return true;
   }
 
+  // ---- TEACH THE PAD MAP ----------------------------------------------------
+  // Auto-learn orders pads by ascending note. That is the usual convention but it
+  // is ONLY a convention — a unit configured any other way ends up with pad 9
+  // firing pad 13 on screen. This removes the guess entirely: press pad 1, 2,
+  // 3 … and the grid binds to exactly what you pressed, in the order you pressed
+  // it. Nothing is inferred, so nothing can be inferred wrong.
+  let padTeach = null;   // { board, notes:[], onProgress, onDone }
+  const nextPadCountLocal = (n) => [4, 8, 12, 16, 25, 32, 64].find((x) => n <= x) || 64;
+
+  function beginPadMap({ onProgress, onDone } = {}) {
+    padTeach = { board: null, notes: [], onProgress, onDone };
+    return true;
+  }
+  function cancelPadMap() { const was = !!padTeach; padTeach = null; return was; }
+  function padMapActive() { return !!padTeach; }
+
+  // Returns true when the event was consumed by teaching (so it must not play).
+  function teachFeed(b, ev) {
+    if (!padTeach) return false;
+    const cmd = ev.status & 0xf0;
+    const isNoteOn = cmd === 0x90 && ev.d2 > 0;
+    const isNoteOff = cmd === 0x80 || (cmd === 0x90 && ev.d2 === 0);
+    if (!isNoteOn && !isNoteOff) return false;   // let CC/transport through as normal
+    if (isNoteOff) return true;                  // swallow the matching release
+    if (!padTeach.board) padTeach.board = b;
+    else if (padTeach.board !== b) return true;  // ignore other controllers mid-teach
+    if (padTeach.notes.indexOf(ev.d1) >= 0) return true;  // double-hit on the same pad
+    padTeach.notes.push(ev.d1);
+    const total = (b.profile.pads && b.profile.pads.count) || 16;
+    padTeach.onProgress && padTeach.onProgress(padTeach.notes.length, total, ev.d1);
+    if (padTeach.notes.length >= total) finishPadMap();
+    return true;
+  }
+
+  function finishPadMap() {
+    if (!padTeach || !padTeach.board || !padTeach.notes.length) { padTeach = null; return; }
+    const b = padTeach.board, notes = padTeach.notes, done = padTeach.onDone;
+    padTeach = null;
+    if (!b.profile.pads) {
+      b.profile.pads = { count: nextPadCountLocal(notes.length), layout: null, channel: 10 };
+    }
+    setPadMapFromPresses(b.profile.pads, notes);
+    if (b.probeTimer) { clearTimeout(b.probeTimer); b.probeTimer = null; }
+    b.probe = null;                              // a taught map supersedes inference
+    renderBoard(b);
+    remember({ name: b.profile.portName }, b.profile).catch(() => {});
+    done && done(b, notes);
+  }
+
   // Route a normalized MIDI event to the board owning its port; unknown ports from
   // the native/BLE bridges materialize their own board on the first event.
   function routeMidi(ev) {
@@ -191,6 +240,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
       for (const b of boards.values()) {
         if (b.ports.has(pid)) {
           if (ev.port.name) relabelBoard(b, ev.port.name);
+          if (teachFeed(b, ev)) return;
           probeFeed(b, ev);
           b.router.handleMidi(ev);
           return;
@@ -200,12 +250,14 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     if (ev.port && (ev.port.native || ev.port.ble)) {
       const b = ensureAdhocBoard(ev);
       if (ev.port.name) relabelBoard(b, ev.port.name);
+      if (teachFeed(b, ev)) return;
       probeFeed(b, ev);
       b.router.handleMidi(ev);
       return;
     }
     // truly unknown origin — broadcast (keeps demo boards playable from tests)
     for (const b of boards.values()) {
+      if (teachFeed(b, ev)) return;
       probeFeed(b, ev);
       b.router.handleMidi(ev);
     }
@@ -243,5 +295,9 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
     onBoards && onBoards(boards);
   }
 
-  return { syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard, addDemoBoard, clear, boards, renderBoard };
+  return {
+    syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard,
+    addDemoBoard, clear, boards, renderBoard,
+    beginPadMap, cancelPadMap, padMapActive, finishPadMap,
+  };
 }

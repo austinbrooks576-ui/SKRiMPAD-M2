@@ -174,6 +174,32 @@ export function drawIndexOfPad(padNo /* 0-based */, rows, cols) {
   return (rows - 1 - r) * cols + c;
 }
 
+// Lock the grid to an EXPLICIT press order: pressed[k] is the note hardware pad
+// k+1 sends, as taught by the user pressing pad 1, 2, 3 … in turn. This is the
+// one mapping that cannot be wrong, because nothing is inferred — in particular
+// it drops the assumption that a unit numbers its pads in ascending note order,
+// which is only a convention and not something any of these units promises.
+export function setPadMapFromPresses(pads, pressed) {
+  if (!pads || !pressed || !pressed.length) return pads;
+  const count = pads.count || nextPadCount(pressed.length);
+  if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
+  const [rows, cols] = pads.layout;
+  const map = {};
+  const drawn = new Array(count);
+  pressed.forEach((n, i) => {
+    const di = drawIndexOfPad(i % count, rows, cols);
+    map[n] = di;
+    if (i < count) drawn[di] = n;
+  });
+  pads.count = count;
+  pads.notes = drawn;
+  pads.noteMap = map;
+  pads.learned = true;
+  pads.taught = true;      // a taught map is final — never re-infer over it
+  pads.learn = false;
+  return pads;
+}
+
 // ---- pad-grid auto-learn ----------------------------------------------------
 // The JamJum JP-1, JP mini and M-Vave SMK-25 all let you reassign every pad's
 // note in their vendor software, and none of them publish a default note table.
