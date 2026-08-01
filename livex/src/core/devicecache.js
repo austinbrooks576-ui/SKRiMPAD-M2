@@ -39,9 +39,16 @@ function defaultStorage() {
 export function setStorage(backend) { storage = backend; }
 
 // --- load / save -------------------------------------------------------------
+// `raw ? JSON.parse(raw) : {}` is weaker than it looks: a stored "null",
+// "[1,2]" or "\"text\"" is truthy AND parses cleanly, so it sails past the
+// catch and only blows up later at `db[sig]`. A half-written cache must not be
+// able to stop a controller from being recognised, so check the shape too.
 async function load() {
-  try { const raw = await storage.read(); return raw ? JSON.parse(raw) : {}; }
-  catch (e) { return {}; }
+  try {
+    const raw = await storage.read();
+    const db = raw ? JSON.parse(raw) : null;
+    return (db && typeof db === 'object' && !Array.isArray(db)) ? db : {};
+  } catch (e) { return {}; }
 }
 async function save(db) {
   try { await storage.write(JSON.stringify(db)); return true; }

@@ -283,7 +283,15 @@ export function createLibrary({ onChange } = {}) {
   // Re-apply saved assignments after a restart. Only these buffers are decoded
   // at boot — the rest of the library stays on disk until it is played.
   async function restoreAssigns() {
-    try { assigns = JSON.parse(localStorage.getItem(ASSIGN_KEY) || '{}'); } catch (e) { assigns = {}; }
+    // The `|| '{}'` only covers a MISSING value. A stored "null" or "[1,2]"
+    // parses fine and escapes the catch, leaving `assigns` as something that is
+    // not a record — `for..in` then either does nothing or walks array indices.
+    // Nothing observed crashes on that today; every write below still assumes a
+    // plain object, so pin the shape here rather than depend on luck.
+    try {
+      const v = JSON.parse(localStorage.getItem(ASSIGN_KEY));
+      assigns = (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+    } catch (e) { assigns = {}; }
     for (const key in assigns) {
       const it = items.find((x) => x.id === assigns[key]);
       if (!it) { delete assigns[key]; continue; }

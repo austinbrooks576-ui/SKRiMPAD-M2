@@ -93,8 +93,15 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     .board-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* close THIS board — for clearing a duplicate without wiping the rest */
     .board-x { appearance: none; background: transparent; border: 1px solid var(--mut); color: var(--mut);
-      border-radius: 5px; width: 22px; height: 20px; line-height: 1; font-size: 11px; cursor: pointer; flex: none; }
+      border-radius: 5px; width: 22px; height: 20px; line-height: 1; font-size: 11px; cursor: pointer; flex: none;
+      display: inline-flex; align-items: center; justify-content: center; }
     .board-x:hover { border-color: #e0484f; color: #e0484f; }
+    /* Destructive and one of the smallest controls on the page — on a finger it
+       has to be at least the WCAG 2.2 AA 24px box, or you clear the wrong board. */
+    @media (any-pointer: coarse) { .board-x { width: 26px; height: 26px; } }
+    /* A range input reports its THUMB track height, which is well under a finger.
+       Give the slider a real box to be grabbed by on touch. */
+    @media (any-pointer: coarse) { input[type="range"] { min-height: 24px; } }
     /* library filed under GROUP > KIND */
     #libList .lib-group { background: transparent; border: 0; color: var(--acc); font-size: 9px;
       letter-spacing: .2em; padding: 8px 2px 3px; margin: 0; cursor: default; }
