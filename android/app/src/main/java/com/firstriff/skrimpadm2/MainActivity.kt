@@ -129,18 +129,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun publishDeviceList(mm: MidiManager) {
-        val sb = StringBuilder("[")
+        // Build this with a real JSON encoder, NOT string concatenation. The device
+        // name comes off the wire — a BLE controller advertises whatever name it
+        // likes — and hand-stripping quotes is not enough: a name ending in a
+        // backslash escapes the closing quote and the rest lands as executable JS
+        // inside evaluateJavascript(). JSONObject escapes every case correctly.
+        val arr = org.json.JSONArray()
         try {
             for (info in mm.devices) {
                 if (info.outputPortCount <= 0) continue
-                val nm = deviceLabel(info).replace("'", "").replace("\"", "")
-                val mf = (info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "").replace("'", "").replace("\"", "")
-                if (sb.length > 1) sb.append(',')
-                sb.append("{\"id\":\"nat").append(info.id).append("\",\"name\":\"").append(nm)
-                  .append("\",\"manufacturer\":\"").append(mf).append("\"}")
+                val o = JSONObject()
+                o.put("id", "nat" + info.id)
+                o.put("name", deviceLabel(info))
+                o.put("manufacturer", info.properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER) ?: "")
+                arr.put(o)
             }
         } catch (e: Exception) {}
-        sb.append("]")
+        val sb = StringBuilder(arr.toString())
         val js = "window.onNativeMIDIDevices && onNativeMIDIDevices(" + sb.toString() + ")"
         runOnUiThread { try { webView.evaluateJavascript(js, null) } catch (e: Exception) {} }
     }
