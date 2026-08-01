@@ -925,6 +925,11 @@ body.se-active #daw-rack{background:rgba(var(--se-ink-rgb),.94);border-color:rgb
   .mmin,.mclose,.mix-m,.mix-s,.se-theme-btn{
     display:inline-flex;align-items:center;justify-content:center;
   }
+  /* A range input's box is its TRACK — 20px here, across 40-odd synth, filter,
+     envelope and mixer-pan sliders. That is not something a thumb can land on
+     accurately, and a slider you miss is a parameter you just changed by
+     accident. Selects were 23px. Both get the same floor. */
+  input[type="range"],select{ min-height:24px; }
 }
 </style>
 </head>
