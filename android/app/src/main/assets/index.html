@@ -2609,7 +2609,11 @@ function padChannel(def) {
 
 // Trigger a drum pad — primary sample, else synth voice, plus optional layer sample
 function playDrum(i, t) {
-  const def = drumDefs[i];
+  // A pad index can arrive from anywhere — a learned MIDI map, a gamepad button,
+  // a bank switch mid-rebuild — so an out-of-range one must be a quiet no-op,
+  // not a TypeError that kills whatever call stack it landed on.
+  const def = drumDefs[i | 0];
+  if (!def) return;
   if (def.muted) return;
   if (drumDefs.some(d => d.solo) && !def.solo) return;
   const vol = def.vol !== undefined ? def.vol : 1;
@@ -3306,7 +3310,13 @@ let synthEnabled = true;
 function noteOn(midi, vel) {
   if (!audioReady) initAudio();
   if (!synthEnabled) return;   // synth power switch — keys go silent when off
-  vel = (vel == null) ? 1 : Math.max(0.05, Math.min(1, vel)); // velocity-sensitive keys (SMK-25)
+  // Clamp to the MIDI range before anything touches an AudioParam. A stray note
+  // number (a fuzzing controller, a bad learned map, a transpose off the end)
+  // otherwise produces a NaN or absurd frequency, and the Web Audio API throws
+  // rather than ignoring it — taking the whole input handler down with it.
+  midi = Math.max(0, Math.min(127, Math.round(Number(midi))));
+  if (!Number.isFinite(midi)) return;
+  vel = (vel == null || !Number.isFinite(Number(vel))) ? 1 : Math.max(0.05, Math.min(1, Number(vel))); // velocity-sensitive keys (SMK-25)
   noteOff(midi);
 
   // Special keyboard modes bypass the standard synth engine
@@ -3624,6 +3634,15 @@ document.querySelectorAll('.tab').forEach(tab => {
 // stay live for the sequencer/mixer; a bank just picks which page is under
 // your fingers. Bank count follows the chosen page size.
 let padBank = 0;
+// HTML-escape anything that came from OUTSIDE the app — sample names are file
+// names and zip entry names, so a pack you were sent can carry markup in them.
+// These strings land in innerHTML for the pad face and the library rows, so
+// without this a file called "<img src=x onerror=...>.wav" executes on import.
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 const PAD_LAYOUTS = { '3x3': { cols: 3, size: 9 }, '4x4': { cols: 4, size: 16 }, '4x2': { cols: 4, size: 8 } };
 let padLayoutId = '3x3';
 try { const s = localStorage.getItem('skrimpad_padlayout'); if (s && PAD_LAYOUTS[s]) padLayoutId = s; } catch (e) {}
@@ -3668,7 +3687,7 @@ function buildPads() {
     pad.className = 'pad';
     pad.style.borderColor = def.color;
     pad.style.color = def.color;
-    pad.innerHTML = `<strong>${def.name.split(' ')[0]}</strong><div class="pad-name">${def.name.includes(' ') ? def.name.split(' ').slice(1).join(' ') : ''}</div>`;
+    pad.innerHTML = `<strong>${esc(def.name.split(' ')[0])}</strong><div class="pad-name">${esc(def.name.includes(' ') ? def.name.split(' ').slice(1).join(' ') : '')}</div>`;
     pad.dataset.idx = i;
 
     const triggerPad = () => {
@@ -3771,7 +3790,7 @@ ctxMenu.id = 'ctx-menu';
 document.body.appendChild(ctxMenu);
 
 function openSeqMenu(ti, x, y) {
-  ctxMenu.innerHTML = `<div class="ctx-title" style="color:${drumDefs[ti].color}">${drumDefs[ti].name} — PROGRAM ROW</div>`;
+  ctxMenu.innerHTML = `<div class="ctx-title" style="color:${esc(drumDefs[ti].color)}">${esc(drumDefs[ti].name)} — PROGRAM ROW</div>`;
   [['📚 ASSIGN FROM LIBRARY', () => dawLibPicker(pick => { if (pick.buf) { drumDefs[ti].sampleBuf = pick.buf; toast(drumDefs[ti].name + ' ← ' + pick.name); } })],
    ['➕ ADD NEW LANE + PAD', () => addDrumPad(ti)],
    ['🗑 DELETE THIS LANE + PAD', () => deleteDrumPad(ti)]].forEach(([label, act]) => {
@@ -3810,7 +3829,7 @@ function positionMenu(x, y) {
 function refreshDrumName(i) {
   const def = drumDefs[i];
   const pad = document.querySelector(`.pad[data-idx="${i}"]`);
-  if (pad) pad.innerHTML = `<strong>${def.name.split(' ')[0]}</strong><div class="pad-name">${def.name.includes(' ') ? def.name.split(' ').slice(1).join(' ') : ''}</div>`;
+  if (pad) pad.innerHTML = `<strong>${esc(def.name.split(' ')[0])}</strong><div class="pad-name">${esc(def.name.includes(' ') ? def.name.split(' ').slice(1).join(' ') : '')}</div>`;
   const lbl = document.querySelectorAll('.seq-row')[i]?.querySelector('.seq-label');
   if (lbl) lbl.textContent = def.name;
 }
@@ -3882,8 +3901,8 @@ function importAudioSample(onLoaded, label) {
     sounds.forEach(s => {
       const el = document.createElement('div');
       el.className = 'lib-sound';
-      const porigin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
-      el.innerHTML = `<div>${s.name}</div>${porigin}<div class="lib-sub">${soundMeta(s, s.cat || 'MY SOUNDS')}</div>`;
+      const porigin = s.sub ? `<div class="lib-origin">${esc((s.sub + '').slice(0, 28))}</div>` : '';
+      el.innerHTML = `<div>${esc(s.name)}</div>${porigin}<div class="lib-sub">${esc(soundMeta(s, s.cat || 'MY SOUNDS'))}</div>`;
       el.addEventListener('click', async () => { // tap = preview (loads from disk if needed)
         const b = s.buf || await libEnsureBuf(s);
         if (b) playSampleBuf(b, ctx.currentTime + 0.01, 1, 0.9);
@@ -3927,7 +3946,7 @@ function importAudioSample(onLoaded, label) {
 // PAD right-click menu — rename, import sample, program row
 function openPadMenu(i, x, y) {
   const def = drumDefs[i];
-  ctxMenu.innerHTML = `<div class="ctx-title" style="color:${def.color}">${def.name}</div>`;
+  ctxMenu.innerHTML = `<div class="ctx-title" style="color:${esc(def.color)}">${esc(def.name)}</div>`;
   const items = [
     { label: 'RENAME PAD', act: async () => {
         const name = await uiPrompt('Rename pad', def.name);
@@ -5046,8 +5065,8 @@ function buildSoundLibGrid() {
       const s = row.sound;
       const btn = document.createElement('div');
       btn.className = 'lib-sound';
-      const origin = s.sub ? `<div class="lib-origin">${(s.sub + '').slice(0, 28)}</div>` : '';
-      btn.innerHTML = `<div>${s.name}</div>${origin}<div class="lib-sub">${soundMeta(s, libCategory)}</div>`;
+      const origin = s.sub ? `<div class="lib-origin">${esc((s.sub + '').slice(0, 28))}</div>` : '';
+      btn.innerHTML = `<div>${esc(s.name)}</div>${origin}<div class="lib-sub">${esc(soundMeta(s, libCategory))}</div>`;
       // DRAG the bubble onto any pad / lane / DAW channel / keyboard to load it there
       btn.draggable = true;
       btn.addEventListener('dragstart', e => { libDragSound = s; document.body.classList.add('lib-dragging'); try { e.dataTransfer.setData('text/plain', s.name); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
