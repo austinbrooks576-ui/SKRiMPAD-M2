@@ -2,8 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,maximum-scale=1,viewport-fit=cover">
 <title>SKRiMPAD M2</title>
+<!-- Home-screen install (iPad/iPhone Safari + Android Chrome). The manifest
+     and icons ship with the web build only; the Android WebView loads this
+     file from file:// where they 404 harmlessly and nothing else changes. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0A0B0F">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- Still required by Safari — the standardised name above is ignored by iOS,
+     and without this the home-screen launch opens in a browser tab. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SKRiMPAD">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
 <script>window.SKRIMPAD_EDITION='se';/*BUILD_EDITION*/
 window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
 <style>
@@ -21,7 +33,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:'SF Pro Display',system-ui,-apple-system,sans-serif;}
-#app{display:flex;flex-direction:column;height:100vh;max-height:100vh;}
+/* Safe-area padding keeps the header and the bottom row of pads clear of the
+   iPad status bar and home indicator, which overlap the page because the
+   viewport is viewport-fit=cover. The insets are 0 everywhere else. */
+#app{display:flex;flex-direction:column;height:100vh;max-height:100vh;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+/* iOS counts the collapsing address bar inside 100vh, so a tab-opened studio
+   loses its bottom pads until you scroll. dvh tracks the visible viewport. */
+@supports (height:100dvh){#app{height:100dvh;max-height:100dvh;}}
 
 /* HEADER */
 #header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surf);border-bottom:1px solid var(--bdr);flex-shrink:0;}
@@ -1943,7 +1962,12 @@ let audioReady = false;
 // On a phone, audio must go silent the moment the app is backgrounded or the
 // screen locks (otherwise the sequencer keeps droning in the background), and
 // pick straight back up when the app returns. Desktop/Electron keeps playing.
-const IS_MOBILE_SHELL = (typeof AndroidFileHandler !== 'undefined') || (typeof AndroidVoice !== 'undefined') || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+// iPadOS 13+ ships desktop-class Safari: the UA says "Macintosh" and the /iPad/
+// test below never fires, so an iPad used to be treated as a desktop and kept
+// the sequencer droning after a screen lock. A Mac has no touch points, so
+// maxTouchPoints is what actually separates the two.
+const IS_IPADOS = /Macintosh/.test(navigator.userAgent || '') && (navigator.maxTouchPoints || 0) > 1;
+const IS_MOBILE_SHELL = (typeof AndroidFileHandler !== 'undefined') || (typeof AndroidVoice !== 'undefined') || IS_IPADOS || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 let _bgSuspended = false;
 function audioSuspendForBackground() {
   if (!audioReady || !ctx || _bgSuspended) return;
@@ -1970,6 +1994,15 @@ window.skrimpadOnResume = audioResumeFromBackground;
 
 function initAudio() {
   if (audioReady) return;
+  // iOS routes Web Audio through the "ambient" session by default, which obeys
+  // the ringer/silent switch — a muted iPad played the whole studio silently
+  // and looked broken. 'playback' declares this as media that should sound
+  // anyway. Safari 16.4+; absent elsewhere, hence the guard. Set before the
+  // context exists so the category applies to it.
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+  } catch (e) {}
+
   // latencyHint:'interactive' asks for the smallest safe output buffer, so a
   // MIDI note / pad hit reaches the speakers in a handful of milliseconds.
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -12182,6 +12215,17 @@ console.log('Music Brain ready');
   setInterval(() => check(false), CHECK_EVERY);
   console.log('Auto-update ready · v' + VERSION + ' · ' + EDITION + '/' + platform);
 })();
+
+// ===== SERVICE WORKER (web build only) =====
+// Registers only over https/localhost, so the Android WebView (file://) and
+// Electron skip it silently — both already ship the app locally and have
+// nothing to cache. Once registered the iPad home-screen app opens offline.
+if ('serviceWorker' in navigator && window.isSecureContext &&
+    location.protocol !== 'file:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 </script>
 </body>

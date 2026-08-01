@@ -138,7 +138,7 @@
       <a class="btn primary" href="#pricing">Choose your edition</a>
       <a class="btn ghost" data-buy="live">▶ Try Live — free</a>
     </div>
-    <div class="platforms">Android APK · Windows 10/11 · runs in the browser</div>
+    <div class="platforms">iPad &amp; iPhone · Android APK · Windows 10/11 · runs in the browser</div>
   </div>
 </div>
 
@@ -277,7 +277,10 @@
 // =====================================================================
 const CONFIG = {
   backend: 'https://habitflow.ink/api/scrimpad',   // <- your API base
-  liveUrl: 'https://scrimpad.ink/app',             // <- hosted Live edition
+  // Relative so the same page works on scrimpad.ink and on the GitHub Pages
+  // deploy, which serves the studio at <pages-root>/app/ — an absolute
+  // scrimpad.ink URL would bounce Pages visitors off-site.
+  liveUrl: 'app/',                                 // <- hosted Live edition
   // Per-edition checkout. Point each at your Stripe Payment Link / PayPal
   // button / Play listing, OR leave as 'api' to create a session server-side.
   checkout: {
