@@ -30,6 +30,26 @@ Download the latest APK or Windows installer from [Releases](https://github.com/
 
 **Requirements:** Windows 10+ (64-bit)
 
+### iPad / iPhone
+
+There is no App Store build — iOS can't install an APK or an `.exe`. The studio
+runs instead as a home-screen web app, which on an iPad is close to
+indistinguishable from a native one: fullscreen, its own icon, and it works
+offline once installed.
+
+1. Open the hosted studio in **Safari** (Chrome on iOS can't install web apps)
+2. Tap **Share** → **Add to Home Screen**
+3. Launch it from the new icon — no Safari chrome, no address bar
+
+Audio starts on your first tap, which is an iOS rule, not a bug: Safari keeps
+the audio engine suspended until the page gets a real gesture.
+
+**If you hear nothing,** check the iPad isn't in Silent Mode. The app asks for
+the `playback` audio session so it should sound anyway, but that only works on
+iPadOS 16.4+ — older versions follow the mute switch.
+
+**Requirements:** iPadOS / iOS 15+ (16.4+ recommended)
+
 ## Build
 
 ### Android APK
@@ -49,3 +69,23 @@ npm run build:win
 
 ### Web
 Open `android/app/src/main/assets/index.html` in any modern browser — no server needed.
+
+### Web app / PWA (what the iPad installs)
+Pushing to `main` publishes the landing page and the studio to GitHub Pages via
+`.github/workflows/deploy-pages.yml` — the landing page at `/`, the installable
+studio at `/app/`. This needs **Settings → Pages → Source = GitHub Actions**
+enabled once; the workflow can also be run by hand from the Actions tab.
+
+The home-screen shell lives in `web/` (manifest, service worker, icons). Icons
+are generated, not committed by hand:
+
+```bash
+python3 scripts/make-icons.py    # regenerates web/icons/
+```
+
+To check it locally the way an iPad sees it, serve over http — `file://`
+disables service workers, so Add to Home Screen won't offer offline support:
+
+```bash
+python3 -m http.server 8000      # then open http://localhost:8000/app/
+```

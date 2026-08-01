@@ -1,0 +1,89 @@
+name: Deploy web app (GitHub Pages)
+
+# Publishes two things:
+#   /      the scrimpad.ink landing page (site/index.html)
+#   /app/  the studio itself, installable to an iPad/iPhone home screen
+#
+# The studio is one self-contained index.html, so "building" is really just
+# assembling a directory. Requires Settings > Pages > Source = GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'web/**'
+      - 'android/app/src/main/assets/index.html'
+      - 'android/app/src/main/assets/layout.json'
+      - 'scripts/set-edition.js'
+      - 'scripts/make-icons.py'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/app
+
+          # Bypass Jekyll so nothing is filtered out of the upload.
+          touch _site/.nojekyll
+
+          cp site/index.html _site/index.html
+          cp android/app/src/main/assets/index.html _site/app/index.html
+          cp android/app/src/main/assets/layout.json _site/app/layout.json
+
+          # PWA shell: manifest, service worker and the home-screen icons.
+          cp web/manifest.webmanifest _site/app/manifest.webmanifest
+          cp web/sw.js _site/app/sw.js
+          cp -r web/icons _site/app/icons
+
+      - name: Use the consumer edition on the web
+        # The shared index.html defaults to the Special Edition HUD; the public
+        # web build lands in the classic studio, same as the consumer APK.
+        run: node scripts/set-edition.js _site/app/index.html consumer
+
+      - name: Verify the assembled output
+        run: |
+          set -euo pipefail
+          for f in _site/index.html _site/app/index.html \
+                   _site/app/manifest.webmanifest _site/app/sw.js \
+                   _site/app/icons/icon-512.png \
+                   _site/app/icons/apple-touch-icon-180.png; do
+            test -s "$f" || { echo "missing or empty: $f"; exit 1; }
+          done
+          # Catch a silently-renamed meta tag before it ships — without this
+          # one, an iPad home-screen launch opens in a browser tab instead.
+          grep -q 'apple-mobile-web-app-capable' _site/app/index.html
+          grep -q 'manifest.webmanifest' _site/app/index.html
+          python3 -c "import json;json.load(open('_site/app/manifest.webmanifest'))"
+          echo "OK"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
