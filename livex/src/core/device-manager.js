@@ -25,6 +25,15 @@ const PROBE_MS = 4000;
 
 export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = {}, onAction, onBoards, onFit } = {}) {
   const boards = new Map(); // signature -> board
+  let opts = Object.assign({}, renderOpts);
+  // Re-author every face at the new size. A schematic drawn at 640 units and
+  // then CSS-scaled down to a 360px phone renders its 8-unit captions at 5px —
+  // unreadable. Drawing it at the size it will actually occupy keeps every
+  // label at its intended size instead of shrinking the whole picture.
+  function setRenderOpts(next) {
+    opts = Object.assign({}, opts, next);
+    for (const b of boards.values()) renderBoard(b);
+  }
 
   function makeContainer(sig, title) {
     const wrap = document.createElement('div');
@@ -63,7 +72,7 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
 
   function renderBoard(b) {
     b.body.innerHTML = '';
-    b.lastSvg = renderSchematic(b.profile, { ...renderOpts, startWhite: b.startWhite });
+    b.lastSvg = renderSchematic(b.profile, { ...opts, startWhite: b.startWhite });
     b.body.appendChild(b.lastSvg);
     const head = b.wrap.querySelector('.board-name');
     if (head) head.textContent = b.profile.portName || b.profile.id || b.sig;
@@ -345,6 +354,6 @@ export function createDeviceManager({ stage, litColor = '#4bd6c8', renderOpts = 
   return {
     syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard,
     addDemoBoard, clear, boards, renderBoard,
-    beginPadMap, cancelPadMap, padMapActive, finishPadMap, removeBoard,
+    beginPadMap, cancelPadMap, padMapActive, finishPadMap, removeBoard, setRenderOpts,
   };
 }

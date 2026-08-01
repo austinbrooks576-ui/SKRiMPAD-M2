@@ -131,7 +131,7 @@ function drawKnobs(parent, count, theme) {
     }, gr);
     // pointer tick at ~ -45°
     el('line', { x1: cx, y1: cy, x2: cx - KNOB_R * 0.7, y2: cy - KNOB_R * 0.7, stroke: theme.mute, 'stroke-width': 1.5 }, gr);
-    const cap = label(gr, cx, cy + KNOB_R + 8, job, theme.mute, 6.5);
+    const cap = label(gr, cx, cy + KNOB_R + 8, job, theme.mute, 7.2);
     cap.setAttribute('letter-spacing', '.06em');
     maxX = Math.max(maxX, cx + KNOB_R);
     col++; x += KNOB_R * 2 + KNOB_GAP;
@@ -228,12 +228,17 @@ function drawKeyboard(parent, keys, theme, targetWidth, opts = {}) {
   // Font scales with key width so long words still fit; accidentals drop to their
   // own baseline so neighbouring labels can never overlap.
   const legFont = Math.max(4.6, Math.min(6.6, wkW * 0.2));
+  // A legend rendered below ~5.5 units is a grey smear, not information — it
+  // measured 4px on screen on a narrow board. Past that point drop the printed
+  // ARP / SC-CH rows and keep only the note names, which are short enough to
+  // stay readable. Better to show less than to show something unreadable.
+  const legible = legFont >= 5.5;
   labels.forEach((l) => {
-    if (l.top) {
-      const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, legFont);
+    if (l.top && (legible || l.top.length <= 2)) {
+      const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, Math.max(5.2, legFont));
       t.setAttribute('letter-spacing', '0');
     }
-    if (l.bot) {
+    if (l.bot && legible) {
       const t = label(parent, l.cx, l.black ? LEG_BOT_B : LEG_BOT_W, l.bot, theme.mute, legFont);
       t.setAttribute('letter-spacing', '0');
     }
@@ -281,19 +286,27 @@ export function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, start
   const svg = el('svg', { xmlns: SVG, 'font-family': theme.font });
   const root = g(svg, 0, 0);
 
-  // frame + title band
-  const titleH = 26;
+  // frame + title band — height is settled once the badge is known (below), since
+  // on a narrow board the status badge has to drop under the title instead of
+  // colliding with it.
+  let titleH = 26;
+
+  // The width the drawing itself may occupy, in the same units it is drawn in.
+  // `maxWidth` is the real on-screen width the board will get, so authoring
+  // inside it means the SVG is displayed at ~1:1 instead of being scaled down —
+  // an 8-unit caption stays an 8px caption instead of becoming a 4px smudge.
+  const inner = Math.max(150, maxWidth - P * 2);
 
   // top deck: wheels | transport+knobs | pads  (left→right, like the box)
   const deck = g(root, 0, 0);
-  let x = 0, deckH = 0;
+  const regions = [];   // { gr, w, h } — placed after measuring, so the deck can wrap
 
   if (profile.wheels && profile.wheels.length) {
-    const gr = g(deck, x, 0); const s = drawWheels(gr, profile.wheels, theme);
-    x += s.w + GAP; deckH = Math.max(deckH, s.h);
+    const gr = g(deck, 0, 0); const s = drawWheels(gr, profile.wheels, theme);
+    regions.push({ gr, w: s.w, h: s.h });
   }
   if ((profile.transport && profile.transport.length) || profile.knobs || (profile.buttons && profile.buttons.length)) {
-    const cluster = g(deck, x, 0); let cy = 0, cw = 0;
+    const cluster = g(deck, 0, 0); let cy = 0, cw = 0, pad = 0;
     if (profile.transport && profile.transport.length) {
       const gr = g(cluster, 0, cy); const s = drawTransport(gr, profile.transport, theme);
       cy += s.h + 6; cw = Math.max(cw, s.w);
@@ -305,16 +318,32 @@ export function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, start
     if (profile.knobs) {
       const gr = g(cluster, 0, cy); const s = drawKnobs(gr, profile.knobs, theme);
       cy += s.h; cw = Math.max(cw, s.w);
-      if (profile.knobBanks > 1) { const t = label(cluster, s.w + 2, cy - s.h / 2, 'B×' + profile.knobBanks, theme.accent, 8); t.setAttribute('text-anchor', 'start'); }
+      // the bank tag hangs off the right edge — count it, or the next region
+      // in the row lands on top of it
+      if (profile.knobBanks > 1) { const t = label(cluster, s.w + 2, cy - s.h / 2, 'B×' + profile.knobBanks, theme.accent, 8); t.setAttribute('text-anchor', 'start'); pad = 26; }
     }
-    x += cw + GAP; deckH = Math.max(deckH, cy);
+    regions.push({ gr: cluster, w: cw + pad, h: cy });
   }
   if (profile.pads && profile.pads.count) {
-    const gr = g(deck, x, 0); const s = drawPads(gr, profile.pads, theme);
+    const gr = g(deck, 0, 0); const s = drawPads(gr, profile.pads, theme);
     if (profile.pads.banks > 1) { const t = label(gr, s.w, -6, 'PAD-B ×' + profile.pads.banks, theme.accent, 8); t.setAttribute('text-anchor', 'end'); }
-    x += s.w + GAP; deckH = Math.max(deckH, s.h);
+    regions.push({ gr, w: s.w, h: s.h });
   }
-  const deckW = Math.max(0, x - GAP);
+
+  // Flow the deck like a line of text: regions sit side by side while they fit
+  // the width the board actually has, and wrap onto a new row when they don't.
+  // Reflowing keeps every control at full size; scaling the whole picture down
+  // to fit a phone is what makes the captions unreadable.
+  const widest = regions.reduce((a, r) => Math.max(a, r.w), 0);
+  const avail = Math.max(widest, inner);
+  let rx = 0, ry = 0, rowH = 0, deckW = 0;
+  for (const r of regions) {
+    if (rx > 0 && rx + r.w > avail + 0.5) { rx = 0; ry += rowH + GAP; rowH = 0; }
+    r.gr.setAttribute('transform', `translate(${rx},${ry})`);
+    rx += r.w + GAP; rowH = Math.max(rowH, r.h);
+    deckW = Math.max(deckW, rx - GAP);
+  }
+  const deckH = regions.length ? ry + rowH : 0;
 
   // keyboard row below the deck — stretched to the board width, or auto-windowed
   // (with octave paging) when that would make keys too small to play.
@@ -324,14 +353,28 @@ export function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, start
     let whiteTotal = 0; const f = profile.keys.firstNote ?? 48;
     for (let n = 0; n < profile.keys.count; n++) if (!BLACK_PCS.has((f + n) % 12)) whiteTotal++;
     const ideal = Math.max(deckW, whiteTotal * 34);          // full-size key ideal
-    const targetWidth = Math.max(deckW, Math.min(ideal, maxWidth)); // capped by screen
+    const targetWidth = Math.max(Math.min(deckW, inner), Math.min(ideal, inner)); // capped by screen
     const gr = g(root, 0, kbY); kb = drawKeyboard(gr, profile.keys, theme, targetWidth, { minKeyW, startWhite });
   }
+
+  // Say plainly where the pad map stands. A half-learned grid is a guess in
+  // progress, and silently drawing it as final is what makes a wrong pad look
+  // like a bug rather than an unfinished pass.
+  const pd = profile.pads;
+  const titleText = (profile.portName || profile.id || 'CONTROLLER').toUpperCase();
+  let badgeText = profile.learned ? '★ LEARNED' : '';
+  if (pd && pd.taught) badgeText = '✓ PADS MAPPED';
+  else if (pd && pd.provisional) badgeText = 'LEARNING PADS ' + (pd.seen || 0) + '/' + pd.count + ' — ⌗ MAP PADS to set';
+  else if (pd && pd.learned) badgeText = '★ PADS LEARNED';
 
   // final sizing
   const contentW = Math.max(deckW, kb.w);
   const contentH = kbY + kb.h;
   const W = contentW + P * 2;
+  // Oswald is condensed; ~.58em advance plus the tracking each label carries.
+  const runW = (s, size, track) => s.length * size * (0.58 + track);
+  const twoLine = badgeText && (runW(titleText, 12, 0.22) + runW(badgeText, 8, 0.12) + 24 > W - P * 2);
+  if (twoLine) titleH = 40;
   const H = contentH + P * 2 + titleH;
 
   // position ALL content inside padding + under the title band by offsetting the
@@ -346,19 +389,13 @@ export function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, start
   }, null);
   svg.insertBefore(frame, root);
   svg.insertBefore(bg, frame);
-  const title = label(svg, W / 2, P + 6, (profile.portName || profile.id || 'CONTROLLER').toUpperCase(), theme.accent, 12);
+  const title = label(svg, W / 2, P + 6, titleText, theme.accent, 12);
   title.setAttribute('letter-spacing', '.22em');
-  // Say plainly where the pad map stands. A half-learned grid is a guess in
-  // progress, and silently drawing it as final is what makes a wrong pad look
-  // like a bug rather than an unfinished pass.
-  const pd = profile.pads;
-  let badgeText = profile.learned ? '★ LEARNED' : '';
-  if (pd && pd.taught) badgeText = '✓ PADS MAPPED';
-  else if (pd && pd.provisional) badgeText = 'LEARNING PADS ' + (pd.seen || 0) + '/' + pd.count + ' — ⌗ MAP PADS to set';
-  else if (pd && pd.learned) badgeText = '★ PADS LEARNED';
   if (badgeText) {
-    const badge = label(svg, W - P - 6, P + 6, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8);
-    badge.setAttribute('text-anchor', 'end');
+    const badge = twoLine
+      ? label(svg, W / 2, P + 20, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8)
+      : label(svg, W - P - 6, P + 6, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8);
+    if (!twoLine) badge.setAttribute('text-anchor', 'end');
   }
 
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);

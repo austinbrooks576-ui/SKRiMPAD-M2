@@ -7,23 +7,61 @@
   <script>window.SKRIMPAD_EDITION='livex';/*BUILD_EDITION*/
 window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   <style>
-    :root { color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22; }
+    :root {
+      color-scheme: dark; --ink:#cdd6e0; --acc:#4bd6c8; --mut:#5b6774; --bg:#0e1116; --pan:#141a22;
+
+      /* ---- FLUID SCALE ------------------------------------------------------
+         The layout used to be fixed pixels with a single breakpoint at 760px, so
+         it did not adapt — it JUMPED, and every size in between was wrong. These
+         interpolate continuously between a phone and a desktop, so there is no
+         width at which the app looks broken and no snap as you rotate or resize.
+         Each is clamp(min, preferred-with-vw-term, max): the min protects
+         legibility on a small phone, the max stops a 4K monitor inflating it. */
+      --fs-xs:  clamp(7.5px,  0.30vw + 6.4px,  9.5px);   /* captions, hints      */
+      --fs-sm:  clamp(9px,    0.36vw + 7.7px,  11px);    /* buttons, list rows   */
+      --fs-md:  clamp(10.5px, 0.42vw + 9px,    13px);    /* labels, values       */
+      --fs-lg:  clamp(12px,   0.60vw + 10px,   16px);    /* headings             */
+
+      --sp-1: clamp(3px,  0.20vw + 2.3px,  5px);
+      --sp-2: clamp(5px,  0.35vw + 3.8px,  8px);
+      --sp-3: clamp(7px,  0.55vw + 5.2px,  12px);
+      --sp-4: clamp(10px, 0.90vw + 7px,    18px);
+
+      --r-1: clamp(4px, 0.25vw + 3.2px, 6px);
+      --r-2: clamp(6px, 0.45vw + 4.6px, 11px);
+
+      /* the library rail scales with the window instead of pinning to 210px */
+      --rail: clamp(168px, 19vw, 260px);
+      /* the board never exceeds a comfortable reading width, but fills below it */
+      --board-max: clamp(320px, 92vw, 640px);
+      /* tap targets stay finger-sized on a phone and tighten on a mouse */
+      --hit: clamp(30px, 2.2vw + 24px, 38px);
+    }
+    /* A pointer that can hover is a mouse — it does not need 44px targets, and
+       the extra padding just wastes space on a laptop. */
+    @media (hover: hover) and (pointer: fine) { :root { --hit: 28px; } }
     /* border-box everywhere: panels use width:100% + padding + border, which
        overflows a phone viewport under the default content-box sizing. */
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
       font-family: 'Oswald', 'Arial Narrow', sans-serif; overflow-x: hidden; }
-    #app { display: flex; flex-direction: column; min-height: 100vh; padding: 14px; box-sizing: border-box; gap: 12px; }
-    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .brand { font-size: 12px; letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
+    #app { display: flex; flex-direction: column; min-height: 100svh; padding: var(--sp-3); box-sizing: border-box; gap: var(--sp-3); }
+    .row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .brand { font-size: var(--fs-md); letter-spacing: .22em; color: var(--mut); text-transform: uppercase; }
     .hbtn { appearance: none; border: 1.4px solid var(--mut); background: transparent; color: var(--ink);
-      font: 800 10px/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .1em; text-transform: uppercase;
-      padding: 8px 11px; border-radius: 6px; cursor: pointer; }
+      font: 800 var(--fs-sm)/1 'Oswald','Arial Narrow',sans-serif; letter-spacing: .1em; text-transform: uppercase;
+      padding: 0 var(--sp-3); min-height: var(--hit); border-radius: var(--r-1); cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; }
     .hbtn:hover { border-color: var(--acc); color: var(--acc); }
     .hbtn.on { background: var(--acc); color: var(--bg); border-color: var(--acc); }
+    /* While programming, make every loadable target obvious and the library read
+       as the thing you are about to tap. */
+    body.programming [data-drop] { cursor: pointer; }
+    body.programming .board { outline: 1px solid rgba(75,214,200,.35); outline-offset: 3px; }
+    body.programming #libList li { border-color: var(--acc); cursor: pointer; }
     #rec.on { background: #e0484f; border-color: #e0484f; color: #fff; }
     #play.on { background: var(--acc); border-color: var(--acc); color: var(--bg); }
-    #transport { border: 1px solid #222c38; border-radius: 10px; padding: 8px 10px; }
+    #transport { border: 1px solid #222c38; border-radius: var(--r-2); padding: var(--sp-2) var(--sp-3); }
     #transport .sep { width: 1px; height: 20px; background: #222c38; }
     #bpm { width: 54px; background: var(--pan); border: 1px solid #2a3441; color: var(--ink);
       font: 800 12px 'Oswald'; padding: 6px; border-radius: 5px; text-align: center; }
@@ -33,20 +71,35 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     #beat i.on { background: var(--acc); }
     #sync { border: 1.5px solid var(--acc); color: var(--acc); }
     #sync.flash { background: var(--acc); color: var(--bg); }
-    #main { display: flex; gap: 14px; align-items: flex-start; flex: 1; }
-    #lib { width: 210px; flex: none; border: 1px solid #222c38; border-radius: 10px; padding: 10px; }
-    #lib h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: .18em; color: var(--acc); text-transform: uppercase; }
-    #drop { border: 1.4px dashed #2a3441; border-radius: 8px; padding: 14px 8px; text-align: center;
-      font-size: 10px; color: var(--mut); cursor: pointer; }
+    /* wrap NATURALLY instead of snapping at a breakpoint: the rail drops under the
+       board the moment there is no room for both, at whatever width that happens */
+    #main { display: flex; gap: var(--sp-3); align-items: flex-start; flex: 1; flex-wrap: wrap; }
+    #lib { flex: 1 1 var(--rail); min-width: min(100%, 168px); max-width: 100%;
+      border: 1px solid #222c38; border-radius: var(--r-2); padding: var(--sp-3); }
+    #lib h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); letter-spacing: .18em; color: var(--acc); text-transform: uppercase; }
+    #drop { border: 1.4px dashed #2a3441; border-radius: var(--r-1); padding: var(--sp-4) var(--sp-2); text-align: center;
+      font-size: var(--fs-sm); color: var(--mut); cursor: pointer; }
     #drop.hot { border-color: var(--acc); color: var(--acc); }
     #libList { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow: auto; }
-    #libList li { font-size: 10px; padding: 6px 7px; margin-bottom: 4px; background: var(--pan);
+    #libList li { font-size: var(--fs-sm); padding: var(--sp-2) var(--sp-2); margin-bottom: var(--sp-1); background: var(--pan);
       border: 1px solid #222c38; border-radius: 5px; cursor: grab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #libhint { font-size: 9px; color: var(--mut); margin-top: 8px; line-height: 1.5; }
-    #stage { display: flex; flex-direction: column; align-items: center; gap: 18px; flex: 1; }
-    .board { width: 100%; max-width: 620px; }
+    #libhint { font-size: var(--fs-xs); color: var(--mut); margin-top: var(--sp-2); line-height: 1.6; }
+    #stage { display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+      flex: 999 1 min(100%, 340px); container-type: inline-size; }
+    .board { width: 100%; max-width: var(--board-max); }
     .board.dropok [data-drop] { outline: 1px solid rgba(75,214,200,.4); }
-    .board-h { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--acc); padding: 3px 2px 5px; opacity: .85; }
+    .board-h { font-size: var(--fs-sm); letter-spacing: .18em; text-transform: uppercase; color: var(--acc);
+      padding: 3px 2px 5px; opacity: .85; display: flex; align-items: center; gap: 8px; }
+    .board-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* close THIS board — for clearing a duplicate without wiping the rest */
+    .board-x { appearance: none; background: transparent; border: 1px solid var(--mut); color: var(--mut);
+      border-radius: 5px; width: 22px; height: 20px; line-height: 1; font-size: 11px; cursor: pointer; flex: none; }
+    .board-x:hover { border-color: #e0484f; color: #e0484f; }
+    /* library filed under GROUP > KIND */
+    #libList .lib-group { background: transparent; border: 0; color: var(--acc); font-size: 9px;
+      letter-spacing: .2em; padding: 8px 2px 3px; margin: 0; cursor: default; }
+    #libList .lib-kind { background: transparent; border: 0; border-bottom: 1px solid #222c38; color: var(--mut);
+      font-size: 8px; letter-spacing: .14em; padding: 3px 2px; margin: 0 0 3px; cursor: default; }
     .board-b svg { max-width: 100%; height: auto; touch-action: none; }
     /* every drawn control is live — show it */
     .board-b [data-role="key"], .board-b [data-role="pad"],
@@ -54,24 +107,29 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     .board-b [data-role="octnav"] { cursor: pointer; }
     .board-b [data-role="knob"], .board-b [data-role="wheel"] { cursor: ns-resize; }
     .board.active { outline: 1px solid rgba(75,214,200,.35); outline-offset: 4px; border-radius: 10px; }
-    #kbhint { font-size: 9px; color: var(--mut); letter-spacing: .04em; }
+    #kbhint { font-size: var(--fs-xs); color: var(--mut); letter-spacing: .04em; line-height: 1.6; }
     #empty { color: var(--mut); font-size: 12px; margin: 30px auto; }
-    #toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--pan);
-      border: 1px solid #2a3441; color: var(--ink); font-size: 11px; padding: 9px 15px; border-radius: 8px;
+    #toast { position: fixed; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); background: var(--pan);
+      border: 1px solid #2a3441; color: var(--ink); font-size: var(--fs-sm); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-1);
       opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; line-height: 1.4; }
     #toast.show { opacity: 1; }
 
     /* PHONE: the fixed 210px library would squeeze the schematic into a postage
        stamp on a 412px screen. Stack instead — the board takes the full width
        (it is the instrument; it must stay playable), library drops underneath. */
+    /* The layout itself is fluid now — it wraps when it runs out of room rather
+       than snapping at a magic width, so this no longer restates sizes. What
+       remains is ORDER (the instrument comes first on a narrow screen; it is
+       what you play) and the list height, which is about thumb reach, not px. */
     @media (max-width: 760px) {
-      #app { padding: 8px; gap: 8px; }
-      #main { flex-direction: column; gap: 10px; }
-      #stage { order: 1; width: 100%; flex: 0 0 auto; gap: 10px; }
-      #lib { order: 2; width: 100%; }
-      #libList { max-height: 24vh; }
-      #transport { padding: 6px 8px; gap: 7px; }
-      .board { max-width: 100%; }
+      #stage { order: 1; }
+      #lib { order: 2; }
+      #libList { max-height: 26svh; }
+    }
+    /* Respect a reduced-motion preference — the toast fade is the only
+       transition, but it should still honour the setting. */
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
 </head>
@@ -83,6 +141,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <button class="hbtn" data-dev="jp1">+ JP-1</button>
       <button class="hbtn" data-dev="jpmini">+ JP MINI</button>
       <button class="hbtn" data-dev="k61">+ 61-KEY</button>
+      <button class="hbtn" id="program" title="Tap a pad or key (on screen or on your controller), then tap a sound to load it">⏺ PROGRAM</button>
+      <button class="hbtn" id="mappads" title="Bind the drawn grid to YOUR controller — press pad 1, then 2, then 3…">⌗ MAP PADS</button>
       <button class="hbtn" id="clear">CLEAR</button>
       <span style="flex:1"></span>
       <span id="midistat" title="MIDI ports the app can see" style="font-size:9px;letter-spacing:.08em;color:var(--mut);padding:0 6px">MIDI: —</span>
@@ -130,9 +190,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       <div id="stage"></div>
     </div>
     <div id="empty">Add a demo board above, plug in a controller, or tap 📶 BT — then play. Hit ● REC to loop.</div>
-    <div id="kbhint">MOUSE: click keys/pads · drag knobs &amp; wheels · every button is live &nbsp;·&nbsp;
-      KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play · <b>1–8</b> pads ·
-      <b>−/=</b> octave · <b>Space</b> play · <b>Enter</b> rec · <b>\</b> metro · <b>Esc</b> panic</div>
+    <div id="kbhint"></div>
   </div>
   <div id="toast"></div>
   <div id="diagpanel" style="display:none;position:fixed;inset:auto 12px 12px auto;width:min(430px,92vw);max-height:70vh;
@@ -246,10 +304,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
             scch: { 17: "CH", 18: "TRIAD", 19: "7TH", 20: "9TH", 21: "RAND", 22: "OFF", 23: "MAJOR", 24: "MINOR" }
           }
         },
-        // PAD-B = second bank -> 16 sounds. The 8 pads' notes are user-assignable
-        // in CubeSuite, so `learn` lets the probe map this unit's actual grid.
+        // PAD-B = second bank → 16 sounds. The 8 pads' notes are user-assignable in
+        // CubeSuite, so `learn` lets the probe map this unit's actual grid.
         pads: { count: 8, layout: [2, 4], channel: 10, banks: 2, learn: true },
-        // PAD-B = second bank → 16 sounds
         transport: ["play", "stop", "rec"],
         knobs: 8,
         knobBanks: 2,
@@ -288,16 +345,20 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         confidence: 0.9
       })
     },
-    // --- JamJum JP-1 — 4x4 pad controller, NOT a keyboard ---------------------
+    // --- JamJum JP-1 — 4x4 pad controller, NOT a keyboard -----------------------
     // Manufacturer spec (JAMJUM JP-1 manual + product spec, read 2026-07-31):
-    //   16 RGB pads, velocity + aftertouch; 3 PAD BANKS -> "up to 48 pads";
-    //   8 endless 360 rotary knobs, 3 KNOB BANKS -> "up to 24 knobs";
-    //   6 customizable buttons with SHORT and LONG press actions sending custom
-    //   MIDI and MMC commands; BLE MIDI + USB-C + 3.5mm TRS out; ~20h battery.
-    //   No keybed, no pitch/mod wheels.
-    // MUST be tested before the generic \bjam\s?jum\b pattern below.
-    // Every assignment is user-editable in the vendor app and no default note
-    // table is published, so `learn` lets the live probe map the real grid.
+    //   • 16 RGB pads, velocity sensitive WITH aftertouch (pressure)
+    //   • 3 PAD BANKS  → "up to 48 pads"
+    //   • 8 endless 360° rotary knobs, 3 KNOB BANKS → "up to 24 knobs"
+    //   • 6 customizable buttons, each with a SHORT and a LONG press action,
+    //     sending custom MIDI and MMC (MIDI Machine Control) commands
+    //   • BLE MIDI + USB-C + 3.5mm TRS MIDI out, ~20h battery
+    //   • NO keybed, NO pitch/mod wheels
+    // JP-1 MUST be tested before the generic \bjam\s?jum\b pattern below, or the
+    // JP mini seed would swallow it.
+    // Every pad/knob/button assignment is user-editable in the vendor app and the
+    // manual publishes no default note table — so `learn` lets the live probe map
+    // the grid from whatever this unit actually sends. See identify.js.
     {
       test: /\bjp[-\s]?1\b/i,
       base: () => makeProfile({
@@ -309,19 +370,28 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         knobBanks: 3,
         wheels: [],
         transport: ["play", "stop", "rec"],
+        // driven by the 6 buttons' MMC output
+        // padB/knobB are the app's own bank steppers (they cycle 3 ways here);
+        // b1..b6 mirror the six dual-action buttons printed on the unit.
         buttons: ["padB", "knobB", "b1", "b2", "b3", "b4", "b5", "b6"],
         features: ["velocity", "aftertouch", "padBanks", "knobBanks", "mmc", "rgb", "bt", "longPress"],
         confidence: 0.9
       })
     },
-    // --- JamJum JP mini — 4x4 pad controller, NOT a keyboard ------------------
+    // --- JamJum JP mini — 4x4 pad controller, NOT a keyboard --------------------
     // Manufacturer spec (JAMJUM JP mini manual, read 2026-07-31):
-    //   4x4 layout of 16 silicone pads, velocity AND pressure sensitive; RGB per
-    //   pad set in the vendor software; transmits Note, MIDI CC and Program
-    //   Change; BLE MIDI + USB-C, battery powered. No keybed, no knobs.
-    // Also the family catch-all for a unit reporting only "JamJum"/"JAM JUM".
+    //   • 4x4 layout of 16 silicone pads, velocity AND pressure sensitive
+    //   • RGB colour per pad, adjustable in the vendor software
+    //   • transmits Note, MIDI CC and Program Change
+    //   • BLE MIDI + USB-C, battery powered
+    //   • NO keybed, NO knobs, NO wheels
+    // Also the family catch-all: a unit reporting only "JamJum"/"JAM JUM" lands
+    // here and the probe refines it from what it plays.
     {
-      test: /\bjam\s?jum\b|\bjp[-\s]?mini\b/i,
+      // A real unit reports as "KUWEE Technology JP-Mini" — KUWEE is the OEM behind
+      // these, so match the maker name too. A unit that reports only its maker still
+      // lands on the right face.
+      test: /\bjam\s?jum\b|\bjp[-\s]?mini\b|\bkuwee\b/i,
       base: () => makeProfile({
         id: "jpmini",
         class: CLASSES.PADS,
@@ -570,7 +640,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const hasLiveData = () => lastDataAt > 0;
     const bleCtx = /* @__PURE__ */ new Map();
     window.onNativeMIDIDevices = (list) => {
-      nativeDevices = (list || []).map((d) => ({ id: d.id, name: d.name, manufacturer: d.manufacturer || "" }));
+      nativeDevices = (list || []).map((d) => ({
+        id: d.id,
+        name: d.name,
+        manufacturer: d.manufacturer || "",
+        props: d.props || ""
+      }));
       if (nativeDevices.length && typeof nativeName !== "undefined") {
         try {
           nativeName = nativeDevices[0].name;
@@ -589,18 +664,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       for (let i = 0; i < packets.length; i++) ctx2.decode(Uint8Array.from(packets[i]));
     };
-    // NATIVE MIDI hooks — registered UNCONDITIONALLY, not inside the
-    // `if (window.AndroidMidi)` branch of _start(). MainActivity.kt calls these
-    // exact globals; if the bridge is injected even a moment after boot (a WebView
-    // reload, a late addJavascriptInterface), a branch-scoped registration means
-    // the globals never exist and the APK hears nothing at all. Defining them up
-    // front costs nothing on desktop and removes the whole failure mode.
     let nativeName = "MIDI DEVICE";
-    const nativePort = () => ({ id: "native", name: nativeName, native: true });
-    window.onNativeMIDIMessage = (bytes) => emit(Array.from(bytes), nativePort());
-    window.onNativeMIDIBatch = (list) => {
+    const nativePort = (id, name) => ({
+      id: id || "native",
+      name: name || nativeName,
+      native: true
+    });
+    window.onNativeMIDIMessage = (bytes, id, name) => emit(Array.from(bytes), nativePort(id, name));
+    window.onNativeMIDIBatch = (list, id, name) => {
       if (!list || !list.length) return;
-      const p = nativePort();
+      const p = nativePort(id, name);
       for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
     };
     window.onNativeMIDIStatus = (txt) => {
@@ -609,7 +682,6 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       onPorts && onPorts(listInputs());
     };
     window.__livexNativeMidi = window.onNativeMIDIMessage;
-
     let nativeDevices = [];
     let nativeMode = false;
     function listInputs() {
@@ -621,9 +693,6 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       return startPromise = startPromise || _start();
     }
     async function _start() {
-      // The onNative* globals MainActivity.kt calls are registered above, outside
-      // this branch, so they exist no matter when the bridge shows up. All that is
-      // left here is turning the bridge on.
       if (typeof window !== "undefined" && window.AndroidMidi) {
         nativeMode = true;
         try {
@@ -812,7 +881,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       autoReconnect,
       hasLiveData,
       access: () => access,
-      _emit: emit
+      _emit: emit,
+      // devices reported by the native bridge, with their raw Android properties —
+      // read by the MIDI monitor so an unidentified controller can be diagnosed
+      devices: () => nativeDevices
     };
   }
 
@@ -918,825 +990,6 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, "0");
     return `#${toHex(r)}${toHex(g2)}${toHex(b)}`;
-  }
-
-  // livex/src/core/schematic.js
-  var SVG = "http://www.w3.org/2000/svg";
-  var BLACK_PCS = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
-  var P = 26;
-  var GAP = 18;
-  var WKEY_H = 104;
-  var PAD = 48;
-  var PAD_GAP = 9;
-  var KNOB_R = 17;
-  var KNOB_GAP = 12;
-  var TR_W = 42;
-  var TR_H = 30;
-  var TR_GAP = 8;
-  var WHEEL_W = 22;
-  var WHEEL_H = 100;
-  var WHEEL_GAP = 10;
-  function el(tag, attrs = {}, parent) {
-    const n = document.createElementNS(SVG, tag);
-    for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(n);
-    return n;
-  }
-  function g(parent, x = 0, y = 0) {
-    return el("g", { transform: `translate(${x},${y})` }, parent);
-  }
-  function label(parent, x, y, text, fill, size = 9) {
-    const t = el("text", {
-      x,
-      y,
-      fill,
-      "font-size": size,
-      "font-weight": 800,
-      "letter-spacing": ".12em",
-      "text-anchor": "middle",
-      "font-family": "'Oswald','Arial Narrow',sans-serif"
-    }, parent);
-    t.textContent = text;
-    return t;
-  }
-  function drawWheels(parent, wheels, theme) {
-    let x = 0;
-    wheels.forEach((name, i) => {
-      const gr = g(parent, x, 0);
-      el("rect", {
-        x: 0,
-        y: 0,
-        width: WHEEL_W,
-        height: WHEEL_H,
-        rx: 6,
-        fill: "none",
-        stroke: theme.ink,
-        "stroke-width": 1.5,
-        "data-role": "wheel",
-        "data-index": i,
-        "data-name": name
-      }, gr);
-      el("line", { x1: 3, y1: WHEEL_H / 2, x2: WHEEL_W - 3, y2: WHEEL_H / 2, stroke: theme.mute, "stroke-width": 1 }, gr);
-      label(gr, WHEEL_W / 2, WHEEL_H + 12, name.toUpperCase(), theme.mute, 8);
-      x += WHEEL_W + WHEEL_GAP;
-    });
-    return { w: Math.max(0, x - WHEEL_GAP), h: WHEEL_H + 14 };
-  }
-  function drawTransport(parent, transport2, theme) {
-    const glyph = { play: "\u25B6", stop: "\u25A0", rec: "\u25CF" };
-    let x = 0;
-    transport2.forEach((name, i) => {
-      const gr = g(parent, x, 0);
-      el("rect", {
-        x: 0,
-        y: 0,
-        width: TR_W,
-        height: TR_H,
-        rx: 5,
-        fill: "none",
-        stroke: theme.ink,
-        "stroke-width": 1.5,
-        "data-role": "transport",
-        "data-index": i,
-        "data-name": name,
-        "data-hold": "1"
-      }, gr);
-      const t = label(gr, TR_W / 2, TR_H / 2 + 4, glyph[name] || name, name === "rec" ? theme.accent : theme.ink, 13);
-      t.setAttribute("letter-spacing", "0");
-      x += TR_W + TR_GAP;
-    });
-    return { w: Math.max(0, x - TR_GAP), h: TR_H + 12 };
-  }
-  var BTN_LABEL = {
-    arp: "ARP", scch: "SCCH", bt: "BT", knobB: "KNOB-B", padB: "PAD-B",
-    "oct-": "OCT\u2212", "oct+": "OCT+",
-    // JamJum JP-1: six printed buttons, each with a short and a long press action
-    b1: "B1", b2: "B2", b3: "B3", b4: "B4", b5: "B5", b6: "B6"
-  };
-  function drawButtons(parent, buttons, theme) {
-    const BW = 52, BH = 22, BG = 7, PER = 4;
-    let x = 0, y = 0, col = 0, maxX = 0;
-    buttons.forEach((name, i) => {
-      const gr = g(parent, x, y);
-      const isBank = name === "knobB" || name === "padB";
-      el("rect", {
-        x: 0,
-        y: 0,
-        width: BW,
-        height: BH,
-        rx: 4,
-        fill: "none",
-        stroke: isBank ? theme.accent : theme.ink,
-        "stroke-width": 1.4,
-        "data-role": "button",
-        "data-index": i,
-        "data-name": name,
-        "data-bank-toggle": isBank ? "1" : null,
-        "data-hold": "1"
-      }, gr);
-      const t = label(gr, BW / 2, BH / 2 + 3, BTN_LABEL[name] || name.toUpperCase(), isBank ? theme.accent : theme.ink, 8);
-      t.setAttribute("letter-spacing", ".06em");
-      maxX = Math.max(maxX, x + BW);
-      col++;
-      x += BW + BG;
-      if (col >= PER) {
-        col = 0;
-        x = 0;
-        y += BH + BG;
-      }
-    });
-    return { w: maxX, h: y + (col ? BH : 0) };
-  }
-  function drawKnobs(parent, count, theme) {
-    const perRow = Math.min(count, 4);
-    let x = 0, y = KNOB_R, maxX = 0, row = 0, col = 0;
-    for (let i = 0; i < count; i++) {
-      const cx = x + KNOB_R, cy = y;
-      const gr = g(parent, 0, 0);
-      el("circle", {
-        cx,
-        cy,
-        r: KNOB_R,
-        fill: "none",
-        stroke: theme.ink,
-        "stroke-width": 1.5,
-        "data-role": "knob",
-        "data-index": i,
-        "data-hold": "1"
-      }, gr);
-      el("line", { x1: cx, y1: cy, x2: cx - KNOB_R * 0.7, y2: cy - KNOB_R * 0.7, stroke: theme.mute, "stroke-width": 1.5 }, gr);
-      maxX = Math.max(maxX, cx + KNOB_R);
-      col++;
-      x += KNOB_R * 2 + KNOB_GAP;
-      if (col >= perRow) {
-        col = 0;
-        row++;
-        x = 0;
-        y += KNOB_R * 2 + KNOB_GAP;
-      }
-    }
-    return { w: maxX, h: (row + (col ? 1 : 0)) * (KNOB_R * 2 + KNOB_GAP) };
-  }
-  function drawPads(parent, pads, theme) {
-    const [rows, cols] = pads.layout && pads.layout[0] ? pads.layout : squareish(pads.count);
-    // Learned note per pad wins over the GM default — see learnPadGrid(). Pads not
-    // yet played keep the GM note so the board is playable by touch immediately.
-    const noteFor = (i2) => pads.notes && pads.notes[i2] != null ? pads.notes[i2] : gmDrumNote(i2);
-    let i = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols && i < pads.count; c++, i++) {
-        const x = c * (PAD + PAD_GAP), y = r * (PAD + PAD_GAP);
-        const gr = g(parent, x, y);
-        const learned = !!(pads.notes && pads.notes[i] != null);
-        el("rect", {
-          x: 0,
-          y: 0,
-          width: PAD,
-          height: PAD,
-          rx: 7,
-          fill: "none",
-          stroke: learned ? theme.accent : theme.ink,
-          "stroke-width": learned ? 1.8 : 1.5,
-          "data-role": "pad",
-          "data-index": i,
-          "data-note": noteFor(i),
-          "data-drop": "1",
-          "data-hold": "1"
-        }, gr);
-        label(gr, PAD / 2, PAD / 2 + 3, "PAD " + (i + 1), theme.mute, 8);
-      }
-    }
-    return { w: cols * (PAD + PAD_GAP) - PAD_GAP, h: rows * (PAD + PAD_GAP) - PAD_GAP };
-  }
-  var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  var LEGEND_H = 38;
-  var LEG_TOP_W = 10;
-  var LEG_TOP_B = 17.5;
-  var LEG_BOT_W = 27;
-  var LEG_BOT_B = 34.5;
-  function octOf(note) {
-    return Math.floor(note / 12) - 1;
-  }
-  function drawKeyboard(parent, keys, theme, targetWidth, opts = {}) {
-    var _a;
-    const first = (_a = keys.firstNote) != null ? _a : 48;
-    const count = keys.count;
-    const acc = contraryColor(theme.whiteKey);
-    const legend = keys.legend || {};
-    const arp = legend.arp || [], scch = legend.scch || {};
-    const minKeyW = opts.minKeyW || 24;
-    const notes = [];
-    for (let n = 0; n < count; n++) {
-      const note = first + n;
-      notes.push({ note, i: n, black: BLACK_PCS.has(note % 12) });
-    }
-    const whites = notes.filter((x) => !x.black);
-    const whiteTotal = whites.length;
-    const fitsFull = whiteTotal * minKeyW <= targetWidth + 0.5;
-    let visibleWhites = whiteTotal, startWhite = 0, windowed = false;
-    if (!fitsFull) {
-      windowed = true;
-      visibleWhites = Math.max(7, Math.min(whiteTotal, Math.floor(targetWidth / minKeyW)));
-      startWhite = Math.max(0, Math.min(opts.startWhite | 0, whiteTotal - visibleWhites));
-    }
-    const startIdx = notes.indexOf(whites[startWhite]);
-    const endIdx = notes.indexOf(whites[startWhite + visibleWhites - 1]);
-    const vis = notes.slice(startIdx, endIdx + 1);
-    const wkW = targetWidth / visibleWhites;
-    const wkH = Math.max(88, Math.min(WKEY_H, wkW * 3.1));
-    const bkW = wkW * 0.58, bkH = wkH * 0.62;
-    let wi = 0;
-    const vw = [], vb = [], labels = [];
-    for (const nd of vis) {
-      let cx;
-      if (nd.black) {
-        const x = wi * wkW - bkW / 2;
-        vb.push({ ...nd, x });
-        cx = x + bkW / 2;
-      } else {
-        const x = wi * wkW;
-        vw.push({ ...nd, x });
-        cx = x + wkW / 2;
-        wi++;
-      }
-      labels.push({ cx, black: nd.black, top: nd.i < 12 ? NOTE_NAMES[nd.note % 12] : scch[nd.i] || "", bot: arp[nd.i] || "" });
-    }
-    const legFont = Math.max(4.6, Math.min(6.6, wkW * 0.2));
-    labels.forEach((l) => {
-      if (l.top) {
-        const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, legFont);
-        t.setAttribute("letter-spacing", "0");
-      }
-      if (l.bot) {
-        const t = label(parent, l.cx, l.black ? LEG_BOT_B : LEG_BOT_W, l.bot, theme.mute, legFont);
-        t.setAttribute("letter-spacing", "0");
-      }
-    });
-    vw.forEach((k) => el("rect", {
-      x: k.x,
-      y: LEGEND_H,
-      width: wkW,
-      height: wkH,
-      rx: 3,
-      fill: theme.whiteKey,
-      "fill-opacity": 0.06,
-      stroke: theme.ink,
-      "stroke-width": 1.3,
-      "data-role": "key",
-      "data-index": k.i,
-      "data-note": k.note,
-      "data-drop": "1",
-      "data-hold": "1"
-    }, parent));
-    vb.forEach((k) => el("rect", {
-      x: k.x,
-      y: LEGEND_H,
-      width: bkW,
-      height: bkH,
-      rx: 2.5,
-      fill: acc,
-      stroke: theme.ink,
-      "stroke-width": 1,
-      "data-role": "key",
-      "data-index": k.i,
-      "data-note": k.note,
-      "data-accidental": "1",
-      "data-drop": "1",
-      "data-hold": "1"
-    }, parent));
-    let h = LEGEND_H + wkH;
-    if (windowed) {
-      const y = h + 5;
-      const canL = startWhite > 0, canR = startWhite + visibleWhites < whiteTotal;
-      const navBtn = (x, dir, txt, on) => {
-        const gr = g(parent, x, y);
-        el("rect", { x: 0, y: 0, width: 46, height: 15, rx: 3, fill: "none", stroke: on ? theme.accent : theme.mute, "stroke-width": 1.2, "data-role": "octnav", "data-dir": dir, "data-enabled": on ? "1" : "0" }, gr);
-        const t = label(gr, 23, 10.5, txt, on ? theme.accent : theme.mute, 7);
-        t.setAttribute("letter-spacing", ".04em");
-      };
-      navBtn(0, "-1", "\u25C0 8VE", canL);
-      navBtn(targetWidth - 46, "1", "8VE \u25B6", canR);
-      const barX = 54, barW = targetWidth - 108, barY = y + 6;
-      el("rect", { x: barX, y: barY, width: barW, height: 4, rx: 2, fill: "none", stroke: theme.mute, "stroke-width": 1 }, parent);
-      el("rect", { x: barX + barW * (startWhite / whiteTotal), y: barY, width: barW * (visibleWhites / whiteTotal), height: 4, rx: 2, fill: theme.accent }, parent);
-      const lo = label(parent, barX, barY - 3, NOTE_NAMES[first % 12] + octOf(first), theme.mute, 6);
-      lo.setAttribute("text-anchor", "start");
-      const last = first + count - 1;
-      const hi = label(parent, barX + barW, barY - 3, NOTE_NAMES[last % 12] + octOf(last), theme.mute, 6);
-      hi.setAttribute("text-anchor", "end");
-      h = y + 16;
-    }
-    return { w: targetWidth, h, windowed, startWhite, visibleWhites, whiteTotal };
-  }
-  function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, startWhite, maxWidth = 900 } = {}) {
-    var _a;
-    const svg = el("svg", { xmlns: SVG, "font-family": theme.font });
-    const root = g(svg, 0, 0);
-    const titleH = 26;
-    const deck = g(root, 0, 0);
-    let x = 0, deckH = 0;
-    if (profile.wheels && profile.wheels.length) {
-      const gr = g(deck, x, 0);
-      const s = drawWheels(gr, profile.wheels, theme);
-      x += s.w + GAP;
-      deckH = Math.max(deckH, s.h);
-    }
-    if (profile.transport && profile.transport.length || profile.knobs || profile.buttons && profile.buttons.length) {
-      const cluster = g(deck, x, 0);
-      let cy = 0, cw = 0;
-      if (profile.transport && profile.transport.length) {
-        const gr = g(cluster, 0, cy);
-        const s = drawTransport(gr, profile.transport, theme);
-        cy += s.h + 6;
-        cw = Math.max(cw, s.w);
-      }
-      if (profile.buttons && profile.buttons.length) {
-        const gr = g(cluster, 0, cy);
-        const s = drawButtons(gr, profile.buttons, theme);
-        cy += s.h + 8;
-        cw = Math.max(cw, s.w);
-      }
-      if (profile.knobs) {
-        const gr = g(cluster, 0, cy);
-        const s = drawKnobs(gr, profile.knobs, theme);
-        cy += s.h;
-        cw = Math.max(cw, s.w);
-        if (profile.knobBanks > 1) {
-          const t = label(cluster, s.w + 2, cy - s.h / 2, "B\xD7" + profile.knobBanks, theme.accent, 8);
-          t.setAttribute("text-anchor", "start");
-        }
-      }
-      x += cw + GAP;
-      deckH = Math.max(deckH, cy);
-    }
-    if (profile.pads && profile.pads.count) {
-      const gr = g(deck, x, 0);
-      const s = drawPads(gr, profile.pads, theme);
-      if (profile.pads.banks > 1) {
-        const t = label(gr, s.w, -6, "PAD-B \xD7" + profile.pads.banks, theme.accent, 8);
-        t.setAttribute("text-anchor", "end");
-      }
-      x += s.w + GAP;
-      deckH = Math.max(deckH, s.h);
-    }
-    const deckW = Math.max(0, x - GAP);
-    let kb = { w: 0, h: 0 };
-    const kbY = deckH ? deckH + GAP : 0;
-    if (profile.keys && profile.keys.count) {
-      let whiteTotal = 0;
-      const f = (_a = profile.keys.firstNote) != null ? _a : 48;
-      for (let n = 0; n < profile.keys.count; n++) if (!BLACK_PCS.has((f + n) % 12)) whiteTotal++;
-      const ideal = Math.max(deckW, whiteTotal * 34);
-      const targetWidth = Math.max(deckW, Math.min(ideal, maxWidth));
-      const gr = g(root, 0, kbY);
-      kb = drawKeyboard(gr, profile.keys, theme, targetWidth, { minKeyW, startWhite });
-    }
-    const contentW = Math.max(deckW, kb.w);
-    const contentH = kbY + kb.h;
-    const W = contentW + P * 2;
-    const H = contentH + P * 2 + titleH;
-    root.setAttribute("transform", `translate(${P},${P + titleH})`);
-    const bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: theme.bg }, null);
-    const frame = el("rect", {
-      x: 8,
-      y: 8,
-      width: W - 16,
-      height: H - 16,
-      rx: 10,
-      fill: "none",
-      stroke: theme.ink,
-      "stroke-width": 1.5,
-      "stroke-opacity": 0.55
-    }, null);
-    svg.insertBefore(frame, root);
-    svg.insertBefore(bg, frame);
-    const title = label(svg, W / 2, P + 6, (profile.portName || profile.id || "CONTROLLER").toUpperCase(), theme.accent, 12);
-    title.setAttribute("letter-spacing", ".22em");
-    if (profile.learned) {
-      const badge = label(svg, W - P - 6, P + 6, "\u2605 LEARNED", theme.mute, 8);
-      badge.setAttribute("text-anchor", "end");
-    }
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.setAttribute("width", W);
-    svg.setAttribute("height", H);
-    svg.setAttribute("data-profile-id", profile.id || "");
-    svg.__keyboard = kb.windowed ? { windowed: true, startWhite: kb.startWhite, visibleWhites: kb.visibleWhites, whiteTotal: kb.whiteTotal } : { windowed: false, whiteTotal: kb.whiteTotal || 0 };
-    return svg;
-  }
-  function fitHint(svg) {
-    var _a, _b, _c, _d;
-    const w = +svg.getAttribute("width") || ((_b = (_a = svg.viewBox) == null ? void 0 : _a.baseVal) == null ? void 0 : _b.width) || 1;
-    const h = +svg.getAttribute("height") || ((_d = (_c = svg.viewBox) == null ? void 0 : _c.baseVal) == null ? void 0 : _d.height) || 1;
-    const aspect = w / h;
-    return {
-      w,
-      h,
-      aspect,
-      orientation: aspect >= 1.15 ? "landscape" : "portrait",
-      // ScreenOrientation plugin lock value the Android shell should apply
-      lock: aspect >= 1.15 ? "landscape" : "portrait"
-    };
-  }
-  function squareish(n) {
-    const c = Math.ceil(Math.sqrt(n));
-    return [Math.ceil(n / c), c];
-  }
-  function gmDrumNote(i) {
-    var _a;
-    return (_a = [36, 38, 42, 46, 37, 39, 49, 51][i]) != null ? _a : 36 + i;
-  }
-
-  // livex/src/core/router.js
-  var TRANSPORT_CC = { 116: "play", 117: "stop", 118: "rec", 114: "play", 115: "stop" };
-  function createRouter({ container, profile, litColor = "#4bd6c8", onAction, onWindow } = {}) {
-    const learnedCC = {};
-    const state = { knobBank: 0, padBank: 0, octave: 0, transpose: 0 };
-    const q = (sel) => container.querySelector(sel);
-    const keyEl = (note) => q(`[data-role="key"][data-note="${note}"]`);
-    // A pad-only controller has no keybed, so every note it sends is a pad — the
-    // JamJum JP-1 / JP mini and other 4x4 grids ship freely reassignable, often on
-    // channel 1 rather than 10, so a channel-10-only rule leaves their pads dead.
-    const padOnly = () => !!(profile && profile.pads && !(profile.keys && profile.keys.count));
-    // Resolve a note to its drawn pad. Prefers the LEARNED map (createProbe builds
-    // note -> pad index from what the hardware actually played, across all banks),
-    // so a pad keeps working after a bank switch changes the note it sends.
-    const padIndexOf = (note) => {
-      const m = profile && profile.pads && profile.pads.noteMap;
-      return m && m[note] != null ? m[note] : null;
-    };
-    const padEl = (note) => {
-      const i = padIndexOf(note);
-      if (i != null) {
-        const byIndex = q(`[data-role="pad"][data-index="${i}"]`);
-        if (byIndex) return byIndex;
-      }
-      return q(`[data-role="pad"][data-note="${note}"]`);
-    };
-    function lightOn(el2) {
-      if (!el2 || el2.__lit) return;
-      el2.__origFill = el2.getAttribute("fill");
-      el2.__origOp = el2.getAttribute("fill-opacity");
-      el2.setAttribute("fill", litColor);
-      el2.setAttribute("fill-opacity", "0.9");
-      el2.__lit = true;
-    }
-    function lightOff(el2) {
-      if (!el2 || !el2.__lit) return;
-      if (el2.__origFill != null) el2.setAttribute("fill", el2.__origFill);
-      else el2.removeAttribute("fill");
-      if (el2.__origOp != null) el2.setAttribute("fill-opacity", el2.__origOp);
-      else el2.removeAttribute("fill-opacity");
-      el2.__lit = false;
-    }
-    function flash(el2, ms = 130) {
-      if (!el2) return;
-      lightOn(el2);
-      setTimeout(() => lightOff(el2), ms);
-    }
-    function handleMidi(ev) {
-      const { cmd, chan, d1, d2 } = ev;
-      if (ev.transport) {
-        const el2 = q('[data-role="transport"][data-name="' + ev.transport + '"]');
-        if (el2) flash(el2, 180);
-        onAction && onAction({ type: "transport", name: ev.transport, source: "midi" });
-        return;
-      }
-      const noteOn2 = cmd === 144 && d2 > 0;
-      const noteOff = cmd === 128 || cmd === 144 && d2 === 0;
-      if (noteOn2) {
-        // Pad when: the drum channel, a pad-only board, or a note the grid has
-        // already been learned to own (a hybrid whose pads sit off channel 10).
-        const pi = padIndexOf(d1);
-        if (chan === 9 || padOnly() || pi != null) {
-          const pel = padEl(d1);
-          flash(pel);
-          onAction && onAction({
-            type: "pad", note: d1, vel: d2, bank: state.padBank,
-            index: pi != null ? pi : pel ? +pel.getAttribute("data-index") : null
-          });
-          return;
-        }
-        let el2 = keyEl(d1);
-        if (!el2 && onWindow) {
-          onWindow(d1);
-          el2 = keyEl(d1);
-        }
-        lightOn(el2);
-        onAction && onAction({ type: "noteon", note: d1, vel: d2 });
-        return;
-      }
-      if (noteOff) {
-        lightOff(chan === 9 || padOnly() || padIndexOf(d1) != null ? padEl(d1) : keyEl(d1));
-        onAction && onAction({ type: "noteoff", note: d1 });
-        return;
-      }
-      if (cmd === 176) {
-        if (d1 === 120 || d1 === 123) {
-          unlightAll();
-          onAction && onAction({ type: "allnotesoff" });
-          return;
-        }
-        const tname = TRANSPORT_CC[d1] || learnedCC[d1];
-        if (tname && d2 > 0) {
-          const el2 = q('[data-role="transport"][data-name="' + tname + '"]');
-          if (el2) flash(el2, 180);
-          onAction && onAction({ type: "transport", name: tname, source: "cc" });
-          return;
-        }
-        onAction && onAction({ type: "cc", cc: d1, val: d2, bank: state.knobBank });
-        return;
-      }
-      if (cmd === 224) {
-        onAction && onAction({ type: "pitch", val: d2 << 7 | d1 });
-        return;
-      }
-      if (cmd === 208) {
-        onAction && onAction({ type: "aftertouch", val: d1 });
-        return;
-      }
-      // Polyphonic key pressure — the JP-1's pads send this PER PAD while held,
-      // so it carries a pad index and can modulate that pad's voice on its own.
-      if (cmd === 160) {
-        onAction && onAction({ type: "aftertouch", note: d1, val: d2, poly: true, index: padIndexOf(d1) });
-        return;
-      }
-      // Program Change — the JP mini's documented way of stepping banks/kits.
-      if (cmd === 192) {
-        const banks = profile && profile.pads && profile.pads.banks || 1;
-        if (banks > 1) setBank("pad", d1 % banks);
-        onAction && onAction({ type: "program", value: d1 });
-        return;
-      }
-    }
-    function handleGamepadButton(i) {
-      const pads = container.querySelectorAll('[data-role="pad"]');
-      if (pads.length) flash(pads[i % pads.length]);
-      onAction && onAction({ type: "gpbutton", index: i });
-    }
-    // Not a plain A/B toggle: the SMK-25 has 2 pad banks, the JamJum JP-1 has 3
-    // pad banks (16x3 = the 48 pads it advertises) AND 3 knob banks (8x3 = 24),
-    // so the stepper cycles however many the profile declares.
-    function bankCount(which) {
-      if (which === "pad") return profile && profile.pads && profile.pads.banks || 2;
-      return profile && profile.knobBanks || 2;
-    }
-    function setBank(which, to) {
-      const k = which + "Bank";
-      const n = Math.max(1, bankCount(which));
-      state[k] = to != null ? (to % n + n) % n : (state[k] + 1) % n;
-      const btn = q(`[data-role="button"][data-name="${which}B"]`);
-      if (btn) {
-        btn.setAttribute("stroke-width", state[k] ? "2.6" : "1.4");
-        // name the live bank on the button so 3-way cycling is readable at a glance
-        const lbl = btn.parentNode && btn.parentNode.querySelector("text");
-        if (lbl && n > 2) lbl.textContent = (which === "pad" ? "PAD " : "KNOB ") + "ABCDEFGH"[state[k]];
-      }
-      onAction && onAction({ type: "bank", which, value: state[k], of: n });
-      return state[k];
-    }
-    const tapNotes = /* @__PURE__ */ new Map();
-    let drag = null, dragId = null;
-    function releaseTap(id) {
-      if (!tapNotes.has(id)) return;
-      const note = tapNotes.get(id);
-      tapNotes.delete(id);
-      lightOff(keyEl(note));
-      onAction && onAction({ type: "noteoff", note, source: "tap" });
-    }
-    function releaseAllTaps() {
-      for (const id of [...tapNotes.keys()]) releaseTap(id);
-    }
-    function wire() {
-      container.addEventListener("pointerdown", (e) => {
-        const t = e.target.closest && e.target.closest("[data-role]");
-        if (!t) return;
-        const role = t.getAttribute("data-role");
-        if (role === "key") {
-          const note = +t.getAttribute("data-note");
-          releaseTap(e.pointerId);
-          tapNotes.set(e.pointerId, note);
-          lightOn(t);
-          try {
-            t.setPointerCapture && t.setPointerCapture(e.pointerId);
-          } catch (err) {
-          }
-          onAction && onAction({ type: "noteon", note, vel: 100, source: "tap" });
-        } else if (role === "pad") {
-          flash(t);
-          onAction && onAction({
-            type: "pad", note: +t.getAttribute("data-note"), index: +t.getAttribute("data-index"),
-            vel: 100, bank: state.padBank, source: "tap"
-          });
-        } else if (role === "knob" || role === "wheel") {
-          const isKnob = role === "knob";
-          const key = isKnob ? +t.getAttribute("data-index") : t.getAttribute("data-name");
-          const start = (isKnob ? knobVals : wheelVals).get(key);
-          drag = { el: t, isKnob, y: e.clientY, v: start != null ? start : key === "pitch" ? 0.5 : 0.5 };
-          try {
-            t.setPointerCapture && t.setPointerCapture(e.pointerId);
-          } catch (err) {
-          }
-          dragId = e.pointerId;
-          e.preventDefault();
-        } else if (role === "button") {
-          if (t.getAttribute("data-bank-toggle") === "1") {
-            setBank(t.getAttribute("data-name") === "knobB" ? "knob" : "pad");
-          } else {
-            const name = t.getAttribute("data-name");
-            t.setAttribute("stroke-width", "2.6");
-            setTimeout(() => t.setAttribute("stroke-width", "1.4"), 160);
-            if (name === "oct-" || name === "oct+") onAction && onAction({ type: "octnav", dir: name === "oct+" ? 1 : -1, source: "button" });
-            else onAction && onAction({ type: "button", name });
-          }
-        } else if (role === "transport") {
-          onAction && onAction({ type: "transport", name: t.getAttribute("data-name") });
-        } else if (role === "octnav" && t.getAttribute("data-enabled") === "1") {
-          onAction && onAction({ type: "octnav", dir: +t.getAttribute("data-dir") });
-        }
-      });
-      const move = (e) => {
-        if (!drag || e.pointerId !== dragId) return;
-        const dv = (drag.y - e.clientY) / 140;
-        const v = Math.max(0, Math.min(1, drag.v + dv));
-        if (drag.isKnob) setKnob(drag.el, v);
-        else setWheel(drag.el, v);
-        e.preventDefault();
-      };
-      const dragEnd = (e) => {
-        if (!drag || e.pointerId !== dragId) return;
-        if (!drag.isKnob && drag.el.getAttribute("data-name") === "pitch") setWheel(drag.el, 0.5);
-        drag = null;
-        dragId = null;
-      };
-      if (typeof window !== "undefined") {
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", dragEnd);
-        window.addEventListener("pointercancel", dragEnd);
-      }
-      const end = (e) => releaseTap(e.pointerId);
-      if (typeof window !== "undefined") {
-        window.addEventListener("pointerup", end);
-        window.addEventListener("pointercancel", end);
-        window.addEventListener("blur", releaseAllTaps);
-      }
-    }
-    function unlightAll() {
-      container.querySelectorAll('[data-role="key"],[data-role="pad"]').forEach(lightOff);
-      tapNotes.clear();
-    }
-    const knobVals = /* @__PURE__ */ new Map();
-    const wheelVals = /* @__PURE__ */ new Map();
-    function paintKnob(el2, v) {
-      const line = el2.parentNode && el2.parentNode.querySelector("line");
-      if (!line) return;
-      const cx = +el2.getAttribute("cx"), cy = +el2.getAttribute("cy"), r = +el2.getAttribute("r");
-      const a = (-135 + v * 270) * Math.PI / 180;
-      line.setAttribute("x2", cx + Math.sin(a) * r * 0.7);
-      line.setAttribute("y2", cy - Math.cos(a) * r * 0.7);
-    }
-    function paintWheel(el2, v) {
-      const line = el2.parentNode && el2.parentNode.querySelector("line");
-      if (!line) return;
-      const y = +el2.getAttribute("y"), h = +el2.getAttribute("height");
-      const py = y + h - v * h;
-      line.setAttribute("y1", py);
-      line.setAttribute("y2", py);
-    }
-    const knobCC = (i) => i === 0 ? 7 : i === 1 ? 1 : 20 + i;
-    function setKnob(el2, v) {
-      const i = +el2.getAttribute("data-index");
-      v = Math.max(0, Math.min(1, v));
-      knobVals.set(i, v);
-      paintKnob(el2, v);
-      onAction && onAction({ type: "cc", cc: knobCC(i), val: Math.round(v * 127), bank: state.knobBank, source: "knob", index: i });
-    }
-    function setWheel(el2, v) {
-      const name = el2.getAttribute("data-name");
-      v = Math.max(0, Math.min(1, v));
-      wheelVals.set(name, v);
-      paintWheel(el2, v);
-      if (name === "pitch") onAction && onAction({ type: "pitch", val: Math.round(v * 16383), source: "wheel" });
-      else onAction && onAction({ type: "cc", cc: 1, val: Math.round(v * 127), source: "wheel" });
-    }
-    const KEY_SEMITONE = {
-      KeyZ: 0,
-      KeyS: 1,
-      KeyX: 2,
-      KeyD: 3,
-      KeyC: 4,
-      KeyV: 5,
-      KeyG: 6,
-      KeyB: 7,
-      KeyH: 8,
-      KeyN: 9,
-      KeyJ: 10,
-      KeyM: 11,
-      KeyQ: 12,
-      KeyW: 14,
-      KeyE: 16,
-      KeyR: 17,
-      KeyT: 19,
-      KeyY: 21,
-      KeyU: 23,
-      KeyI: 24,
-      KeyO: 26,
-      KeyP: 28
-    };
-    // On a board WITH keys the letter rows are notes, so pads live on the number
-    // row. On a pad-only board (JamJum JP-1 / JP mini and every other 4x4 grid)
-    // there are no notes to protect, so the whole 4x4 QWERTY block becomes the
-    // grid — same shape as the hardware, top row to bottom row.
-    const PAD_KEYS_ROW = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8"];
-    const PAD_KEYS_GRID = [
-      "Digit1", "Digit2", "Digit3", "Digit4",
-      "KeyQ", "KeyW", "KeyE", "KeyR",
-      "KeyA", "KeyS", "KeyD", "KeyF",
-      "KeyZ", "KeyX", "KeyC", "KeyV"
-    ];
-    const padKeys = () => padOnly() ? PAD_KEYS_GRID : PAD_KEYS_ROW;
-    const kbHeld = /* @__PURE__ */ new Map();
-    let kbOctave = 0;
-    function kbBaseNote() {
-      const first = profile && profile.keys && profile.keys.firstNote;
-      const el2 = container.querySelector('[data-role="key"]');
-      const base = first != null ? first : el2 ? +el2.getAttribute("data-note") : 60;
-      return base + kbOctave * 12;
-    }
-    function handleComputerKey(code, down) {
-      if (code === "Minus" || code === "BracketLeft") {
-        if (down) {
-          kbOctave--;
-          onAction && onAction({ type: "kboctave", octave: kbOctave });
-        }
-        return true;
-      }
-      if (code === "Equal" || code === "BracketRight") {
-        if (down) {
-          kbOctave++;
-          onAction && onAction({ type: "kboctave", octave: kbOctave });
-        }
-        return true;
-      }
-      const padIdx = padKeys().indexOf(code);
-      if (padIdx >= 0) {
-        const pads = container.querySelectorAll('[data-role="pad"]');
-        if (!pads.length) return false;
-        if (down && !kbHeld.has(code)) {
-          kbHeld.set(code, -1);
-          const el2 = pads[padIdx % pads.length];
-          flash(el2);
-          onAction && onAction({ type: "pad", note: +el2.getAttribute("data-note"), index: +el2.getAttribute("data-index"), vel: 110, bank: state.padBank, source: "kb" });
-        } else if (!down) kbHeld.delete(code);
-        return true;
-      }
-      const semi = KEY_SEMITONE[code];
-      if (semi === void 0) return false;
-      if (!container.querySelector('[data-role="key"]')) return false;
-      if (down) {
-        if (kbHeld.has(code)) return true;
-        const note = kbBaseNote() + semi;
-        kbHeld.set(code, note);
-        let el2 = keyEl(note);
-        if (!el2 && onWindow) {
-          onWindow(note);
-          el2 = keyEl(note);
-        }
-        lightOn(el2);
-        onAction && onAction({ type: "noteon", note, vel: 100, source: "kb" });
-      } else {
-        if (!kbHeld.has(code)) return true;
-        const note = kbHeld.get(code);
-        kbHeld.delete(code);
-        lightOff(keyEl(note));
-        onAction && onAction({ type: "noteoff", note, source: "kb" });
-      }
-      return true;
-    }
-    function releaseAllKeyboard() {
-      for (const [code, note] of [...kbHeld]) {
-        kbHeld.delete(code);
-        if (note >= 0) {
-          lightOff(keyEl(note));
-          onAction && onAction({ type: "noteoff", note, source: "kb" });
-        }
-      }
-    }
-    return {
-      handleMidi,
-      handleGamepadButton,
-      setBank,
-      wire,
-      flash,
-      lightOn,
-      lightOff,
-      unlightAll,
-      releaseAllTaps,
-      handleComputerKey,
-      releaseAllKeyboard,
-      setKnob,
-      setWheel,
-      state
-    };
   }
 
   // livex/src/core/devicecache.js
@@ -1847,10 +1100,6 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       programChange: false
     };
     let dirty = false;
-    // A pad-only controller (JamJum JP-1 / JP mini, Korg nanoPAD, a launch grid)
-    // has no keybed, so EVERY note it sends is a pad — regardless of channel.
-    // These units are user-configurable and frequently ship set to channel 1, not
-    // 10, which is exactly why a channel-10-only rule left their pads dead.
     const padOnly = () => !!(profile.pads && !(profile.keys && profile.keys.count));
     function feed(status, d1, _d2) {
       const type = status & 240;
@@ -1907,31 +1156,74 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     return { feed, refine, seen };
   }
-  // ---- pad-grid auto-learn --------------------------------------------------
-  // The JamJum JP-1, JP mini and M-Vave SMK-25 all let you reassign every pad's
-  // note in their vendor software, and none of them publish a default note table.
-  // Hard-coding GM drum notes therefore mis-maps any unit the owner has touched.
-  // Instead we learn the grid from what the hardware actually plays:
-  //   notes sorted ascending -> pad 1..N reading left-to-right, top-to-bottom
-  //   (the order the pads are numbered on all three units, and the order
-  //   drawPads() draws them), overflowing into the next bank past N.
-  // Writes notes[] (the bank-A note per pad, used for the drawn data-note) and
-  // noteMap { note: padIndex } across ALL banks, so a pad still lights and fires
-  // after a bank switch changes the note it sends.
+  function padNumberAt(drawIndex, rows, cols) {
+    const r = Math.floor(drawIndex / cols), c = drawIndex % cols;
+    return (rows - 1 - r) * cols + c + 1;
+  }
+  function drawIndexOfPad(padNo, rows, cols) {
+    const r = Math.floor(padNo / cols), c = padNo % cols;
+    return (rows - 1 - r) * cols + c;
+  }
+  function setPadMapFromPresses(pads, pressed) {
+    if (!pads || !pressed || !pressed.length) return pads;
+    const count = pads.count || nextPadCount(pressed.length);
+    if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
+    const [rows, cols] = pads.layout;
+    const map = {};
+    const drawn = new Array(count);
+    pressed.forEach((n, i) => {
+      const di = drawIndexOfPad(i % count, rows, cols);
+      map[n] = di;
+      if (i < count) drawn[di] = n;
+    });
+    pads.count = count;
+    pads.notes = drawn;
+    pads.noteMap = map;
+    pads.learned = true;
+    pads.taught = true;
+    pads.learn = false;
+    return pads;
+  }
   function learnPadGrid(pads, padNotes) {
     if (!pads || pads.learn === false || !padNotes || !padNotes.size) return pads;
     const notes = [...padNotes].sort((a, b) => a - b);
     const count = pads.count || nextPadCount(notes.length);
-    const cap = count * (pads.banks || 1);
-    const map = {};
-    notes.slice(0, cap).forEach((n, i) => {
-      map[n] = i % count;
-    });
-    pads.count = count;
     if (!pads.layout || !pads.layout[0]) pads.layout = padLayout(count);
-    pads.notes = notes.slice(0, count);
+    const [rows, cols] = pads.layout;
+    const cap = count * (pads.banks || 1);
+    const map = Object.assign({}, pads.noteMap || {});
+    const takenPads = /* @__PURE__ */ new Set();
+    for (const k in map) takenPads.add(padNumberAt(map[k], rows, cols) - 1);
+    const freeNear = (want) => {
+      if (!takenPads.has(want)) return want;
+      for (let d = 1; d < count; d++) {
+        const up = want + d, dn = want - d;
+        if (up < count && !takenPads.has(up)) return up;
+        if (dn >= 0 && !takenPads.has(dn)) return dn;
+      }
+      return want;
+    };
+    let rank = 0;
+    for (const n of notes) {
+      if (rank >= cap) break;
+      const padNo = rank % count;
+      rank++;
+      if (map[n] != null) continue;
+      const slot = freeNear(padNo);
+      map[n] = drawIndexOfPad(slot, rows, cols);
+      takenPads.add(slot);
+    }
+    const drawn = new Array(count);
+    for (const k in map) {
+      const di = map[k];
+      if (di < count && drawn[di] == null) drawn[di] = +k;
+    }
+    pads.count = count;
+    pads.notes = drawn;
     pads.noteMap = map;
     pads.learned = true;
+    pads.provisional = notes.length < count;
+    pads.seen = notes.length;
     return pads;
   }
   function nextPadCount(n) {
@@ -1957,18 +1249,915 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     });
   }
 
+  // livex/src/core/schematic.js
+  var SVG = "http://www.w3.org/2000/svg";
+  var BLACK_PCS = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
+  var P = 26;
+  var GAP = 18;
+  var WKEY_H = 104;
+  var PAD = 48;
+  var PAD_GAP = 9;
+  var KNOB_R = 17;
+  var KNOB_GAP = 12;
+  var TR_W = 42;
+  var TR_H = 30;
+  var TR_GAP = 8;
+  var WHEEL_W = 22;
+  var WHEEL_H = 100;
+  var WHEEL_GAP = 10;
+  function el(tag, attrs = {}, parent) {
+    const n = document.createElementNS(SVG, tag);
+    for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function g(parent, x = 0, y = 0) {
+    return el("g", { transform: `translate(${x},${y})` }, parent);
+  }
+  function label(parent, x, y, text, fill, size = 9) {
+    const t = el("text", {
+      x,
+      y,
+      fill,
+      "font-size": size,
+      "font-weight": 800,
+      "letter-spacing": ".12em",
+      "text-anchor": "middle",
+      "font-family": "'Oswald','Arial Narrow',sans-serif"
+    }, parent);
+    t.textContent = text;
+    return t;
+  }
+  function drawWheels(parent, wheels, theme) {
+    let x = 0;
+    wheels.forEach((name, i) => {
+      const gr = g(parent, x, 0);
+      el("rect", {
+        x: 0,
+        y: 0,
+        width: WHEEL_W,
+        height: WHEEL_H,
+        rx: 6,
+        fill: "none",
+        stroke: theme.ink,
+        "stroke-width": 1.5,
+        "data-role": "wheel",
+        "data-index": i,
+        "data-name": name
+      }, gr);
+      el("line", { x1: 3, y1: WHEEL_H / 2, x2: WHEEL_W - 3, y2: WHEEL_H / 2, stroke: theme.mute, "stroke-width": 1 }, gr);
+      label(gr, WHEEL_W / 2, WHEEL_H + 12, name.toUpperCase(), theme.mute, 8);
+      x += WHEEL_W + WHEEL_GAP;
+    });
+    return { w: Math.max(0, x - WHEEL_GAP), h: WHEEL_H + 14 };
+  }
+  function drawTransport(parent, transport2, theme) {
+    const glyph = { play: "\u25B6", stop: "\u25A0", rec: "\u25CF" };
+    let x = 0;
+    transport2.forEach((name, i) => {
+      const gr = g(parent, x, 0);
+      el("rect", {
+        x: 0,
+        y: 0,
+        width: TR_W,
+        height: TR_H,
+        rx: 5,
+        fill: "none",
+        stroke: theme.ink,
+        "stroke-width": 1.5,
+        "data-role": "transport",
+        "data-index": i,
+        "data-name": name,
+        "data-hold": "1"
+      }, gr);
+      const t = label(gr, TR_W / 2, TR_H / 2 + 4, glyph[name] || name, name === "rec" ? theme.accent : theme.ink, 13);
+      t.setAttribute("letter-spacing", "0");
+      x += TR_W + TR_GAP;
+    });
+    return { w: Math.max(0, x - TR_GAP), h: TR_H + 12 };
+  }
+  var BTN_LABEL = {
+    arp: "ARP",
+    scch: "SCCH",
+    bt: "BT",
+    knobB: "KNOB-B",
+    padB: "PAD-B",
+    "oct-": "OCT\u2212",
+    "oct+": "OCT+",
+    // JamJum JP-1: six printed buttons, each with a short and a long press action
+    b1: "B1",
+    b2: "B2",
+    b3: "B3",
+    b4: "B4",
+    b5: "B5",
+    b6: "B6"
+  };
+  function drawButtons(parent, buttons, theme) {
+    const BW = 52, BH = 22, BG = 7, PER = 4;
+    let x = 0, y = 0, col = 0, maxX = 0;
+    buttons.forEach((name, i) => {
+      const gr = g(parent, x, y);
+      const isBank = name === "knobB" || name === "padB";
+      el("rect", {
+        x: 0,
+        y: 0,
+        width: BW,
+        height: BH,
+        rx: 4,
+        fill: "none",
+        stroke: isBank ? theme.accent : theme.ink,
+        "stroke-width": 1.4,
+        "data-role": "button",
+        "data-index": i,
+        "data-name": name,
+        "data-bank-toggle": isBank ? "1" : null,
+        "data-hold": "1"
+      }, gr);
+      const t = label(gr, BW / 2, BH / 2 + 3, BTN_LABEL[name] || name.toUpperCase(), isBank ? theme.accent : theme.ink, 8);
+      t.setAttribute("letter-spacing", ".06em");
+      maxX = Math.max(maxX, x + BW);
+      col++;
+      x += BW + BG;
+      if (col >= PER) {
+        col = 0;
+        x = 0;
+        y += BH + BG;
+      }
+    });
+    return { w: maxX, h: y + (col ? BH : 0) };
+  }
+  var KNOB_LABELS = ["VOL", "TONE", "CUTOFF", "RES", "ATTACK", "RELEASE", "SPACE", "DRUMS"];
+  var KNOB_PARAMS = ["volume", "tone", "cutoff", "resonance", "attack", "release", "space", "drums"];
+  function drawKnobs(parent, count, theme) {
+    const perRow = Math.min(count, 4);
+    const ROW_H = KNOB_R * 2 + KNOB_GAP + 9;
+    let x = 0, y = KNOB_R, maxX = 0, row = 0, col = 0;
+    for (let i = 0; i < count; i++) {
+      const cx = x + KNOB_R, cy = y;
+      const gr = g(parent, 0, 0);
+      const job = KNOB_LABELS[i % KNOB_LABELS.length];
+      el("circle", {
+        cx,
+        cy,
+        r: KNOB_R,
+        fill: "none",
+        stroke: theme.ink,
+        "stroke-width": 1.5,
+        "data-role": "knob",
+        "data-index": i,
+        "data-hold": "1",
+        "data-param": KNOB_PARAMS[i % KNOB_PARAMS.length]
+      }, gr);
+      el("line", { x1: cx, y1: cy, x2: cx - KNOB_R * 0.7, y2: cy - KNOB_R * 0.7, stroke: theme.mute, "stroke-width": 1.5 }, gr);
+      const cap = label(gr, cx, cy + KNOB_R + 8, job, theme.mute, 7.2);
+      cap.setAttribute("letter-spacing", ".06em");
+      maxX = Math.max(maxX, cx + KNOB_R);
+      col++;
+      x += KNOB_R * 2 + KNOB_GAP;
+      if (col >= perRow) {
+        col = 0;
+        row++;
+        x = 0;
+        y += ROW_H;
+      }
+    }
+    return { w: maxX, h: (row + (col ? 1 : 0)) * ROW_H };
+  }
+  function drawPads(parent, pads, theme) {
+    const [rows, cols] = pads.layout && pads.layout[0] ? pads.layout : squareish(pads.count);
+    const noteFor = (i2) => pads.notes && pads.notes[i2] != null ? pads.notes[i2] : gmDrumNote(padNumberAt(i2, rows, cols) - 1);
+    let i = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols && i < pads.count; c++, i++) {
+        const x = c * (PAD + PAD_GAP), y = r * (PAD + PAD_GAP);
+        const gr = g(parent, x, y);
+        const learned = !!(pads.notes && pads.notes[i] != null);
+        const padNo = padNumberAt(i, rows, cols);
+        el("rect", {
+          x: 0,
+          y: 0,
+          width: PAD,
+          height: PAD,
+          rx: 7,
+          fill: "none",
+          stroke: learned ? theme.accent : theme.ink,
+          "stroke-width": learned ? 1.8 : 1.5,
+          "data-role": "pad",
+          "data-index": i,
+          "data-pad": padNo,
+          "data-note": noteFor(i),
+          "data-drop": "1",
+          "data-hold": "1"
+        }, gr);
+        label(gr, PAD / 2, PAD / 2 + 3, "PAD " + padNo, theme.mute, 8);
+      }
+    }
+    return { w: cols * (PAD + PAD_GAP) - PAD_GAP, h: rows * (PAD + PAD_GAP) - PAD_GAP };
+  }
+  var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  var LEGEND_H = 38;
+  var LEG_TOP_W = 10;
+  var LEG_TOP_B = 17.5;
+  var LEG_BOT_W = 27;
+  var LEG_BOT_B = 34.5;
+  function octOf(note) {
+    return Math.floor(note / 12) - 1;
+  }
+  function drawKeyboard(parent, keys, theme, targetWidth, opts = {}) {
+    var _a;
+    const first = (_a = keys.firstNote) != null ? _a : 48;
+    const count = keys.count;
+    const acc = contraryColor(theme.whiteKey);
+    const legend = keys.legend || {};
+    const arp = legend.arp || [], scch = legend.scch || {};
+    const minKeyW = opts.minKeyW || 24;
+    const notes = [];
+    for (let n = 0; n < count; n++) {
+      const note = first + n;
+      notes.push({ note, i: n, black: BLACK_PCS.has(note % 12) });
+    }
+    const whites = notes.filter((x) => !x.black);
+    const whiteTotal = whites.length;
+    const fitsFull = whiteTotal * minKeyW <= targetWidth + 0.5;
+    let visibleWhites = whiteTotal, startWhite = 0, windowed = false;
+    if (!fitsFull) {
+      windowed = true;
+      visibleWhites = Math.max(7, Math.min(whiteTotal, Math.floor(targetWidth / minKeyW)));
+      startWhite = Math.max(0, Math.min(opts.startWhite | 0, whiteTotal - visibleWhites));
+    }
+    const startIdx = notes.indexOf(whites[startWhite]);
+    const endIdx = notes.indexOf(whites[startWhite + visibleWhites - 1]);
+    const vis = notes.slice(startIdx, endIdx + 1);
+    const wkW = targetWidth / visibleWhites;
+    const wkH = Math.max(88, Math.min(WKEY_H, wkW * 3.1));
+    const bkW = wkW * 0.58, bkH = wkH * 0.62;
+    let wi = 0;
+    const vw = [], vb = [], labels = [];
+    for (const nd of vis) {
+      let cx;
+      if (nd.black) {
+        const x = wi * wkW - bkW / 2;
+        vb.push({ ...nd, x });
+        cx = x + bkW / 2;
+      } else {
+        const x = wi * wkW;
+        vw.push({ ...nd, x });
+        cx = x + wkW / 2;
+        wi++;
+      }
+      labels.push({ cx, black: nd.black, top: nd.i < 12 ? NOTE_NAMES[nd.note % 12] : scch[nd.i] || "", bot: arp[nd.i] || "" });
+    }
+    const legFont = Math.max(4.6, Math.min(6.6, wkW * 0.2));
+    const legible = legFont >= 5.5;
+    labels.forEach((l) => {
+      if (l.top && (legible || l.top.length <= 2)) {
+        const t = label(parent, l.cx, l.black ? LEG_TOP_B : LEG_TOP_W, l.top, l.black ? acc : theme.ink, Math.max(5.2, legFont));
+        t.setAttribute("letter-spacing", "0");
+      }
+      if (l.bot && legible) {
+        const t = label(parent, l.cx, l.black ? LEG_BOT_B : LEG_BOT_W, l.bot, theme.mute, legFont);
+        t.setAttribute("letter-spacing", "0");
+      }
+    });
+    vw.forEach((k) => el("rect", {
+      x: k.x,
+      y: LEGEND_H,
+      width: wkW,
+      height: wkH,
+      rx: 3,
+      fill: theme.whiteKey,
+      "fill-opacity": 0.06,
+      stroke: theme.ink,
+      "stroke-width": 1.3,
+      "data-role": "key",
+      "data-index": k.i,
+      "data-note": k.note,
+      "data-drop": "1",
+      "data-hold": "1"
+    }, parent));
+    vb.forEach((k) => el("rect", {
+      x: k.x,
+      y: LEGEND_H,
+      width: bkW,
+      height: bkH,
+      rx: 2.5,
+      fill: acc,
+      stroke: theme.ink,
+      "stroke-width": 1,
+      "data-role": "key",
+      "data-index": k.i,
+      "data-note": k.note,
+      "data-accidental": "1",
+      "data-drop": "1",
+      "data-hold": "1"
+    }, parent));
+    let h = LEGEND_H + wkH;
+    if (windowed) {
+      const y = h + 5;
+      const canL = startWhite > 0, canR = startWhite + visibleWhites < whiteTotal;
+      const navBtn = (x, dir, txt, on) => {
+        const gr = g(parent, x, y);
+        el("rect", { x: 0, y: 0, width: 46, height: 15, rx: 3, fill: "none", stroke: on ? theme.accent : theme.mute, "stroke-width": 1.2, "data-role": "octnav", "data-dir": dir, "data-enabled": on ? "1" : "0" }, gr);
+        const t = label(gr, 23, 10.5, txt, on ? theme.accent : theme.mute, 7);
+        t.setAttribute("letter-spacing", ".04em");
+      };
+      navBtn(0, "-1", "\u25C0 8VE", canL);
+      navBtn(targetWidth - 46, "1", "8VE \u25B6", canR);
+      const barX = 54, barW = targetWidth - 108, barY = y + 6;
+      el("rect", { x: barX, y: barY, width: barW, height: 4, rx: 2, fill: "none", stroke: theme.mute, "stroke-width": 1 }, parent);
+      el("rect", { x: barX + barW * (startWhite / whiteTotal), y: barY, width: barW * (visibleWhites / whiteTotal), height: 4, rx: 2, fill: theme.accent }, parent);
+      const lo = label(parent, barX, barY - 3, NOTE_NAMES[first % 12] + octOf(first), theme.mute, 6);
+      lo.setAttribute("text-anchor", "start");
+      const last = first + count - 1;
+      const hi = label(parent, barX + barW, barY - 3, NOTE_NAMES[last % 12] + octOf(last), theme.mute, 6);
+      hi.setAttribute("text-anchor", "end");
+      h = y + 16;
+    }
+    return { w: targetWidth, h, windowed, startWhite, visibleWhites, whiteTotal };
+  }
+  function renderSchematic(profile, { theme = DEFAULT_THEME, minKeyW, startWhite, maxWidth = 900 } = {}) {
+    var _a;
+    const svg = el("svg", { xmlns: SVG, "font-family": theme.font });
+    const root = g(svg, 0, 0);
+    let titleH = 26;
+    const inner = Math.max(150, maxWidth - P * 2);
+    const deck = g(root, 0, 0);
+    const regions = [];
+    if (profile.wheels && profile.wheels.length) {
+      const gr = g(deck, 0, 0);
+      const s = drawWheels(gr, profile.wheels, theme);
+      regions.push({ gr, w: s.w, h: s.h });
+    }
+    if (profile.transport && profile.transport.length || profile.knobs || profile.buttons && profile.buttons.length) {
+      const cluster = g(deck, 0, 0);
+      let cy = 0, cw = 0, pad = 0;
+      if (profile.transport && profile.transport.length) {
+        const gr = g(cluster, 0, cy);
+        const s = drawTransport(gr, profile.transport, theme);
+        cy += s.h + 6;
+        cw = Math.max(cw, s.w);
+      }
+      if (profile.buttons && profile.buttons.length) {
+        const gr = g(cluster, 0, cy);
+        const s = drawButtons(gr, profile.buttons, theme);
+        cy += s.h + 8;
+        cw = Math.max(cw, s.w);
+      }
+      if (profile.knobs) {
+        const gr = g(cluster, 0, cy);
+        const s = drawKnobs(gr, profile.knobs, theme);
+        cy += s.h;
+        cw = Math.max(cw, s.w);
+        if (profile.knobBanks > 1) {
+          const t = label(cluster, s.w + 2, cy - s.h / 2, "B\xD7" + profile.knobBanks, theme.accent, 8);
+          t.setAttribute("text-anchor", "start");
+          pad = 26;
+        }
+      }
+      regions.push({ gr: cluster, w: cw + pad, h: cy });
+    }
+    if (profile.pads && profile.pads.count) {
+      const gr = g(deck, 0, 0);
+      const s = drawPads(gr, profile.pads, theme);
+      if (profile.pads.banks > 1) {
+        const t = label(gr, s.w, -6, "PAD-B \xD7" + profile.pads.banks, theme.accent, 8);
+        t.setAttribute("text-anchor", "end");
+      }
+      regions.push({ gr, w: s.w, h: s.h });
+    }
+    const widest = regions.reduce((a, r) => Math.max(a, r.w), 0);
+    const avail = Math.max(widest, inner);
+    let rx = 0, ry = 0, rowH = 0, deckW = 0;
+    for (const r of regions) {
+      if (rx > 0 && rx + r.w > avail + 0.5) {
+        rx = 0;
+        ry += rowH + GAP;
+        rowH = 0;
+      }
+      r.gr.setAttribute("transform", `translate(${rx},${ry})`);
+      rx += r.w + GAP;
+      rowH = Math.max(rowH, r.h);
+      deckW = Math.max(deckW, rx - GAP);
+    }
+    const deckH = regions.length ? ry + rowH : 0;
+    let kb = { w: 0, h: 0 };
+    const kbY = deckH ? deckH + GAP : 0;
+    if (profile.keys && profile.keys.count) {
+      let whiteTotal = 0;
+      const f = (_a = profile.keys.firstNote) != null ? _a : 48;
+      for (let n = 0; n < profile.keys.count; n++) if (!BLACK_PCS.has((f + n) % 12)) whiteTotal++;
+      const ideal = Math.max(deckW, whiteTotal * 34);
+      const targetWidth = Math.max(Math.min(deckW, inner), Math.min(ideal, inner));
+      const gr = g(root, 0, kbY);
+      kb = drawKeyboard(gr, profile.keys, theme, targetWidth, { minKeyW, startWhite });
+    }
+    const pd = profile.pads;
+    const titleText = (profile.portName || profile.id || "CONTROLLER").toUpperCase();
+    let badgeText = profile.learned ? "\u2605 LEARNED" : "";
+    if (pd && pd.taught) badgeText = "\u2713 PADS MAPPED";
+    else if (pd && pd.provisional) badgeText = "LEARNING PADS " + (pd.seen || 0) + "/" + pd.count + " \u2014 \u2317 MAP PADS to set";
+    else if (pd && pd.learned) badgeText = "\u2605 PADS LEARNED";
+    const contentW = Math.max(deckW, kb.w);
+    const contentH = kbY + kb.h;
+    const W = contentW + P * 2;
+    const runW = (s, size, track) => s.length * size * (0.58 + track);
+    const twoLine = badgeText && runW(titleText, 12, 0.22) + runW(badgeText, 8, 0.12) + 24 > W - P * 2;
+    if (twoLine) titleH = 40;
+    const H = contentH + P * 2 + titleH;
+    root.setAttribute("transform", `translate(${P},${P + titleH})`);
+    const bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: theme.bg }, null);
+    const frame = el("rect", {
+      x: 8,
+      y: 8,
+      width: W - 16,
+      height: H - 16,
+      rx: 10,
+      fill: "none",
+      stroke: theme.ink,
+      "stroke-width": 1.5,
+      "stroke-opacity": 0.55
+    }, null);
+    svg.insertBefore(frame, root);
+    svg.insertBefore(bg, frame);
+    const title = label(svg, W / 2, P + 6, titleText, theme.accent, 12);
+    title.setAttribute("letter-spacing", ".22em");
+    if (badgeText) {
+      const badge = twoLine ? label(svg, W / 2, P + 20, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8) : label(svg, W - P - 6, P + 6, badgeText, pd && pd.provisional ? theme.accent : theme.mute, 8);
+      if (!twoLine) badge.setAttribute("text-anchor", "end");
+    }
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    svg.setAttribute("data-profile-id", profile.id || "");
+    svg.__keyboard = kb.windowed ? { windowed: true, startWhite: kb.startWhite, visibleWhites: kb.visibleWhites, whiteTotal: kb.whiteTotal } : { windowed: false, whiteTotal: kb.whiteTotal || 0 };
+    return svg;
+  }
+  function fitHint(svg) {
+    var _a, _b, _c, _d;
+    const w = +svg.getAttribute("width") || ((_b = (_a = svg.viewBox) == null ? void 0 : _a.baseVal) == null ? void 0 : _b.width) || 1;
+    const h = +svg.getAttribute("height") || ((_d = (_c = svg.viewBox) == null ? void 0 : _c.baseVal) == null ? void 0 : _d.height) || 1;
+    const aspect = w / h;
+    return {
+      w,
+      h,
+      aspect,
+      orientation: aspect >= 1.15 ? "landscape" : "portrait",
+      // ScreenOrientation plugin lock value the Android shell should apply
+      lock: aspect >= 1.15 ? "landscape" : "portrait"
+    };
+  }
+  function squareish(n) {
+    const c = Math.ceil(Math.sqrt(n));
+    return [Math.ceil(n / c), c];
+  }
+  function gmDrumNote(i) {
+    var _a;
+    return (_a = [36, 38, 42, 46, 37, 39, 49, 51][i]) != null ? _a : 36 + i;
+  }
+
+  // livex/src/core/router.js
+  var TRANSPORT_CC = { 116: "play", 117: "stop", 118: "rec", 114: "play", 115: "stop" };
+  function createRouter({ container, profile, litColor = "#4bd6c8", onAction, onWindow } = {}) {
+    const learnedCC = {};
+    const state = { knobBank: 0, padBank: 0, octave: 0, transpose: 0 };
+    const q = (sel) => container.querySelector(sel);
+    const keyEl = (note) => q(`[data-role="key"][data-note="${note}"]`);
+    const padOnly = () => !!(profile && profile.pads && !(profile.keys && profile.keys.count));
+    const padIndexOf = (note) => {
+      const m = profile && profile.pads && profile.pads.noteMap;
+      return m && m[note] != null ? m[note] : null;
+    };
+    const padEl = (note) => {
+      const i = padIndexOf(note);
+      if (i != null) {
+        const byIndex = q(`[data-role="pad"][data-index="${i}"]`);
+        if (byIndex) return byIndex;
+      }
+      return q(`[data-role="pad"][data-note="${note}"]`);
+    };
+    function lightOn(el2) {
+      if (!el2 || el2.__lit) return;
+      el2.__origFill = el2.getAttribute("fill");
+      el2.__origOp = el2.getAttribute("fill-opacity");
+      el2.setAttribute("fill", litColor);
+      el2.setAttribute("fill-opacity", "0.9");
+      el2.__lit = true;
+    }
+    function lightOff(el2) {
+      if (!el2 || !el2.__lit) return;
+      if (el2.__origFill != null) el2.setAttribute("fill", el2.__origFill);
+      else el2.removeAttribute("fill");
+      if (el2.__origOp != null) el2.setAttribute("fill-opacity", el2.__origOp);
+      else el2.removeAttribute("fill-opacity");
+      el2.__lit = false;
+    }
+    function flash(el2, ms = 130) {
+      if (!el2) return;
+      lightOn(el2);
+      setTimeout(() => lightOff(el2), ms);
+    }
+    function handleMidi(ev) {
+      const { cmd, chan, d1, d2 } = ev;
+      if (ev.transport) {
+        const el2 = q('[data-role="transport"][data-name="' + ev.transport + '"]');
+        if (el2) flash(el2, 180);
+        onAction && onAction({ type: "transport", name: ev.transport, source: "midi" });
+        return;
+      }
+      const noteOn2 = cmd === 144 && d2 > 0;
+      const noteOff = cmd === 128 || cmd === 144 && d2 === 0;
+      if (noteOn2) {
+        const pi = padIndexOf(d1);
+        if (chan === 9 || padOnly() || pi != null) {
+          const el3 = padEl(d1);
+          flash(el3);
+          onAction && onAction({
+            type: "pad",
+            note: d1,
+            vel: d2,
+            bank: state.padBank,
+            index: pi != null ? pi : el3 ? +el3.getAttribute("data-index") : null
+          });
+          return;
+        }
+        let el2 = keyEl(d1);
+        if (!el2 && onWindow) {
+          onWindow(d1);
+          el2 = keyEl(d1);
+        }
+        lightOn(el2);
+        onAction && onAction({ type: "noteon", note: d1, vel: d2 });
+        return;
+      }
+      if (noteOff) {
+        lightOff(chan === 9 || padOnly() || padIndexOf(d1) != null ? padEl(d1) : keyEl(d1));
+        onAction && onAction({ type: "noteoff", note: d1 });
+        return;
+      }
+      if (cmd === 176) {
+        if (d1 === 120 || d1 === 123) {
+          unlightAll();
+          onAction && onAction({ type: "allnotesoff" });
+          return;
+        }
+        const tname = TRANSPORT_CC[d1] || learnedCC[d1];
+        if (tname && d2 > 0) {
+          const el2 = q('[data-role="transport"][data-name="' + tname + '"]');
+          if (el2) flash(el2, 180);
+          onAction && onAction({ type: "transport", name: tname, source: "cc" });
+          return;
+        }
+        onAction && onAction({ type: "cc", cc: d1, val: d2, bank: state.knobBank });
+        return;
+      }
+      if (cmd === 224) {
+        onAction && onAction({ type: "pitch", val: d2 << 7 | d1 });
+        return;
+      }
+      if (cmd === 208) {
+        onAction && onAction({ type: "aftertouch", val: d1 });
+        return;
+      }
+      if (cmd === 160) {
+        const pi = padIndexOf(d1);
+        onAction && onAction({ type: "aftertouch", note: d1, val: d2, poly: true, index: pi });
+        return;
+      }
+      if (cmd === 192) {
+        const banks = profile && profile.pads && profile.pads.banks || 1;
+        if (banks > 1) setBank("pad", d1 % banks);
+        onAction && onAction({ type: "program", value: d1 });
+        return;
+      }
+    }
+    function handleGamepadButton(i) {
+      const pads = container.querySelectorAll('[data-role="pad"]');
+      if (pads.length) flash(pads[i % pads.length]);
+      onAction && onAction({ type: "gpbutton", index: i });
+    }
+    function bankCount(which) {
+      if (which === "pad") return profile && profile.pads && profile.pads.banks || 2;
+      return profile && profile.knobBanks || 2;
+    }
+    function setBank(which, to) {
+      const k = which + "Bank";
+      const n = Math.max(1, bankCount(which));
+      state[k] = to != null ? (to % n + n) % n : (state[k] + 1) % n;
+      const btn = q(`[data-role="button"][data-name="${which}B"]`);
+      if (btn) {
+        btn.setAttribute("stroke-width", state[k] ? "2.6" : "1.4");
+        const lbl = btn.parentNode && btn.parentNode.querySelector("text");
+        if (lbl && n > 2) lbl.textContent = (which === "pad" ? "PAD " : "KNOB ") + "ABCDEFGH"[state[k]];
+      }
+      onAction && onAction({ type: "bank", which, value: state[k], of: n });
+      return state[k];
+    }
+    const tapNotes = /* @__PURE__ */ new Map();
+    let drag = null, dragId = null;
+    function releaseTap(id) {
+      if (!tapNotes.has(id)) return;
+      const note = tapNotes.get(id);
+      tapNotes.delete(id);
+      lightOff(keyEl(note));
+      onAction && onAction({ type: "noteoff", note, source: "tap" });
+    }
+    function releaseAllTaps() {
+      for (const id of [...tapNotes.keys()]) releaseTap(id);
+    }
+    function wire() {
+      container.addEventListener("pointerdown", (e) => {
+        const t = e.target.closest && e.target.closest("[data-role]");
+        if (!t) return;
+        const role = t.getAttribute("data-role");
+        if (role === "key") {
+          const note = +t.getAttribute("data-note");
+          releaseTap(e.pointerId);
+          tapNotes.set(e.pointerId, note);
+          lightOn(t);
+          try {
+            t.setPointerCapture && t.setPointerCapture(e.pointerId);
+          } catch (err) {
+          }
+          onAction && onAction({ type: "noteon", note, vel: 100, source: "tap" });
+        } else if (role === "pad") {
+          flash(t);
+          onAction && onAction({
+            type: "pad",
+            note: +t.getAttribute("data-note"),
+            index: +t.getAttribute("data-index"),
+            vel: 100,
+            bank: state.padBank,
+            source: "tap"
+          });
+        } else if (role === "knob" || role === "wheel") {
+          const isKnob = role === "knob";
+          const key = isKnob ? +t.getAttribute("data-index") : t.getAttribute("data-name");
+          const start = (isKnob ? knobVals : wheelVals).get(key);
+          drag = { el: t, isKnob, y: e.clientY, v: start != null ? start : key === "pitch" ? 0.5 : 0.5 };
+          try {
+            t.setPointerCapture && t.setPointerCapture(e.pointerId);
+          } catch (err) {
+          }
+          dragId = e.pointerId;
+          e.preventDefault();
+        } else if (role === "button") {
+          if (t.getAttribute("data-bank-toggle") === "1") {
+            setBank(t.getAttribute("data-name") === "knobB" ? "knob" : "pad");
+          } else {
+            const name = t.getAttribute("data-name");
+            t.setAttribute("stroke-width", "2.6");
+            setTimeout(() => t.setAttribute("stroke-width", "1.4"), 160);
+            if (name === "oct-" || name === "oct+") onAction && onAction({ type: "octnav", dir: name === "oct+" ? 1 : -1, source: "button" });
+            else onAction && onAction({ type: "button", name });
+          }
+        } else if (role === "transport") {
+          onAction && onAction({ type: "transport", name: t.getAttribute("data-name") });
+        } else if (role === "octnav" && t.getAttribute("data-enabled") === "1") {
+          onAction && onAction({ type: "octnav", dir: +t.getAttribute("data-dir") });
+        }
+      });
+      const move = (e) => {
+        if (!drag || e.pointerId !== dragId) return;
+        const dv = (drag.y - e.clientY) / 140;
+        const v = Math.max(0, Math.min(1, drag.v + dv));
+        if (drag.isKnob) setKnob(drag.el, v);
+        else setWheel(drag.el, v);
+        e.preventDefault();
+      };
+      const dragEnd = (e) => {
+        if (!drag || e.pointerId !== dragId) return;
+        if (!drag.isKnob && drag.el.getAttribute("data-name") === "pitch") setWheel(drag.el, 0.5);
+        drag = null;
+        dragId = null;
+      };
+      if (typeof window !== "undefined") {
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", dragEnd);
+        window.addEventListener("pointercancel", dragEnd);
+      }
+      const end = (e) => releaseTap(e.pointerId);
+      if (typeof window !== "undefined") {
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+        window.addEventListener("blur", releaseAllTaps);
+      }
+    }
+    function unlightAll() {
+      container.querySelectorAll('[data-role="key"],[data-role="pad"]').forEach(lightOff);
+      tapNotes.clear();
+    }
+    const knobVals = /* @__PURE__ */ new Map();
+    const wheelVals = /* @__PURE__ */ new Map();
+    function paintKnob(el2, v) {
+      const line = el2.parentNode && el2.parentNode.querySelector("line");
+      if (!line) return;
+      const cx = +el2.getAttribute("cx"), cy = +el2.getAttribute("cy"), r = +el2.getAttribute("r");
+      const a = (-135 + v * 270) * Math.PI / 180;
+      line.setAttribute("x2", cx + Math.sin(a) * r * 0.7);
+      line.setAttribute("y2", cy - Math.cos(a) * r * 0.7);
+    }
+    function paintWheel(el2, v) {
+      const line = el2.parentNode && el2.parentNode.querySelector("line");
+      if (!line) return;
+      const y = +el2.getAttribute("y"), h = +el2.getAttribute("height");
+      const py = y + h - v * h;
+      line.setAttribute("y1", py);
+      line.setAttribute("y2", py);
+    }
+    const KNOB_JOBS = [
+      { param: "volume", cc: 7 },
+      { param: "tone", cc: 1 },
+      { param: "cutoff", cc: 74 },
+      { param: "resonance", cc: 71 },
+      { param: "attack", cc: 73 },
+      { param: "release", cc: 72 },
+      { param: "space", cc: 91 },
+      { param: "drums", cc: 76 }
+    ];
+    const knobJob = (i) => KNOB_JOBS[i % KNOB_JOBS.length];
+    const knobCC = (i) => knobJob(i).cc;
+    function setKnob(el2, v) {
+      const i = +el2.getAttribute("data-index");
+      v = Math.max(0, Math.min(1, v));
+      knobVals.set(i, v);
+      paintKnob(el2, v);
+      const job = knobJob(i);
+      onAction && onAction({
+        type: "cc",
+        cc: job.cc,
+        val: Math.round(v * 127),
+        param: job.param,
+        bank: state.knobBank,
+        source: "knob",
+        index: i
+      });
+    }
+    function setWheel(el2, v) {
+      const name = el2.getAttribute("data-name");
+      v = Math.max(0, Math.min(1, v));
+      wheelVals.set(name, v);
+      paintWheel(el2, v);
+      if (name === "pitch") onAction && onAction({ type: "pitch", val: Math.round(v * 16383), source: "wheel" });
+      else onAction && onAction({ type: "cc", cc: 1, val: Math.round(v * 127), source: "wheel" });
+    }
+    const KEY_SEMITONE = {
+      KeyZ: 0,
+      KeyS: 1,
+      KeyX: 2,
+      KeyD: 3,
+      KeyC: 4,
+      KeyV: 5,
+      KeyG: 6,
+      KeyB: 7,
+      KeyH: 8,
+      KeyN: 9,
+      KeyJ: 10,
+      KeyM: 11,
+      KeyQ: 12,
+      KeyW: 14,
+      KeyE: 16,
+      KeyR: 17,
+      KeyT: 19,
+      KeyY: 21,
+      KeyU: 23,
+      KeyI: 24,
+      KeyO: 26,
+      KeyP: 28
+    };
+    const PAD_KEYS_ROW = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8"];
+    const PAD_KEYS_GRID = [
+      "Digit1",
+      "Digit2",
+      "Digit3",
+      "Digit4",
+      "KeyQ",
+      "KeyW",
+      "KeyE",
+      "KeyR",
+      "KeyA",
+      "KeyS",
+      "KeyD",
+      "KeyF",
+      "KeyZ",
+      "KeyX",
+      "KeyC",
+      "KeyV"
+    ];
+    const padKeys = () => padOnly() ? PAD_KEYS_GRID : PAD_KEYS_ROW;
+    const kbHeld = /* @__PURE__ */ new Map();
+    let kbOctave = 0;
+    function kbBaseNote() {
+      const first = profile && profile.keys && profile.keys.firstNote;
+      const el2 = container.querySelector('[data-role="key"]');
+      const base = first != null ? first : el2 ? +el2.getAttribute("data-note") : 60;
+      return base + kbOctave * 12;
+    }
+    function handleComputerKey(code, down) {
+      if (code === "Minus" || code === "BracketLeft") {
+        if (down) {
+          kbOctave--;
+          onAction && onAction({ type: "kboctave", octave: kbOctave });
+        }
+        return true;
+      }
+      if (code === "Equal" || code === "BracketRight") {
+        if (down) {
+          kbOctave++;
+          onAction && onAction({ type: "kboctave", octave: kbOctave });
+        }
+        return true;
+      }
+      const padIdx = padKeys().indexOf(code);
+      if (padIdx >= 0) {
+        const pads = container.querySelectorAll('[data-role="pad"]');
+        if (!pads.length) return false;
+        if (down && !kbHeld.has(code)) {
+          kbHeld.set(code, -1);
+          const el2 = pads[padIdx % pads.length];
+          flash(el2);
+          onAction && onAction({ type: "pad", note: +el2.getAttribute("data-note"), index: +el2.getAttribute("data-index"), vel: 110, bank: state.padBank, source: "kb" });
+        } else if (!down) kbHeld.delete(code);
+        return true;
+      }
+      const semi = KEY_SEMITONE[code];
+      if (semi === void 0) return false;
+      if (!container.querySelector('[data-role="key"]')) return false;
+      if (down) {
+        if (kbHeld.has(code)) return true;
+        const note = kbBaseNote() + semi;
+        kbHeld.set(code, note);
+        let el2 = keyEl(note);
+        if (!el2 && onWindow) {
+          onWindow(note);
+          el2 = keyEl(note);
+        }
+        lightOn(el2);
+        onAction && onAction({ type: "noteon", note, vel: 100, source: "kb" });
+      } else {
+        if (!kbHeld.has(code)) return true;
+        const note = kbHeld.get(code);
+        kbHeld.delete(code);
+        lightOff(keyEl(note));
+        onAction && onAction({ type: "noteoff", note, source: "kb" });
+      }
+      return true;
+    }
+    function releaseAllKeyboard() {
+      for (const [code, note] of [...kbHeld]) {
+        kbHeld.delete(code);
+        if (note >= 0) {
+          lightOff(keyEl(note));
+          onAction && onAction({ type: "noteoff", note, source: "kb" });
+        }
+      }
+    }
+    return {
+      handleMidi,
+      handleGamepadButton,
+      setBank,
+      wire,
+      flash,
+      lightOn,
+      lightOff,
+      unlightAll,
+      releaseAllTaps,
+      handleComputerKey,
+      releaseAllKeyboard,
+      setKnob,
+      setWheel,
+      state
+    };
+  }
+
   // livex/src/core/device-manager.js
   var BLACK = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
   var PROBE_MS = 4e3;
   function createDeviceManager({ stage: stage2, litColor = "#4bd6c8", renderOpts = {}, onAction, onBoards, onFit } = {}) {
     const boards = /* @__PURE__ */ new Map();
+    let opts = Object.assign({}, renderOpts);
+    function setRenderOpts(next) {
+      opts = Object.assign({}, opts, next);
+      for (const b of boards.values()) renderBoard(b);
+    }
     function makeContainer(sig, title) {
       const wrap = document.createElement("div");
       wrap.className = "board";
       wrap.dataset.sig = sig;
       const head = document.createElement("div");
       head.className = "board-h";
-      head.textContent = title || sig;
+      const name = document.createElement("span");
+      name.className = "board-name";
+      name.textContent = title || sig;
+      const x = document.createElement("button");
+      x.className = "board-x";
+      x.textContent = "\u2715";
+      x.title = "Remove this board";
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeBoard(sig);
+      });
+      head.appendChild(name);
+      head.appendChild(x);
       const body = document.createElement("div");
       body.className = "board-b";
       wrap.appendChild(head);
@@ -1976,11 +2165,27 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       stage2.appendChild(wrap);
       return { wrap, body };
     }
+    function removeBoard(sig) {
+      const b = boards.get(sig);
+      if (!b) return false;
+      if (b.probeTimer) clearTimeout(b.probeTimer);
+      if (b.liveTimer) clearTimeout(b.liveTimer);
+      if (b.router && b.router.releaseAllTaps) {
+        try {
+          b.router.releaseAllTaps();
+        } catch (e) {
+        }
+      }
+      b.wrap.remove();
+      boards.delete(sig);
+      onBoards && onBoards(boards);
+      return true;
+    }
     function renderBoard(b) {
       b.body.innerHTML = "";
-      b.lastSvg = renderSchematic(b.profile, { ...renderOpts, startWhite: b.startWhite });
+      b.lastSvg = renderSchematic(b.profile, { ...opts, startWhite: b.startWhite });
       b.body.appendChild(b.lastSvg);
-      const head = b.wrap.querySelector(".board-h");
+      const head = b.wrap.querySelector(".board-name");
       if (head) head.textContent = b.profile.portName || b.profile.id || b.sig;
       b.fit = fitHint(b.lastSvg);
       b.wrap.dataset.fit = b.fit.orientation;
@@ -2058,6 +2263,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
           boards.get(sig).ports = new Set(ports.map((p) => p.id));
           continue;
         }
+        const adhoc = boards.get("adhoc:" + sig);
+        if (adhoc) {
+          ports.forEach((p) => adhoc.ports.add(p.id));
+          if (ports[0] && ports[0].name) relabelBoard(adhoc, ports[0].name);
+          continue;
+        }
         const { profile, learned } = await identifyDevice(ports[0]);
         profile.portName = ports[0].name;
         const b = addBoard(sig, profile, ports.map((p) => p.id));
@@ -2076,7 +2287,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     function ensureAdhocBoard(ev) {
       const name = ev.port && ev.port.name || "MIDI DEVICE";
-      const sig = "adhoc:" + deviceSignature(name);
+      const dsig = deviceSignature(name);
+      const sig = "adhoc:" + dsig;
+      for (const [k, existing] of boards) {
+        if (k === sig || k === dsig || deviceSignature(existing.profile.portName || "") === dsig) {
+          if (ev.port && ev.port.id) existing.ports.add(ev.port.id);
+          return existing;
+        }
+      }
       let b = boards.get(sig);
       if (!b) {
         const profile = identifyMidiInput({ name });
@@ -2088,11 +2306,86 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       return b;
     }
+    const GENERIC_NAME = /^(midi\s*device|midi|device|ble\s*midi|unknown)?$/i;
+    function relabelBoard(b, name) {
+      if (!name || GENERIC_NAME.test(String(name).trim())) return false;
+      const cur = String(b.profile.portName || "");
+      if (cur === name) return false;
+      if (b.profile.id && !GENERIC_NAME.test(cur.trim())) return false;
+      const learned = b.profile.pads;
+      const upgraded = identifyMidiInput({ name });
+      upgraded.portName = name;
+      upgraded.source = b.profile.source;
+      if (learned && learned.learned && upgraded.pads) {
+        upgraded.pads.notes = learned.notes;
+        upgraded.pads.noteMap = learned.noteMap;
+        upgraded.pads.learned = true;
+      }
+      b.profile = upgraded;
+      if (b.probe) b.probe = createProbe(b.profile, {});
+      b.router = null;
+      renderBoard(b);
+      onBoards && onBoards(boards);
+      return true;
+    }
+    let padTeach = null;
+    const nextPadCountLocal = (n) => [4, 8, 12, 16, 25, 32, 64].find((x) => n <= x) || 64;
+    function beginPadMap({ onProgress, onDone } = {}) {
+      padTeach = { board: null, notes: [], onProgress, onDone };
+      return true;
+    }
+    function cancelPadMap() {
+      const was = !!padTeach;
+      padTeach = null;
+      return was;
+    }
+    function padMapActive() {
+      return !!padTeach;
+    }
+    function teachFeed(b, ev) {
+      if (!padTeach) return false;
+      const cmd = ev.status & 240;
+      const isNoteOn = cmd === 144 && ev.d2 > 0;
+      const isNoteOff = cmd === 128 || cmd === 144 && ev.d2 === 0;
+      if (!isNoteOn && !isNoteOff) return false;
+      if (isNoteOff) return true;
+      if (!padTeach.board) padTeach.board = b;
+      else if (padTeach.board !== b) return true;
+      if (padTeach.notes.indexOf(ev.d1) >= 0) return true;
+      padTeach.notes.push(ev.d1);
+      const total = b.profile.pads && b.profile.pads.count || 16;
+      padTeach.onProgress && padTeach.onProgress(padTeach.notes.length, total, ev.d1);
+      if (padTeach.notes.length >= total) finishPadMap();
+      return true;
+    }
+    function finishPadMap() {
+      if (!padTeach || !padTeach.board || !padTeach.notes.length) {
+        padTeach = null;
+        return;
+      }
+      const b = padTeach.board, notes = padTeach.notes, done = padTeach.onDone;
+      padTeach = null;
+      if (!b.profile.pads) {
+        b.profile.pads = { count: nextPadCountLocal(notes.length), layout: null, channel: 10 };
+      }
+      setPadMapFromPresses(b.profile.pads, notes);
+      if (b.probeTimer) {
+        clearTimeout(b.probeTimer);
+        b.probeTimer = null;
+      }
+      b.probe = null;
+      renderBoard(b);
+      remember({ name: b.profile.portName }, b.profile).catch(() => {
+      });
+      done && done(b, notes);
+    }
     function routeMidi(ev) {
       const pid = ev.port && ev.port.id;
       if (pid) {
         for (const b of boards.values()) {
           if (b.ports.has(pid)) {
+            if (ev.port.name) relabelBoard(b, ev.port.name);
+            if (teachFeed(b, ev)) return;
             probeFeed(b, ev);
             b.router.handleMidi(ev);
             return;
@@ -2101,11 +2394,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       if (ev.port && (ev.port.native || ev.port.ble)) {
         const b = ensureAdhocBoard(ev);
+        if (ev.port.name) relabelBoard(b, ev.port.name);
+        if (teachFeed(b, ev)) return;
         probeFeed(b, ev);
         b.router.handleMidi(ev);
         return;
       }
       for (const b of boards.values()) {
+        if (teachFeed(b, ev)) return;
         probeFeed(b, ev);
         b.router.handleMidi(ev);
       }
@@ -2149,13 +2445,32 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       boards.clear();
       onBoards && onBoards(boards);
     }
-    return { syncPorts, routeMidi, routeGamepad, addGamepadBoard, removeGamepadBoard, addDemoBoard, clear, boards, renderBoard };
+    return {
+      syncPorts,
+      routeMidi,
+      routeGamepad,
+      addGamepadBoard,
+      removeGamepadBoard,
+      addDemoBoard,
+      clear,
+      boards,
+      renderBoard,
+      beginPadMap,
+      cancelPadMap,
+      padMapActive,
+      finishPadMap,
+      removeBoard,
+      setRenderOpts
+    };
   }
 
   // livex/src/core/audio.js
   var audio_exports = {};
   __export(audio_exports, {
+    PARAMS: () => PARAMS,
+    PARAM_LABEL: () => PARAM_LABEL,
     bufferToWav: () => bufferToWav,
+    clamp01: () => clamp01,
     clearSample: () => clearSample,
     clearSplash: () => clearSplash,
     context: () => context,
@@ -2164,6 +2479,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     drumOut: () => drumOut,
     freqFromMidi: () => freqFromMidi,
     getBrightness: () => getBrightness,
+    getEnv: () => getEnv,
+    getParam: () => getParam,
+    getParams: () => getParams,
     getSplash: () => getSplash,
     initAudio: () => initAudio,
     isReady: () => isReady,
@@ -2174,6 +2492,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     renderLoopToWav: () => renderLoopToWav,
     setBrightness: () => setBrightness,
     setMasterVolume: () => setMasterVolume,
+    setPan: () => setPan,
+    setParam: () => setParam,
     setSample: () => setSample,
     setSplash: () => setSplash,
     toneOut: () => toneOut
@@ -2210,12 +2530,39 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     toneComp.release.value = 0.18;
     const drum = c.createGain();
     drum.gain.value = 1;
+    const filter = c.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 2e4;
+    filter.Q.value = 0.7;
+    const panner = c.createStereoPanner ? c.createStereoPanner() : null;
+    const spaceSend = c.createGain();
+    spaceSend.gain.value = 0;
+    const dl = c.createDelay(1);
+    dl.delayTime.value = 0.19;
+    const fb = c.createGain();
+    fb.gain.value = 0.34;
+    const damp = c.createBiquadFilter();
+    damp.type = "lowpass";
+    damp.frequency.value = 3200;
+    spaceSend.connect(dl);
+    dl.connect(damp);
+    damp.connect(fb);
+    fb.connect(dl);
+    damp.connect(out);
     tone.connect(toneComp);
-    toneComp.connect(out);
-    drum.connect(out);
-    out.connect(limiter);
+    toneComp.connect(filter);
+    drum.connect(filter);
+    filter.connect(out);
+    tone.connect(spaceSend);
+    drum.connect(spaceSend);
+    if (panner) {
+      out.connect(panner);
+      panner.connect(limiter);
+    } else {
+      out.connect(limiter);
+    }
     limiter.connect(dest);
-    return { out, tone, drum };
+    return { out, tone, drum, filter, panner, spaceSend };
   }
   function initAudio() {
     if (ready) return ctx;
@@ -2230,8 +2577,77 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     master = b.out;
     toneBus = b.tone;
     drumBus = b.drum;
+    perf.filter = b.filter;
+    perf.panner = b.panner;
+    perf.spaceSend = b.spaceSend;
     ready = true;
     return ctx;
+  }
+  var perf = { filter: null, panner: null, spaceSend: null };
+  var PARAMS = ["volume", "tone", "cutoff", "resonance", "attack", "release", "space", "drums"];
+  var PARAM_LABEL = {
+    volume: "VOL",
+    tone: "TONE",
+    cutoff: "CUTOFF",
+    resonance: "RES",
+    attack: "ATTACK",
+    release: "RELEASE",
+    space: "SPACE",
+    drums: "DRUMS"
+  };
+  var paramVals = { volume: 0.85, tone: 0.5, cutoff: 1, resonance: 0, attack: 0, release: 0.35, space: 0, drums: 1 };
+  function getParam(name) {
+    return paramVals[name];
+  }
+  function getParams() {
+    return Object.assign({}, paramVals);
+  }
+  function setParam(name, v01) {
+    if (!(name in paramVals)) return false;
+    const v = clamp01(v01);
+    paramVals[name] = v;
+    if (!ready) initAudio();
+    switch (name) {
+      case "volume":
+        setMasterVolume(v);
+        break;
+      case "tone":
+        setBrightness(v);
+        break;
+      // exponential sweep — a linear cutoff knob is unusable, all the action
+      // would sit in the last few degrees of travel
+      case "cutoff":
+        if (perf.filter) perf.filter.frequency.value = 80 * Math.pow(250, v);
+        break;
+      case "resonance":
+        if (perf.filter) perf.filter.Q.value = 0.7 + v * 18;
+        break;
+      case "attack":
+        envAttack = v * v * 1.2;
+        break;
+      // 0 … 1.2s, fine at the low end
+      case "release":
+        envRelease = 0.05 + v * 2.5;
+        break;
+      case "space":
+        if (perf.spaceSend) perf.spaceSend.gain.value = v * 0.55;
+        break;
+      case "drums":
+        if (drumBus) drumBus.gain.value = v * 1.4;
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+  var envAttack = 0.01;
+  var envRelease = 0.35;
+  function getEnv() {
+    return { attack: envAttack, release: envRelease };
+  }
+  function setPan(v01) {
+    if (!ready) initAudio();
+    if (perf.panner) perf.panner.pan.value = (clamp01(v01) - 0.5) * 2;
   }
   function output() {
     return master;
@@ -2242,12 +2658,16 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   function drumOut() {
     return drumBus;
   }
+  function clamp01(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+  }
   function setMasterVolume(v) {
-    if (master) master.gain.value = Math.max(0, Math.min(1, v));
+    if (master) master.gain.value = clamp01(v);
   }
   var brightness = 1;
   function setBrightness(v01) {
-    brightness = 0.35 + Math.max(0, Math.min(1, v01)) * 1.25;
+    brightness = 0.35 + clamp01(v01) * 1.25;
   }
   function getBrightness() {
     return brightness;
@@ -2424,6 +2844,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
   function noteOn(midi, vel = 100, bendCents2 = 0) {
     if (!ready) initAudio();
+    midi = Math.max(0, Math.min(127, Math.round(Number(midi)) || 0));
+    vel = Number.isFinite(Number(vel)) ? Math.max(1, Math.min(127, Number(vel))) : 100;
+    bendCents2 = Number.isFinite(Number(bendCents2)) ? Number(bendCents2) : 0;
     const kv = keyVoiceFor(midi);
     const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
     if (kv) {
@@ -2454,7 +2877,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     lp.type = "lowpass";
     lp.frequency.value = Math.min(9e3, f * 7 * brightness);
     g2.gain.setValueAtTime(1e-4, t);
-    g2.gain.exponentialRampToValueAtTime(v, t + 0.01);
+    g2.gain.exponentialRampToValueAtTime(v, t + Math.max(6e-3, envAttack));
     o1.connect(lp);
     o2.connect(lp);
     lp.connect(g2);
@@ -2465,9 +2888,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       release() {
         const rt = ctx.currentTime;
         g2.gain.cancelScheduledValues(rt);
-        g2.gain.setTargetAtTime(1e-4, rt, 0.08);
-        o1.stop(rt + 0.6);
-        o2.stop(rt + 0.6);
+        const rel = Math.max(0.05, envRelease);
+        g2.gain.setTargetAtTime(1e-4, rt, rel / 4);
+        o1.stop(rt + rel + 0.2);
+        o2.stop(rt + rel + 0.2);
       },
       bend(c) {
         o1.detune.value = c;
@@ -2477,7 +2901,9 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   }
   function playPad(index, vel = 110) {
     if (!ready) initAudio();
-    voices().scheduleDrum(index, vel, ctx.currentTime);
+    const i = Math.max(0, Math.round(Number(index)) || 0);
+    const v = Number.isFinite(Number(vel)) ? Math.max(1, Math.min(127, Number(vel))) : 110;
+    voices().scheduleDrum(i, v, ctx.currentTime);
   }
   function playNoteShot(midi, vel = 100, dur = 0.3) {
     if (!ready) initAudio();
@@ -2732,14 +3158,189 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
 
   // livex/src/core/library.js
   var AUDIO_EXT = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|wma|caf|au)$/i;
+  var SOUND_GROUPS = ["DRUMS", "PERCUSSION", "BASS", "SYNTH", "KEYS", "GUITAR", "VOCAL", "FX", "LOOPS", "OTHER"];
+  var KIND_RULES = [
+    // DRUMS — the kit
+    [/kick|\bbd\b|bassdrum|bass[\s_-]?drum|\b808\b|thump/i, "DRUMS", "KICK"],
+    [/snare|\bsd\b|rimshot|side[\s_-]?stick|\brim\b/i, "DRUMS", "SNARE"],
+    [/clap|hand[\s_-]?clap/i, "DRUMS", "CLAP"],
+    [/hi[\s_-]?hat|hihat|\bhat\b|\bhh\b|closed|open[\s_-]?h/i, "DRUMS", "HAT"],
+    [/\btom\b|floor[\s_-]?tom|rack[\s_-]?tom|tom[\s_-]?\d/i, "DRUMS", "TOM"],
+    [/crash|\bride\b|splash|china|cymbal|\bcym\b/i, "DRUMS", "CYMBAL"],
+    [/\bsnap\b|finger[\s_-]?snap/i, "DRUMS", "SNAP"],
+    // PERCUSSION — everything else you hit
+    [/conga|bongo|djembe|tabla|cajon|timbale|taiko|darbuka/i, "PERCUSSION", "HAND DRUM"],
+    [/shaker|tambourine|\btamb\b|maraca|cabasa|guiro|cowbell|clave|wood[\s_-]?block|triangle|agogo/i, "PERCUSSION", "SHAKER"],
+    [/\bperc\b|percussion/i, "PERCUSSION", "PERC"],
+    // BASS
+    [/sub[\s_-]?bass|\bsub\b/i, "BASS", "SUB"],
+    [/reese|growl|wobble|neuro/i, "BASS", "REESE"],
+    [/bass|bassline|\bbs\b/i, "BASS", "BASS"],
+    // SYNTH
+    [/pluck|\bplk\b|stab/i, "SYNTH", "PLUCK"],
+    [/\bpads?\b|warm[\s_-]?pad|atmos|drone/i, "SYNTH", "PAD"],
+    [/lead|\barp\b|arpeggio|acid/i, "SYNTH", "LEAD"],
+    [/bells?|chime|glock|celesta|kalimba|music[\s_-]?box/i, "SYNTH", "BELL"],
+    [/brass|\bhorn\b|trumpet|\bsax\b|trombone/i, "SYNTH", "BRASS"],
+    [/strings?|violin|cello|orchestra/i, "SYNTH", "STRINGS"],
+    [/synth|\bsaw\b|square|\bsine\b|\bosc\b/i, "SYNTH", "SYNTH"],
+    // KEYS
+    [/piano|rhodes|wurli|e[\s_-]?piano|\bclav\b|organ|harpsi/i, "KEYS", "KEYS"],
+    // GUITAR
+    [/guitar|\bgtr\b|acoustic|strum|\briff\b/i, "GUITAR", "GUITAR"],
+    // VOCAL
+    [/\bvox\b|vocal|voice|acap|chant|choir|adlib|spoken/i, "VOCAL", "VOCAL"],
+    // FX
+    [/riser|uplifter|downlifter|sweep|whoosh|impact|\bboom\b|braam|siren|noise|foley|ambien|texture/i, "FX", "FX"],
+    [/reverse|\brev\b/i, "FX", "REVERSE"],
+    // LOOPS
+    [/\bloop\b|\bbeat\b|groove|break/i, "LOOPS", "LOOP"],
+    [/melody|melodic|chords?|progression/i, "LOOPS", "MELODIC"],
+    // last resort for anything that only says "drum"
+    [/drums?|\bkit\b/i, "DRUMS", "DRUM"]
+  ];
+  function classifySound(name, buffer) {
+    const n = String(name || "");
+    for (const [re, group, kind] of KIND_RULES) if (re.test(n)) return { group, kind };
+    if (buffer) return classifyByAudio(buffer);
+    return { group: "OTHER", kind: "SAMPLE" };
+  }
+  function classifyByAudio(buf) {
+    const dur = buf.duration;
+    const d = buf.getChannelData(0);
+    const n = d.length;
+    let zc = 0, peak = 0, energy = 0, samples2 = 0;
+    const step = Math.max(1, Math.floor(n / 4e4));
+    for (let i = step; i < n; i += step) {
+      const a = d[i - step], b = d[i];
+      if (a < 0 && b >= 0 || a >= 0 && b < 0) zc++;
+      const abs = Math.abs(b);
+      if (abs > peak) peak = abs;
+      energy += abs;
+      samples2++;
+    }
+    const zcr = samples2 ? zc / samples2 : 0;
+    const avg = samples2 ? energy / samples2 : 0;
+    const sustained2 = avg > peak * 0.18;
+    if (dur > 4) return { group: "LOOPS", kind: "LOOP" };
+    if (dur > 1.2 && sustained2) return { group: "SYNTH", kind: zcr > 0.22 ? "PAD" : "BASS" };
+    if (dur <= 0.22 && zcr > 0.3) return { group: "DRUMS", kind: "HAT" };
+    if (dur <= 0.5 && zcr > 0.18) return { group: "DRUMS", kind: "SNARE" };
+    if (dur <= 0.9 && zcr < 0.08) return { group: "DRUMS", kind: "KICK" };
+    if (dur <= 1.2) return { group: "PERCUSSION", kind: "PERC" };
+    return { group: "OTHER", kind: "SAMPLE" };
+  }
+  var DB_NAME = "skrimpad-livex-library";
+  var STORE = "sounds";
+  var ASSIGN_KEY = "skrimpad_livex_assigns";
+  var MEM_BUDGET = 96 * 1024 * 1024;
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") return resolve(null);
+      let req;
+      try {
+        req = indexedDB.open(DB_NAME, 1);
+      } catch (e) {
+        return resolve(null);
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+  }
+  function tx(db, mode, fn) {
+    return new Promise((resolve, reject) => {
+      if (!db) return resolve(null);
+      let t;
+      try {
+        t = db.transaction(STORE, mode);
+      } catch (e) {
+        return resolve(null);
+      }
+      const store = t.objectStore(STORE);
+      let out = null;
+      try {
+        out = fn(store);
+      } catch (e) {
+        return resolve(null);
+      }
+      t.oncomplete = () => resolve(out && out.result !== void 0 ? out.result : out);
+      t.onerror = () => resolve(null);
+      t.onabort = () => resolve(null);
+    });
+  }
   function createLibrary({ onChange } = {}) {
     const items = [];
+    const cache = /* @__PURE__ */ new Map();
+    const pinned = /* @__PURE__ */ new Set();
+    let cacheBytes = 0;
+    let db = null;
+    let nextId = 1;
+    const bytesOf = (buf) => buf ? buf.length * buf.numberOfChannels * 4 : 0;
+    function evictIfNeeded() {
+      if (cacheBytes <= MEM_BUDGET) return;
+      for (const [id, buf] of cache) {
+        if (cacheBytes <= MEM_BUDGET) break;
+        if (pinned.has(id)) continue;
+        cache.delete(id);
+        cacheBytes -= bytesOf(buf);
+      }
+    }
+    function remember2(id, buf) {
+      if (!buf) return buf;
+      if (cache.has(id)) {
+        cache.delete(id);
+        cacheBytes -= bytesOf(cache.get(id));
+      }
+      cache.set(id, buf);
+      cacheBytes += bytesOf(buf);
+      evictIfNeeded();
+      return buf;
+    }
+    async function bufferFor(item) {
+      if (!item) return null;
+      if (cache.has(item.id)) {
+        const b = cache.get(item.id);
+        cache.delete(item.id);
+        cache.set(item.id, b);
+        return b;
+      }
+      const rec = await tx(db, "readonly", (s) => s.get(item.id));
+      const data = rec && rec.data;
+      if (!data) return null;
+      try {
+        initAudio();
+        const buf = await context().decodeAudioData(data.slice(0));
+        return remember2(item.id, buf);
+      } catch (e) {
+        return null;
+      }
+    }
+    async function store(id, name, arrayBuffer, dur, cls) {
+      await tx(db, "readwrite", (s) => s.put({
+        id,
+        name,
+        data: arrayBuffer,
+        dur,
+        added: Date.now(),
+        group: cls && cls.group,
+        kind: cls && cls.kind
+      }));
+    }
     async function decode(arrayBuffer, name) {
       initAudio();
+      const keep = arrayBuffer.slice(0);
       try {
         const buf = await context().decodeAudioData(arrayBuffer);
-        const it = { name: name || "sample-" + (items.length + 1), buffer: buf };
+        const nm = name || "sample-" + (items.length + 1);
+        const cls = classifySound(nm, buf);
+        const it = { id: nextId++, name: nm, dur: buf.duration, size: keep.byteLength, group: cls.group, kind: cls.kind };
+        remember2(it.id, buf);
         items.push(it);
+        await store(it.id, it.name, keep, it.dur, cls);
         onChange && onChange(items);
         return it;
       } catch (e) {
@@ -2798,16 +3399,174 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
       return added;
     }
-    function assign(item, role, id) {
-      if (item && item.buffer) {
-        setSample(role, id, item.buffer);
-        onChange && onChange(items);
+    let assigns = {};
+    function saveAssigns() {
+      try {
+        localStorage.setItem(ASSIGN_KEY, JSON.stringify(assigns));
+      } catch (e) {
       }
     }
-    function touch() {
+    async function assign(item, role, id) {
+      if (!item) return;
+      const buf = await bufferFor(item);
+      if (!buf) return;
+      pinned.add(item.id);
+      setSample(role, id, buf);
+      assigns[role + ":" + id] = item.id;
+      saveAssigns();
       onChange && onChange(items);
     }
-    return { importFiles, assign, touch, items: () => items };
+    async function restoreAssigns() {
+      try {
+        assigns = JSON.parse(localStorage.getItem(ASSIGN_KEY) || "{}");
+      } catch (e) {
+        assigns = {};
+      }
+      for (const key in assigns) {
+        const it = items.find((x) => x.id === assigns[key]);
+        if (!it) {
+          delete assigns[key];
+          continue;
+        }
+        const buf = await bufferFor(it);
+        if (!buf) continue;
+        pinned.add(it.id);
+        const [role, id] = key.split(":");
+        setSample(role, isNaN(+id) ? id : +id, buf);
+      }
+      saveAssigns();
+      onChange && onChange(items);
+    }
+    let auditionSrc = null;
+    async function preview(item) {
+      const buf = await bufferFor(item);
+      if (!buf) return false;
+      initAudio();
+      const ctx2 = context();
+      try {
+        if (auditionSrc) auditionSrc.stop();
+      } catch (e) {
+      }
+      const src = ctx2.createBufferSource();
+      const g2 = ctx2.createGain();
+      g2.gain.value = 0.9;
+      src.buffer = buf;
+      src.connect(g2);
+      g2.connect(ctx2.destination);
+      src.start();
+      auditionSrc = src;
+      src.onended = () => {
+        if (auditionSrc === src) auditionSrc = null;
+      };
+      return true;
+    }
+    function stopPreview() {
+      try {
+        if (auditionSrc) auditionSrc.stop();
+      } catch (e) {
+      }
+      auditionSrc = null;
+    }
+    async function remove(item) {
+      const i = items.indexOf(item);
+      if (i < 0) return;
+      items.splice(i, 1);
+      if (cache.has(item.id)) {
+        cacheBytes -= bytesOf(cache.get(item.id));
+        cache.delete(item.id);
+      }
+      pinned.delete(item.id);
+      for (const k in assigns) if (assigns[k] === item.id) delete assigns[k];
+      saveAssigns();
+      await tx(db, "readwrite", (s) => s.delete(item.id));
+      onChange && onChange(items);
+    }
+    async function clearAll() {
+      items.length = 0;
+      cache.clear();
+      pinned.clear();
+      cacheBytes = 0;
+      assigns = {};
+      saveAssigns();
+      await tx(db, "readwrite", (s) => s.clear());
+      onChange && onChange(items);
+    }
+    const ready2 = (async () => {
+      db = await openDB();
+      const all = await new Promise((resolve) => {
+        if (!db) return resolve([]);
+        let t;
+        try {
+          t = db.transaction(STORE, "readonly");
+        } catch (e) {
+          return resolve([]);
+        }
+        const req = t.objectStore(STORE).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      });
+      all.sort((a, b) => (a.added || 0) - (b.added || 0));
+      for (const rec of all) {
+        const cls = rec.group ? { group: rec.group, kind: rec.kind } : classifySound(rec.name, null);
+        items.push({
+          id: rec.id,
+          name: rec.name,
+          dur: rec.dur,
+          size: rec.data && rec.data.byteLength || 0,
+          group: cls.group,
+          kind: cls.kind
+        });
+        if (rec.id >= nextId) nextId = rec.id + 1;
+      }
+      onChange && onChange(items);
+      await restoreAssigns();
+      return items;
+    })();
+    const stats = () => ({
+      count: items.length,
+      decoded: cache.size,
+      pinned: pinned.size,
+      memMB: +(cacheBytes / 1048576).toFixed(1),
+      budgetMB: MEM_BUDGET / 1048576
+    });
+    async function add(it) {
+      const cls = classifySound(it.name, it.buffer);
+      const rec = { id: nextId++, name: it.name, dur: it.buffer ? it.buffer.duration : 0, size: 0, group: cls.group, kind: cls.kind };
+      remember2(rec.id, it.buffer);
+      items.push(rec);
+      onChange && onChange(items);
+      return rec;
+    }
+    return {
+      importFiles,
+      assign,
+      preview,
+      stopPreview,
+      touch: () => onChange && onChange(items),
+      items: () => items,
+      remove,
+      clearAll,
+      bufferFor,
+      stats,
+      ready: ready2,
+      add,
+      classify: classifySound,
+      groups: SOUND_GROUPS,
+      // items filed under GROUP > KIND, groups in a fixed musical order and only
+      // those that actually contain something
+      grouped() {
+        const by = /* @__PURE__ */ new Map();
+        for (const it of items) {
+          const g2 = it.group || "OTHER";
+          if (!by.has(g2)) by.set(g2, /* @__PURE__ */ new Map());
+          const k = it.kind || "SAMPLE";
+          const kg = by.get(g2);
+          if (!kg.has(k)) kg.set(k, []);
+          kg.get(k).push(it);
+        }
+        return SOUND_GROUPS.filter((g2) => by.has(g2)).map((g2) => ({ group: g2, kinds: by.get(g2) }));
+      }
+    };
   }
 
   // livex/src/core/update.js
@@ -3008,9 +3767,98 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     clearTimeout(toastT);
     toastT = setTimeout(() => toastEl.classList.remove("show"), 3800);
   };
+  var MOUSE_HINT = "MOUSE: click keys/pads \xB7 drag knobs &amp; wheels \xB7 every button is live &nbsp;\xB7&nbsp; ";
+  var TAIL_HINT = " \xB7 <b>Space</b> play \xB7 <b>Enter</b> rec \xB7 <b>\\</b> metro \xB7 <b>Esc</b> panic";
+  function refreshKbHint() {
+    const boards = [...manager.boards.values()];
+    const anyKeys = boards.some((b) => b.profile.keys && b.profile.keys.count);
+    const padsOnly = boards.length && !anyKeys && boards.some((b) => b.profile.pads && b.profile.pads.count);
+    $("#kbhint").innerHTML = MOUSE_HINT + (padsOnly ? "PADS: <b>1 2 3 4</b> / <b>Q W E R</b> / <b>A S D F</b> / <b>Z X C V</b> \u2014 laid out like the grid (<b>Z</b> = pad 1, bottom-left)" : "KEYS: <b>Z S X D C V G B H N J M</b> / <b>Q W E R T Y U</b> play \xB7 <b>1\u20138</b> pads \xB7 <b>\u2212/=</b> octave") + TAIL_HINT;
+  }
   var refreshEmpty = () => {
     empty.style.display = manager.boards.size ? "none" : "";
+    refreshKbHint();
   };
+  var program = {
+    on: false,
+    target: null,
+    // { board, el, role, id, label }  — the armed pad/key
+    sound: null,
+    // the armed library item
+    arm(v) {
+      this.on = v;
+      if (!v) {
+        this.clear();
+        this.sound = null;
+      }
+      const btn = $("#program");
+      btn.classList.toggle("on", v);
+      btn.textContent = v ? "\u23FA PROGRAMMING" : "\u23FA PROGRAM";
+      document.body.classList.toggle("programming", v);
+      lib.touch();
+      toast(v ? "PROGRAM: tap a sound then a pad, or a pad then a sound" : "Program mode off");
+    },
+    // a pad/key was hit — either complete a pending sound, or wait for one
+    pick(board, el2) {
+      const role = el2.getAttribute("data-role");
+      const id = role === "pad" ? +el2.getAttribute("data-index") : +el2.getAttribute("data-note");
+      const label2 = role === "pad" ? "PAD " + (el2.getAttribute("data-pad") || id + 1) : "KEY " + id;
+      if (this.sound) {
+        this.assign(this.sound, { board, el: el2, role, id, label: label2 });
+        return;
+      }
+      this.clear();
+      el2.setAttribute("stroke", "var(--acc)");
+      el2.setAttribute("stroke-width", "3");
+      this.target = { board, el: el2, role, id, label: label2 };
+      toast(lib.items().length ? label2 + " armed \u2014 now tap a sound" : label2 + " armed \u2014 import a sound first");
+    },
+    // a library sound was tapped — either complete a pending pad, or wait
+    pickSound(item) {
+      if (this.target) {
+        this.assign(item, this.target);
+        return;
+      }
+      this.sound = item;
+      lib.touch();
+      toast('"' + item.name + '" armed \u2014 now tap a pad or key');
+    },
+    clear() {
+      if (this.target && this.target.el) {
+        this.target.el.removeAttribute("stroke");
+        this.target.el.setAttribute("stroke-width", "1.5");
+      }
+      this.target = null;
+    },
+    async assign(item, t) {
+      await lib.assign(item, t.role, t.id);
+      t.el.setAttribute("fill", "#4bd6c8");
+      setTimeout(() => {
+        if (t.el) t.el.removeAttribute("fill");
+      }, 260);
+      this.clear();
+      this.sound = null;
+      lib.touch();
+      toast('\u2713 "' + item.name + '" \u2192 ' + t.label);
+    }
+  };
+  var CC_PARAM = {
+    7: "volume",
+    1: "tone",
+    74: "cutoff",
+    71: "resonance",
+    73: "attack",
+    72: "release",
+    91: "space",
+    76: "drums"
+  };
+  var paramToastAt = 0;
+  function showParam(param, v01) {
+    const now = Date.now();
+    if (now - paramToastAt < 260) return;
+    paramToastAt = now;
+    toast((PARAM_LABEL[param] || param.toUpperCase()) + "  " + Math.round(v01 * 100) + "%");
+  }
   var held = /* @__PURE__ */ new Map();
   var bendCents = 0;
   var sustainOn = false;
@@ -3089,6 +3937,14 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     litColor: "#4bd6c8",
     renderOpts: { maxWidth: 560 },
     onAction: (board, a) => {
+      if (program.on && (a.type === "pad" || a.type === "noteon")) {
+        const el2 = a.type === "pad" ? board.body.querySelector('[data-role="pad"][data-index="' + (a.index != null ? a.index : padIndexFor(board, a) % (board.profile.pads && board.profile.pads.count || 16)) + '"]') : board.body.querySelector('[data-role="key"][data-note="' + a.note + '"]');
+        if (el2) {
+          program.pick(board, el2);
+          return;
+        }
+      }
+      if (program.on && a.type === "noteoff") return;
       if (a.type === "octnav") {
         const kb = board.lastSvg && board.lastSvg.__keyboard || {};
         const max = Math.max(0, (kb.whiteTotal || 0) - (kb.visibleWhites || 0));
@@ -3135,8 +3991,40 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       } else if (a.type === "allnotesoff") allNotesOff();
       else if (a.type === "kboctave") toast("Octave " + (a.octave > 0 ? "+" : "") + a.octave);
       else if (a.type === "button") {
-        if (a.name === "bt") $("#bt").click();
-        else toast(String(a.name).toUpperCase() + " \u2014 hold a key to use it");
+        const B = {
+          bt: () => $("#bt").click(),
+          arp: () => {
+            transport.play();
+            toast("\u25B6 Loop running");
+          },
+          scch: () => {
+            $("#sync").click();
+          },
+          b1: () => {
+            $("#metro").click();
+          },
+          b2: () => {
+            $("#sync").click();
+          },
+          b3: () => {
+            $("#clearloop").click();
+          },
+          b4: () => {
+            transport.nextChannel();
+            paintDeck();
+            toast("Loop " + (transport.state().armed + 1));
+          },
+          b5: () => {
+            allNotesOff();
+            toast("\u270B Panic \u2014 all notes stopped");
+          },
+          b6: () => {
+            $("#splash").click();
+          }
+        };
+        const fn = B[a.name];
+        if (fn) fn();
+        else toast(String(a.name).toUpperCase());
       } else if (a.type === "pad") {
         const pi = padIndexFor(board, a);
         playPad(pi, a.vel);
@@ -3150,14 +4038,19 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         else if (a.name === "stop") transport.stop();
         else if (a.name === "rec") transport.toggleRecord();
       } else if (a.type === "cc") {
-        if (a.cc === 7) {
-          setMasterVolume(a.val / 127);
-          $("#vol").value = String(a.val / 127);
-        } else if (a.cc === 1) setBrightness(a.val / 127);
-        else if (a.cc === 64) {
+        if (a.cc === 64) {
           sustainOn = a.val >= 64;
           if (!sustainOn) {
             for (const v of sustained.splice(0)) v.release();
+          }
+        } else if (a.cc === 10) {
+          setPan(a.val / 127);
+        } else {
+          const param = a.param || CC_PARAM[a.cc];
+          if (param) {
+            setParam(param, a.val / 127);
+            if (param === "volume") $("#vol").value = String(a.val / 127);
+            showParam(param, a.val / 127);
           }
         }
       } else if (a.type === "pitch") {
@@ -3165,7 +4058,10 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
         for (const v of held.values()) if (v.bend) v.bend(bendCents);
       }
     },
-    onBoards: () => refreshEmpty(),
+    onBoards: () => {
+      refreshEmpty();
+      scheduleSync();
+    },
     // Per-controller orientation: a wide board asks for landscape, a compact
     // pad bank for portrait. Applied where the platform exposes the lock.
     onFit: (fit) => {
@@ -3177,10 +4073,32 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       }
     }
   });
-  // Resolve a pad event to the flat sample slot it plays. The router supplies the
-  // grid index — from the LEARNED note map once the device has actually been
-  // played — and we fold the active bank in on top, because "3 pad banks" on the
-  // JamJum JP-1 means 48 distinct pads: each bank its own slot and its own voice.
+  var lastAuthorW = 0;
+  function boardPixels() {
+    const b = stage.querySelector(".board");
+    const w = b ? b.getBoundingClientRect().width : Math.min(stage.clientWidth || document.documentElement.clientWidth || 640, 640);
+    return Math.max(240, Math.round(w));
+  }
+  function syncBoardWidth() {
+    const w = boardPixels();
+    if (Math.abs(w - lastAuthorW) < 8) return;
+    lastAuthorW = w;
+    manager.setRenderOpts({ maxWidth: w });
+  }
+  var sizeTimer = 0;
+  function scheduleSync() {
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(syncBoardWidth, 100);
+  }
+  window.addEventListener("resize", scheduleSync);
+  window.addEventListener("orientationchange", scheduleSync);
+  if (window.ResizeObserver) {
+    try {
+      new ResizeObserver(scheduleSync).observe(stage);
+    } catch (e) {
+    }
+  }
+  requestAnimationFrame(() => requestAnimationFrame(syncBoardWidth));
   function padIndexFor(board, a) {
     const pads = board.profile && board.profile.pads;
     const count = pads && pads.count || 16;
@@ -3194,28 +4112,51 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   window.__manager = manager;
   window.__transport = transport;
   window.__audio = audio_exports;
+  window.__program = program;
   window.__mkIO = createMidiIO;
   var libSel = 0;
   var lib = createLibrary({
     onChange: (items) => {
       const ul = $("#libList");
       ul.innerHTML = "";
-      items.forEach((it, i) => {
-        const li = document.createElement("li");
-        li.textContent = it.name;
-        li.draggable = true;
-        li.dataset.idx = i;
-        if (i === libSel) li.style.borderColor = "var(--acc)";
-        li.addEventListener("click", () => {
-          libSel = i;
-          lib.touch();
-        });
-        li.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/livex-sample", String(i)));
-        ul.appendChild(li);
-      });
+      const idxOf = new Map(items.map((it, i) => [it, i]));
+      for (const { group, kinds } of lib.grouped()) {
+        const gh = document.createElement("li");
+        gh.className = "lib-group";
+        gh.textContent = group;
+        ul.appendChild(gh);
+        for (const [kind, list] of kinds) {
+          const kh = document.createElement("li");
+          kh.className = "lib-kind";
+          kh.textContent = kind + "  (" + list.length + ")";
+          ul.appendChild(kh);
+          list.forEach((it) => renderItem(it, idxOf.get(it), ul));
+        }
+      }
     }
   });
-  $("#splash").addEventListener("click", () => {
+  function renderItem(it, i, ul) {
+    const li = document.createElement("li");
+    li.className = "lib-item";
+    li.textContent = it.name;
+    li.draggable = true;
+    li.dataset.idx = i;
+    if (i === libSel) li.style.borderColor = "var(--acc)";
+    if (program.sound === it) {
+      li.style.borderColor = "var(--acc)";
+      li.style.background = "rgba(75,214,200,.18)";
+    }
+    li.addEventListener("click", () => {
+      libSel = i;
+      lib.preview(it);
+      if (program.on) program.pickSound(it);
+      else lib.touch();
+    });
+    li.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/livex-sample", String(i)));
+    ul.appendChild(li);
+  }
+  window.__libApi = lib;
+  $("#splash").addEventListener("click", async () => {
     const items = lib.items();
     if (!items.length) {
       toast("Import a sound first, then SPLASH it");
@@ -3228,7 +4169,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       return;
     }
     const it = items[Math.min(libSel, items.length - 1)];
-    setSplash(it.buffer, 60);
+    const buf = await lib.bufferFor(it);
+    if (!buf) {
+      toast('Could not load "' + it.name + '"');
+      return;
+    }
+    setSplash(buf, 60);
     $("#splash").classList.add("on");
     toast("\u{1F30A} \u201C" + it.name + "\u201D across all keys \u2014 per-key sounds still win");
   });
@@ -3247,6 +4193,24 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     const n = (await lib.importFiles(e.dataTransfer.files)).length;
     if (n) toast(n + " sound(s) added");
   });
+  stage.addEventListener("pointerdown", (e) => {
+    if (!program.on) return;
+    const t = e.target.closest && e.target.closest('[data-role="pad"],[data-role="key"]');
+    if (!t) return;
+    const wrap = t.closest(".board");
+    const board = [...manager.boards.values()].find((b) => b.wrap === wrap);
+    if (!board) return;
+    e.preventDefault();
+    e.stopPropagation();
+    program.pick(board, t);
+  }, true);
+  $("#program").addEventListener("click", () => program.arm(!program.on));
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Escape" && program.on) {
+      program.arm(false);
+      e.stopPropagation();
+    }
+  }, true);
   stage.addEventListener("dragover", (e) => {
     if (e.target.closest && e.target.closest("[data-drop]")) e.preventDefault();
   });
@@ -3269,10 +4233,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       toast("\u201C" + item.name + "\u201D \u2192 " + role + " " + id);
     }
   });
-  // Build a preview board straight from the pattern DB, exactly the way a real
-  // plug-in would — so what you see with no hardware attached IS the face the
-  // hardware gets.
-  var seedProfile = (name) => {
+  var seed = (name) => {
     const p = identifyMidiInput({ name });
     p.portName = name;
     return p;
@@ -3283,14 +4244,42 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       p.portName = "SMK25";
       return p;
     },
-    jp1: () => seedProfile("JAMJUM JP-1"),
-    jpmini: () => seedProfile("JAMJUM JP MINI"),
+    jp1: () => seed("JAMJUM JP-1"),
+    jpmini: () => seed("JAMJUM JP MINI"),
     k61: () => makeProfile({ id: "k61", class: CLASSES.KEYBOARD, portName: "GENERIC 61", keys: { count: 61, firstNote: 36 }, wheels: ["pitch", "mod"] })
   };
   document.querySelectorAll("[data-dev]").forEach((b) => b.addEventListener("click", () => {
     manager.addDemoBoard(demo[b.dataset.dev]());
     refreshEmpty();
   }));
+  var mapBtn = $("#mappads");
+  function stopMapping(msg) {
+    manager.cancelPadMap();
+    mapBtn.textContent = "\u2317 MAP PADS";
+    mapBtn.style.borderColor = "";
+    if (msg) toast(msg);
+  }
+  mapBtn.addEventListener("click", () => {
+    if (manager.padMapActive()) {
+      manager.finishPadMap();
+      stopMapping("Pad map saved (partial \u2014 the rest keep their current notes)");
+      return;
+    }
+    if (!manager.boards.size) {
+      toast("Connect a controller first");
+      return;
+    }
+    mapBtn.style.borderColor = "var(--acc)";
+    mapBtn.textContent = "\u2317 PRESS PAD 1";
+    toast("Press pad 1 on your controller, then 2, then 3\u2026 (click again to stop)");
+    manager.beginPadMap({
+      onProgress: (n, total, note) => {
+        mapBtn.textContent = "\u2317 PRESS PAD " + Math.min(n + 1, total);
+        toast("Pad " + n + " \u2192 note " + note + "  (" + n + "/" + total + ")");
+      },
+      onDone: (b, notes) => stopMapping("\u2713 " + notes.length + " pads mapped on " + (b.profile.portName || "controller") + " \u2014 saved")
+    });
+  });
   $("#clear").addEventListener("click", () => {
     allNotesOff();
     manager.clear();
@@ -3396,12 +4385,24 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     toast("Quantized to grid");
   });
   var diagLog = [];
+  var diagNotes = /* @__PURE__ */ new Map();
   var hex = (n) => n.toString(16).toUpperCase().padStart(2, "0");
+  function diagTally(ev) {
+    if (ev.cmd !== 144 || !(ev.d2 > 0)) return;
+    const port = ev.port && ev.port.name || "?";
+    if (!diagNotes.has(port)) diagNotes.set(port, /* @__PURE__ */ new Map());
+    const m = diagNotes.get(port);
+    const cur = m.get(ev.d1) || { count: 0, chan: ev.chan };
+    cur.count++;
+    cur.chan = ev.chan;
+    m.set(ev.d1, cur);
+  }
   function diagNote(ev) {
+    diagTally(ev);
     const raw = (ev.raw || [ev.status, ev.d1, ev.d2]).map(hex).join(" ");
     const kind = ev.transport ? "TRANSPORT " + ev.transport.toUpperCase() : ev.cmd === 144 && ev.d2 > 0 ? "note on  " + ev.d1 + " vel " + ev.d2 + " ch" + (ev.chan + 1) : ev.cmd === 128 || ev.cmd === 144 ? "note off " + ev.d1 + " ch" + (ev.chan + 1) : ev.cmd === 176 ? "CC " + ev.d1 + " = " + ev.d2 + " ch" + (ev.chan + 1) : ev.cmd === 224 ? "pitch " + (ev.d2 << 7 | ev.d1) : ev.status === 240 ? "sysex" : "status " + hex(ev.status);
     diagLog.unshift(raw.padEnd(14) + "  " + kind + "   [" + (ev.port && ev.port.name || "?") + "]");
-    if (diagLog.length > 60) diagLog.pop();
+    if (diagLog.length > 400) diagLog.pop();
     const el2 = $("#diag-log");
     if (el2 && $("#diagpanel").style.display !== "none") el2.textContent = diagLog.join("\n");
   }
@@ -3426,7 +4427,41 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       L.push("BT granted    : (unavailable)");
     }
     L.push("data seen     : " + (io.hasLiveData() ? "YES" : "NO \u2014 nothing has ever arrived"));
+    try {
+      const s = lib.stats();
+      L.push("library       : " + s.count + " sounds, " + s.decoded + " decoded in RAM (" + s.pinned + " pinned), " + s.memMB + " / " + s.budgetMB + " MB");
+    } catch (e) {
+    }
+    const nat = io.devices && io.devices() || [];
+    L.push("native devices: " + nat.length);
+    nat.forEach((d) => {
+      L.push("   \u2022 id=" + d.id + '  name="' + d.name + '"  mfr="' + (d.manufacturer || "-") + '"');
+      if (d.props) L.push("     props: " + d.props);
+    });
     L.push("boards        : " + manager.boards.size);
+    for (const b of manager.boards.values()) {
+      const p = b.profile, pd = p.pads;
+      L.push('   \u2022 "' + (p.portName || "?") + '"  \u2192  profile=' + (p.id || "UNIDENTIFIED") + "  class=" + p.class + "  conf=" + p.confidence);
+      L.push("     keys=" + (p.keys ? p.keys.count + "@" + p.keys.firstNote : "none") + "  pads=" + (pd ? pd.count + " " + (pd.layout || []).join("x") + " ch" + pd.channel + " banks=" + (pd.banks || 1) : "none") + "  knobs=" + p.knobs);
+      if (pd && pd.noteMap) {
+        const inv = [];
+        for (const note in pd.noteMap) inv.push("n" + note + "\u2192draw" + pd.noteMap[note]);
+        L.push("     padmap(" + (pd.taught ? "TAUGHT" : pd.learned ? "auto-learned" : "default") + "): " + inv.join(" "));
+      }
+    }
+    for (const [port, notes] of diagNotes) {
+      const board = [...manager.boards.values()].find((b) => (b.profile.portName || "") === port);
+      const pd = board && board.profile.pads;
+      const list = [...notes.keys()].sort((a, b) => a - b);
+      L.push('notes from "' + port + '": ' + list.length + " distinct");
+      L.push("   " + list.map((n) => {
+        const slot = pd && pd.noteMap ? pd.noteMap[n] : null;
+        const padNo = slot != null && pd.layout ? (pd.layout[0] - 1 - Math.floor(slot / pd.layout[1])) * pd.layout[1] + slot % pd.layout[1] + 1 : null;
+        return n + (padNo != null ? "\u2192pad" + padNo : "\u2192UNMAPPED") + "\xD7" + notes.get(n).count;
+      }).join("  "));
+      const chans = new Set([...notes.values()].map((v) => v.chan + 1));
+      L.push("   channels: " + [...chans].join(", ") + (pd ? "   grid: " + pd.count + " pads, " + (pd.seen || 0) + " learned" + (pd.taught ? " (TAUGHT)" : pd.provisional ? " (still learning)" : "") : ""));
+    }
     $("#diag-env").textContent = L.join("\n");
   }
   $("#diag").addEventListener("click", async () => {

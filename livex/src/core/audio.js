@@ -85,7 +85,7 @@ export function getParams() { return Object.assign({}, paramVals); }
 
 export function setParam(name, v01) {
   if (!(name in paramVals)) return false;
-  const v = Math.max(0, Math.min(1, v01));
+  const v = clamp01(v01);
   paramVals[name] = v;
   if (!ready) initAudio();
   switch (name) {
@@ -108,17 +108,22 @@ let envAttack = 0.01, envRelease = 0.35;
 export function getEnv() { return { attack: envAttack, release: envRelease }; }
 export function setPan(v01) {
   if (!ready) initAudio();
-  if (perf.panner) perf.panner.pan.value = (Math.max(0, Math.min(1, v01)) - 0.5) * 2;
+  if (perf.panner) perf.panner.pan.value = (clamp01(v01) - 0.5) * 2;
 }
 export function output() { return master; }
 export function toneOut() { return toneBus; }
 export function drumOut() { return drumBus; }
-export function setMasterVolume(v) { if (master) master.gain.value = Math.max(0, Math.min(1, v)); }
+// Math.max(0, Math.min(1, NaN)) is NaN — the usual clamp does NOT stop a bad
+// value, and Web Audio THROWS on a non-finite AudioParam rather than ignoring
+// it, taking the caller's whole handler down. Everything that reaches a param
+// goes through this.
+export function clamp01(v) { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0; }
+export function setMasterVolume(v) { if (master) master.gain.value = clamp01(v); }
 
 // CC1 (mod wheel) → synth brightness: scales every voice's lowpass cutoff.
 // 0.35 (dark) … 1.6 (bright); default 1.
 let brightness = 1;
-export function setBrightness(v01) { brightness = 0.35 + Math.max(0, Math.min(1, v01)) * 1.25; }
+export function setBrightness(v01) { brightness = 0.35 + clamp01(v01) * 1.25; }
 export function getBrightness() { return brightness; }
 
 // assign a decoded sample to a pad index / key note (from the library / drop)
@@ -232,6 +237,12 @@ function voices() { if (!ready) initAudio(); if (!liveVoices) liveVoices = creat
 // bend() retunes the live oscillators — wired to the pitch wheel (±200 cents).
 export function noteOn(midi, vel = 100, bendCents = 0) {
   if (!ready) initAudio();
+  // Clamp before anything becomes a frequency. A stray note number — a fuzzing
+  // controller, a bad learned map, a transpose off the end of the board —
+  // otherwise reaches an AudioParam as NaN and throws.
+  midi = Math.max(0, Math.min(127, Math.round(Number(midi)) || 0));
+  vel = Number.isFinite(Number(vel)) ? Math.max(1, Math.min(127, Number(vel))) : 100;
+  bendCents = Number.isFinite(Number(bendCents)) ? Number(bendCents) : 0;
   const kv = keyVoiceFor(midi);
   const t = ctx.currentTime, v = Math.max(0.06, vel / 127) * 0.34;
   if (kv) {
@@ -262,7 +273,12 @@ export function noteOn(midi, vel = 100, bendCents = 0) {
     bend(c) { o1.detune.value = c; o2.detune.value = -9 + c; },
   };
 }
-export function playPad(index, vel = 110) { if (!ready) initAudio(); voices().scheduleDrum(index, vel, ctx.currentTime); }
+export function playPad(index, vel = 110) {
+  if (!ready) initAudio();
+  const i = Math.max(0, Math.round(Number(index)) || 0);
+  const v = Number.isFinite(Number(vel)) ? Math.max(1, Math.min(127, Number(vel))) : 110;
+  voices().scheduleDrum(i, v, ctx.currentTime);
+}
 export function playNoteShot(midi, vel = 100, dur = 0.3) { if (!ready) initAudio(); voices().scheduleTone(midi, vel, ctx.currentTime, dur); }
 
 // ---- WAV export (ported from SKRiMPAD M2) ----
