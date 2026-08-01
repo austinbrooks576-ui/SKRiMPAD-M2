@@ -3684,6 +3684,24 @@ function esc(v) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// Read a JSON value out of localStorage, or hand back the fallback.
+//
+// `JSON.parse(x) || '{}'` is NOT enough. The `|| '{}'` only fires when the
+// stored string is missing or empty; a stored "null", "[1,2,3]" or "\"hi\""
+// all parse SUCCESSFULLY, sail past a try/catch, and then blow up later at the
+// first property read — which is how a half-written save file turns into an app
+// that will not boot and that the user has no way to repair. So check the SHAPE
+// against the fallback too, and never return a bare null where an object is
+// expected. Storage goes bad for ordinary reasons: a process killed mid-write,
+// quota exceeded, or an upgrade that changed a record's shape.
+function loadJSON(key, fallback) {
+  let v;
+  try { v = JSON.parse(localStorage.getItem(key)); } catch (e) { return fallback; }
+  if (v == null) return fallback;
+  if (Array.isArray(fallback) !== Array.isArray(v)) return fallback;
+  if (typeof fallback === 'object' && typeof v !== 'object') return fallback;
+  return v;
+}
 const PAD_LAYOUTS = { '3x3': { cols: 3, size: 9 }, '4x4': { cols: 4, size: 16 }, '4x2': { cols: 4, size: 8 } };
 let padLayoutId = '3x3';
 try { const s = localStorage.getItem('skrimpad_padlayout'); if (s && PAD_LAYOUTS[s]) padLayoutId = s; } catch (e) {}
@@ -5364,10 +5382,10 @@ const SKINS = {
 };
 // ---- Permanent skin storage: user-imported skins persist beside the built-ins ----
 function loadStoredSkins() {
-  try { const saved = JSON.parse(localStorage.getItem('skrimpad_skins') || '{}'); Object.assign(SKINS, saved); } catch (e) {}
+  try { const saved = loadJSON('skrimpad_skins', {}); Object.assign(SKINS, saved); } catch (e) {}
 }
 function saveStoredSkin(name, map) {
-  try { const saved = JSON.parse(localStorage.getItem('skrimpad_skins') || '{}'); saved[name] = map; localStorage.setItem('skrimpad_skins', JSON.stringify(saved)); } catch (e) {}
+  try { const saved = loadJSON('skrimpad_skins', {}); saved[name] = map; localStorage.setItem('skrimpad_skins', JSON.stringify(saved)); } catch (e) {}
 }
 loadStoredSkins();
 function applySkin(map, name) {
@@ -6134,7 +6152,7 @@ const AI_PROVIDERS = {
 };
 const AI_SYS_PROMPT = 'You are the music brain inside SKRiMPAD M2, a 20-track drum machine with a 5-lane melody sequencer. You are an expert in every form of electronic music. Reply with ONLY a JSON object, no prose, no markdown fences. Schema: {"bpm":int,"tracks":{"<trackIndex>":[16 ints 0 or 1]},"melody":[{"step":0-15,"midi":36-96,"sustain":bool,"lane":0-4}]} — include only what was asked for. Drum track legend: 0=KICK 1=SNARE 2=CLOSED HAT 3=OPEN HAT 4=CLAP 5=HI TOM 6=LO TOM 7=RIDE 8=CRASH 9=RIM 10=COWBELL 11=SHAKER 12=BASS HIT 13=CLAVE 14=FX1 15=FX2 16=808 SUB 17=SNAP 18=PEDAL HAT 19=ZAP.';
 let AICFG = {};
-try { AICFG = JSON.parse(localStorage.getItem('skrimpad_ai_cfg') || '{}'); } catch (e) {}
+try { AICFG = loadJSON('skrimpad_ai_cfg', {}); } catch (e) {}
 function aiProvider() { return AI_PROVIDERS[AICFG.provider] ? AICFG.provider : 'openai'; }
 function aiOnline() { return AICFG.enabled === true && (!!AICFG.key || !AI_PROVIDERS[aiProvider()].needsKey); }
 function aiBrainStatus() {
@@ -6567,7 +6585,7 @@ function loadProject(st) {
     toast('📁 ' + curProject + ' loaded');
   } catch (err) { toast('Load failed: ' + err.message); }
 }
-function fileProjects() { try { return JSON.parse(localStorage.getItem('skrimpad_projects') || '{}'); } catch (e) { return {}; } }
+function fileProjects() { try { return loadJSON('skrimpad_projects', {}); } catch (e) { return {}; } }
 function fileSave(name) {
   const all = fileProjects();
   curProject = name;
@@ -7003,7 +7021,7 @@ const heldKeys = new Set();
 // drum-pad lock: bind a keyboard key, a MIDI note, or a gamepad button to any
 // pad from the pad's long-press menu ("BIND ANY BUTTON"). Persisted.
 let kbMap = {};
-try { kbMap = JSON.parse(localStorage.getItem('skrimpad_kbmap') || '{}'); } catch (e) {}
+try { kbMap = loadJSON('skrimpad_kbmap', {}); } catch (e) {}
 function saveKbMap() { try { localStorage.setItem('skrimpad_kbmap', JSON.stringify(kbMap)); } catch (e) {} }
 let padBindArm = null; // pad index waiting for its next key/note/button
 function firePad(idx) {
@@ -7114,7 +7132,7 @@ function saveModeSoundNames() {
 // After the persistent library loads, re-link saved mode assignments by sound name
 function relinkModeSounds() {
   let saved = {};
-  try { saved = JSON.parse(localStorage.getItem('skrimpad_modesounds') || '{}'); } catch (e) { return; }
+  try { saved = loadJSON('skrimpad_modesounds', {}); } catch (e) { return; }
   const all = Object.values(SOUND_LIB).flat();
   Object.entries(saved).forEach(([m, s]) => {
     const hit = all.find(e => (e.buf || e.idbId) && e.name === s.name);
@@ -7638,7 +7656,7 @@ async function aiToolCommand(ql) {
 // =====================================================================
 let midiAccess = null, midiLearnArm = false;
 let midiMap = { padBase: 36, keySplit: 48, notes: {}, padsFromKeys: false };
-try { Object.assign(midiMap, JSON.parse(localStorage.getItem('skrimpad_midi') || '{}')); } catch (e) {}
+try { Object.assign(midiMap, loadJSON('skrimpad_midi', {})); } catch (e) {}
 function saveMidi() { try { localStorage.setItem('skrimpad_midi', JSON.stringify(midiMap)); } catch (e) {} }
 function updateMidiStatus() {
   const el = document.getElementById('midi-status'); if (!el) return;
@@ -8137,7 +8155,7 @@ let gpRunning = false, gpPrev = [], gpTick = 0;
 const GP_PAD_BUTTONS = [0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15]; // A B X Y LB RB LT RT D-pad
 // remappable controller map: gamepad button index -> pad index
 let gpMap = {};
-try { gpMap = JSON.parse(localStorage.getItem('skrimpad_gpmap') || '{}'); } catch (e) {}
+try { gpMap = loadJSON('skrimpad_gpmap', {}); } catch (e) {}
 if (!Object.keys(gpMap).length) GP_PAD_BUTTONS.forEach((b, gi) => gpMap['b' + b] = gi);
 function saveGpMap() { try { localStorage.setItem('skrimpad_gpmap', JSON.stringify(gpMap)); } catch (e) {} }
 function gpLoop() {
@@ -8229,7 +8247,7 @@ function setFloat(on) {
     fwSetup(id, i);
     if (on) {
       let geo = null;
-      try { geo = JSON.parse(localStorage.getItem('fw_' + id) || 'null'); } catch (e) {}
+      try { geo = loadJSON('fw_' + id, null); } catch (e) {}
       geo = geo || { x: 16 + (i % 3) * 420, y: 44 + Math.floor(i / 3) * 320, w: 400, h: 300 };
       Object.assign(el.style, { left: geo.x + 'px', top: geo.y + 'px', width: geo.w + 'px', height: geo.h + 'px' });
     } else {
@@ -9283,7 +9301,7 @@ const WIN_TOGGLES = [
   ['slot-faders', 'MIX'], ['slot-wave', 'SYNTH'], ['slot-fx', 'FX'], ['slot-master', 'LOOP']
 ];
 let winHidden = {};
-try { winHidden = JSON.parse(localStorage.getItem('skrimpad_winhidden') || '{}'); } catch (e) {}
+try { winHidden = loadJSON('skrimpad_winhidden', {}); } catch (e) {}
 function applyWinVis() {
   WIN_TOGGLES.forEach(([id]) => { const el = document.getElementById(id); if (el) el.style.display = winHidden[id] ? 'none' : ''; });
 }
@@ -9755,7 +9773,7 @@ function dawInjectDOM() {
 function dawOpenUI() {
   if (!audioReady) initAudio();
   dawInjectDOM();
-  if (!DAW.tracks.length) { try { const s = JSON.parse(localStorage.getItem('skrimpad_daw') || 'null'); if (s) dawDeserialize(s); } catch (e) {} }
+  if (!DAW.tracks.length) { try { const s = loadJSON('skrimpad_daw', null); if (s) dawDeserialize(s); } catch (e) {} }
   if (!DAW.tracks.length) {
     // never open onto an empty shell — a starter track makes the 🎛 rack discoverable
     dawAddTrack({ name: 'TRACK 1' });
@@ -10058,7 +10076,7 @@ function dawRenderInserts(tr) {
 }
 function dawCloseRack() { const r = document.getElementById('daw-rack'); if (r) r.classList.remove('open'); DAW._rackTr = null; }
 function dawSavePreset(tr) {
-  const all = JSON.parse(localStorage.getItem('skrimpad_daw_presets') || '{}');
+  const all = loadJSON('skrimpad_daw_presets', {});
   uiPrompt('Preset name', tr.name).then(nm => {
     if (!nm) return;
     all[nm] = { instrument: { type: tr.instrument.type, wave: tr.instrument.wave, cut: tr.instrument.cut, root: tr.instrument.root, pad: tr.instrument.pad }, inserts: tr.inserts.map(i => ({ type: i.type, on: i.on, params: i.params })) };
@@ -10067,7 +10085,7 @@ function dawSavePreset(tr) {
   });
 }
 function dawLoadPreset(tr) {
-  const all = JSON.parse(localStorage.getItem('skrimpad_daw_presets') || '{}');
+  const all = loadJSON('skrimpad_daw_presets', {});
   const names = Object.keys(all); if (!names.length) { toast('No saved presets yet'); return; }
   uiPrompt('Load preset (' + names.join(', ') + ')', names[0]).then(nm => {
     const p = all[nm]; if (!p) return;
@@ -10606,7 +10624,7 @@ function vgaStopWorld() { VGA.on = false; if (VGA.raf) cancelAnimationFrame(VGA.
 
 // ---- ROSTER (catalogue + per-character on/off) -----------------------
 function vgaLoadActive() {
-  let saved = null; try { saved = JSON.parse(localStorage.getItem('skrimpad_vga_active') || 'null'); } catch (e) {}
+  let saved = null; try { saved = loadJSON('skrimpad_vga_active', null); } catch (e) {}
   if (saved) VGA.active = saved;
   else VGA.chars.slice(0, 12).forEach(c => VGA.active[c.id] = true); // 12 on by default
 }
@@ -12170,7 +12188,7 @@ console.log('Music Brain ready');
   // boot finds it still set for this version twice over, the build is bad → revert.
   function guardStart() {
     try {
-      const p = JSON.parse(localStorage.getItem('skrimpad_boot_pending') || 'null');
+      const p = loadJSON('skrimpad_boot_pending', null);
       if (p && p.v === VERSION && (p.count || 0) >= 2 && L.good && L.good !== VERSION) {
         ghost({ title: '⚠ Update unstable', msg: 'v' + VERSION + ' failed to start cleanly. Roll back to v' + L.good + '?',
           action: 'Roll back', onAction: () => revert(L.good) }, true);
