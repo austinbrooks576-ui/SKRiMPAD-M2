@@ -124,13 +124,49 @@ function drawKnobs(parent, count, theme) {
     const cx = x + KNOB_R, cy = y;
     const gr = g(parent, 0, 0);
     const job = KNOB_LABELS[i % KNOB_LABELS.length];
+    // A flat outlined circle reads as a hole in the panel, not a control you
+    // can grab. Build it the way the rest of the app builds raised surfaces:
+    // one light source above-left, so the body shades along that axis, the
+    // specular lands where the light would actually hit, and the shadow falls
+    // opposite. The value track is a recessed groove the fill rides in.
+    const uid = 'kn' + i + '_' + Math.round(cx) + '_' + Math.round(cy);
+    const defs = el('defs', {}, gr);
+    const bg = el('radialGradient', { id: uid + 'b', cx: '34%', cy: '26%', r: '78%' }, defs);
+    el('stop', { offset: '0%', 'stop-color': '#4a5163' }, bg);
+    el('stop', { offset: '52%', 'stop-color': '#2b303c' }, bg);
+    el('stop', { offset: '100%', 'stop-color': '#171a22' }, bg);
+    const rim = el('linearGradient', { id: uid + 'r', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: '0%', 'stop-color': '#7b8399' }, rim);
+    el('stop', { offset: '45%', 'stop-color': '#333a49' }, rim);
+    el('stop', { offset: '100%', 'stop-color': '#0d0f14' }, rim);
+    const spc = el('linearGradient', { id: uid + 's', x1: 0, y1: 0, x2: 0.4, y2: 1 }, defs);
+    el('stop', { offset: '0%', 'stop-color': '#fff', 'stop-opacity': '.30' }, spc);
+    el('stop', { offset: '60%', 'stop-color': '#fff', 'stop-opacity': '0' }, spc);
+
+    const AR = KNOB_R + 3.2, A0 = 220, SW = 280;
+    const arcP = (a0, a1) => {
+      const pt = (a) => [cx + AR * Math.cos(a * Math.PI / 180), cy + AR * Math.sin(a * Math.PI / 180)];
+      const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
+      return 'M' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A' + AR + ' ' + AR + ' 0 ' +
+        (Math.abs(a1 - a0) > 180 ? 1 : 0) + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2);
+    };
+    el('path', { d: arcP(A0, A0 + SW), fill: 'none', stroke: '#0b0d12', 'stroke-width': 3, 'stroke-linecap': 'round' }, gr);
+    el('path', { d: arcP(A0, A0 + SW * 0.5), fill: 'none', stroke: theme.accent, 'stroke-width': 2.4,
+      'stroke-linecap': 'round', 'stroke-opacity': '.9', 'data-role': 'knobarc', 'data-index': i }, gr);
+    el('ellipse', { cx, cy: cy + 1.6, rx: KNOB_R - 0.8, ry: KNOB_R - 2, fill: '#000', opacity: '.45' }, gr);
+    el('circle', { cx, cy, r: KNOB_R, fill: 'url(#' + uid + 'r)' }, gr);
+    // the hit target keeps its role hooks and stays the element the router binds
     el('circle', {
-      cx, cy, r: KNOB_R, fill: 'none', stroke: theme.ink, 'stroke-width': 1.5,
+      cx, cy, r: KNOB_R - 0.8, fill: 'url(#' + uid + 'b)', stroke: '#000', 'stroke-opacity': '.55', 'stroke-width': 1,
       'data-role': 'knob', 'data-index': i, 'data-hold': '1',
       'data-param': KNOB_PARAMS[i % KNOB_PARAMS.length],
     }, gr);
+    el('ellipse', { cx: cx - KNOB_R * 0.24, cy: cy - KNOB_R * 0.34, rx: KNOB_R * 0.48, ry: KNOB_R * 0.29,
+      fill: 'url(#' + uid + 's)', transform: 'rotate(-28 ' + (cx - KNOB_R * 0.24) + ' ' + (cy - KNOB_R * 0.34) + ')' }, gr);
     // pointer tick at ~ -45°
-    el('line', { x1: cx, y1: cy, x2: cx - KNOB_R * 0.7, y2: cy - KNOB_R * 0.7, stroke: theme.mute, 'stroke-width': 1.5 }, gr);
+    el('line', { x1: cx - KNOB_R * 0.22, y1: cy - KNOB_R * 0.22, x2: cx - KNOB_R * 0.66, y2: cy - KNOB_R * 0.66,
+      stroke: '#eef3ff', 'stroke-width': 1.8, 'stroke-linecap': 'round' }, gr);
+    el('circle', { cx, cy, r: KNOB_R * 0.2, fill: '#20242f', stroke: '#000', 'stroke-opacity': '.6', 'stroke-width': .7 }, gr);
     const cap = label(gr, cx, cy + KNOB_R + 8, job, theme.mute, 7.2);
     cap.setAttribute('letter-spacing', '.06em');
     maxX = Math.max(maxX, cx + KNOB_R);
