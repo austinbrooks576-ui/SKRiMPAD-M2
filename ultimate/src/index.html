@@ -158,7 +158,9 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 .kb svg{width:clamp(44px,6vw,62px);height:auto;cursor:grab;touch-action:none;display:block;}
 .kb .kv{font-size:var(--fs-sm);font-variant-numeric:tabular-nums;}
 .kb .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
-#scope{width:100%;flex:1;min-height:120px;border-radius:12px;border:1px solid var(--line);
+/* flex-basis 0 for the same reason as the monitor canvas — an intrinsic canvas
+   height inside a column flex feeds back into layout and creeps. */
+#scope{width:100%;flex:1 1 0;min-height:120px;border-radius:12px;border:1px solid var(--line);
   background:rgba(0,0,0,.35);box-shadow:inset 0 1px 3px rgba(0,0,0,.6);}
 
 /* ---------- LIBRARY --------------------------------------------------------
@@ -203,6 +205,52 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    target — the UI should say so rather than leave you guessing. */
 .cell.arm{outline:2px solid var(--acc);outline-offset:-2px;}
 
+/* ---------- WAVELENGTH MONITOR --------------------------------------------
+   The key system has no UI at all, which is the right call and leaves the
+   player with nothing that confirms the instrument heard them. This is that
+   confirmation, and it is the only visible part: a live trace of what is
+   actually leaving the speaker, so pushing the mod wheel makes the wave
+   breathe and bending stretches its cycles under your finger.
+
+   It is fixed rather than laid out, so it costs nothing in the flow and can
+   never push anything around, and pointer-events are off so it is scenery you
+   cannot get stuck on. It fades itself out when there is no signal — invisible
+   until there is something to see, which is the whole brief. */
+#mon{position:fixed;left:0;right:0;z-index:41;pointer-events:none;
+  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 58px);
+  height:clamp(34px,6vh,62px);opacity:0;transition:opacity .5s ease;
+  /* Clear the library button on the right — it lives at this exact height, and
+     without the reservation the trace runs underneath it. */
+  padding:0 calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px) 0 max(12px,env(safe-area-inset-left));}
+#mon.live{opacity:1;}
+/* A whisper of shade under the trace so it reads as its own plane rather than
+   a line scribbled across whatever happens to be behind it. */
+#mon::before{content:'';position:absolute;inset:-14% 0;z-index:-1;
+  background:linear-gradient(180deg,transparent,rgba(4,6,10,.72) 45%,transparent);}
+/* flex-basis 0 AND min-width 0, both deliberately. A canvas carries an
+   intrinsic size from its width attribute, and that size feeds back into flex
+   layout: the box grows, we measure the bigger box, we set a bigger width
+   attribute, which grows the box again. Left alone it ran away to 37910px in
+   a 1280px window. min-width:0 is what actually breaks the loop — without it
+   the automatic minimum size keeps the canvas at its intrinsic width no matter
+   what the flex basis says. */
+/* The soft ends belong to the CANVAS, not to #mon. mask-clip defaults to
+   border-box, so masking the container also clipped away the readout sitting
+   just outside it — the text was present and correct and simply never painted. */
+#mon canvas{display:block;width:100%;min-width:0;height:100%;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);}
+/* The hands readout sits ABOVE the strip rather than beside it. In a row it
+   competed with the trace for width and won, which on a phone left the
+   waveform squeezed into a third of the screen — and the waveform is the
+   point. It only ever prints a control that is off its resting position, so an
+   untouched keyboard shows nothing here at all. */
+#hands{position:absolute;right:calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px);
+  bottom:100%;margin-bottom:3px;font-size:var(--fs-xs);letter-spacing:.13em;
+  color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;
+  text-shadow:0 1px 6px rgba(0,0,0,.9);}
+#hands b{color:var(--acc);font-weight:600;}
+
 /* ---------- STATUS --------------------------------------------------------- */
 #status{position:fixed;right:max(10px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));
   z-index:40;font-size:var(--fs-xs);color:var(--dim);text-align:right;max-width:44vw;line-height:1.5;}
@@ -233,6 +281,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   <input id="file" type="file" accept="audio/*" multiple hidden>
   <div id="list"></div>
 </aside>
+<div id="mon"><canvas id="monwave"></canvas><span id="hands"></span></div>
 <div id="bar">
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
@@ -247,6 +296,8 @@ import { loadSong, saveSong, createHistory, liveCells, STEPS, CELLS, SCENES } fr
 import { createEngine } from './core/engine.js';
 import { createMidiIO } from './core/midi-io.js';
 import { createLibrary } from './core/library.js';
+import { createKeys } from './core/keys.js';
+import { createScope } from './core/wave.js';
 
 const $ = (s) => document.querySelector(s);
 const song = loadSong();
@@ -285,6 +336,8 @@ function onAltitude(depth) {
 
 // ---- DECK (altitude 1) ------------------------------------------------------
 const deck = $('#deck');
+// The cell a controller plays when you are not focused on one in particular.
+let lastCell = 0;
 function buildDeck() {
   deck.innerHTML = '';
   liveCells(song).forEach((c, i) => {
@@ -302,6 +355,9 @@ function buildDeck() {
     el.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
       if (armed) { assignSample(i, armed); return; }   // sound-first assignment
+      // Whatever you touched last is what the keys will sound, so a controller
+      // follows your attention without anything having to be selected.
+      lastCell = i;
       eng.resume(); eng.play(c.voice, 0, 112, i);
       flash(i);
       held = setTimeout(() => { held = 0; atlas.setFocus(2, i); atlas.goTo(2, i); }, 380);
@@ -466,7 +522,6 @@ function buildScenePick() {
 // ---- LIVE RENDER LOOP ------------------------------------------------------
 // One loop for the whole app. Each altitude draws only when it is visible, so
 // flying to CONSTELLATION costs nothing while you are down in GRAIN.
-let scopeData = null;
 function frame() {
   requestAnimationFrame(frame);
   const lvl = atlas.level, cells = liveCells(song);
@@ -481,6 +536,40 @@ function frame() {
   }
   if (lvl === 0) drawNebula(cells);
   if (lvl === 4) drawScope();
+  drawMonitor(cells);
+}
+
+// ---- THE WAVELENGTH MONITOR ------------------------------------------------
+// Drawn every frame, shown only when there is something to show. Two rules keep
+// it from becoming clutter:
+//   1. it disappears entirely when the signal dies, after a short grace period
+//      so it does not strobe on and off between notes in a phrase
+//   2. the readout beside it prints ONLY controls that are off their resting
+//      position, so an untouched keyboard prints nothing
+let monScope = null, monQuiet = 0, monShown = false, handsTxt = '';
+function drawMonitor(cells) {
+  if (!eng.analyser) return;
+  if (!monScope) monScope = createScope(eng.analyser);
+  const c = cells[atlas.focusAt(1) ?? lastCell] || cells[0];
+  const peak = monScope($('#monwave'), { hue: c ? c.hue : 168 });
+
+  // A short tail rather than an instant cut: notes have gaps, and a strip that
+  // blinks out between them is more distracting than one that simply stays.
+  if (peak > 0.008) monQuiet = 0; else monQuiet++;
+  const show = monQuiet < 90 || keys.voices > 0;
+  if (show !== monShown) { monShown = show; $('#mon').classList.toggle('live', show); }
+
+  const h = keys.live, out = [];
+  if (Math.abs(h.bend) > 0.02) out.push('BEND <b>' + (h.bend > 0 ? '+' : '') + h.bend.toFixed(1) + '</b>');
+  if (h.mod > 0.01) out.push('MOD <b>' + Math.round(h.mod * 100) + '</b>');
+  if (h.press > 0.01) out.push('PRESS <b>' + Math.round(h.press * 100) + '</b>');
+  if (h.timbre > 0.01) out.push('TIMBRE <b>' + Math.round(h.timbre * 100) + '</b>');
+  if (keys.voices) out.push('<b>' + keys.voices + '</b> VOICE' + (keys.voices > 1 ? 'S' : ''));
+  const txt = out.join('  ·  ');
+  // Only touch the DOM when the text actually changed — this runs 60 times a
+  // second and an unconditional innerHTML write would relayout the strip on
+  // every single frame for no reason.
+  if (txt !== handsTxt) { handsTxt = txt; $('#hands').innerHTML = txt; }
 }
 // ---- CONSTELLATION, THE ARRANGEMENT VIEW -----------------------------------
 // This is not decoration. It is the only altitude where you can see the WHOLE
@@ -658,24 +747,16 @@ function densify(i, want) {
   syncRibbon(i);
   saveSong(song);
 }
+// GRAIN's full-size scope. Same triggered draw as the strip — it used to plot
+// the raw analyser window straight across, which meant the waveform's phase
+// jumped every frame and a perfectly steady note looked like it was thrashing.
+let grainScope = null;
 function drawScope() {
   const cv = document.getElementById('scope'); if (!cv || !eng.analyser) return;
-  const r = cv.getBoundingClientRect();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  if (cv.width !== (r.width * dpr | 0)) { cv.width = r.width * dpr; cv.height = r.height * dpr; }
-  if (!scopeData) scopeData = new Uint8Array(eng.analyser.fftSize);
-  eng.analyser.getByteTimeDomainData(scopeData);
-  const g = cv.getContext('2d'), W = cv.width, H = cv.height;
-  g.clearRect(0, 0, W, H);
-  const i = atlas.focusAt(2) ?? 0, hue = liveCells(song)[i].hue;
-  g.lineWidth = 2 * dpr; g.strokeStyle = 'hsl(' + hue + ' 88% 62%)';
-  g.shadowBlur = 14 * dpr; g.shadowColor = 'hsl(' + hue + ' 88% 62% / .6)';
-  g.beginPath();
-  for (let n = 0; n < scopeData.length; n++) {
-    const x = (n / scopeData.length) * W, y = (scopeData[n] / 128 - 1) * (H * 0.42) + H / 2;
-    n ? g.lineTo(x, y) : g.moveTo(x, y);
-  }
-  g.stroke();
+  if (!grainScope) grainScope = createScope(eng.analyser);
+  const i = atlas.focusAt(2) ?? 0;
+  const c = liveCells(song)[i];
+  grainScope(cv, { hue: c ? c.hue : 168 });
 }
 
 // ---- TRANSPORT -------------------------------------------------------------
@@ -721,24 +802,67 @@ $('#dice').addEventListener('click', () => {
 // The hardened stack from LIVEx: it waits for the Android bridge, keeps sweeping
 // on a backoff while nothing is attached, and re-scans the instant the app comes
 // back to the foreground — which is exactly when someone returns from pairing.
+// THE KEY SYSTEM IS INVISIBLE ON PURPOSE. There is no on-screen keyboard, no
+// MIDI-learn dialog and no routing page, because the controller already has
+// keys, wheels, a pressure sensor and a pedal, and the person holding it
+// already knows how those feel. The instrument does the playing and all of the
+// modulation; this app's only job is to be the voice at the end of the wire.
+// Everything the hardware sends is honoured — see core/keys.js for the routing
+// and, more importantly, for why none of it is configurable.
+const keys = createKeys({
+  engine: eng,
+  // Keys sound the cell you are looking at. There is no separate "instrument"
+  // to select, because you already selected one by flying to it — the thing
+  // under your attention is the thing under your hands.
+  voiceFor: () => {
+    const c = liveCells(song)[atlas.focusAt(1) ?? lastCell] || liveCells(song)[0];
+    return c && c.voice;
+  },
+  // A pad controller keeps doing exactly what it did before.
+  onPad: (note, vel) => {
+    const idx = (((note - 36) % CELLS) + CELLS) % CELLS;
+    eng.resume(); eng.play(liveCells(song)[idx].voice, 0, vel, idx); flash(idx);
+  },
+});
+
+// The hardened stack from LIVEx: it waits for the Android bridge, keeps sweeping
+// on a backoff while nothing is attached, and re-scans the instant the app comes
+// back to the foreground — which is exactly when someone returns from pairing.
 const io = createMidiIO({
-  onMessage: (data) => {
-    const st = data[0] & 0xf0;
-    if (st === 0x90 && data[2] > 0) {
-      const i = (data[1] - 36) % CELLS;
-      const idx = ((i % CELLS) + CELLS) % CELLS;
-      eng.resume(); eng.play(liveCells(song)[idx].voice, 0, data[2], idx); flash(idx);
+  // This callback is named onEvent, not onMessage. It was wired as onMessage,
+  // which the module never calls — so every byte of MIDI arriving in this
+  // edition was being dropped on the floor, silently, with a fully working
+  // transport underneath it.
+  onEvent: (e) => {
+    if (e.transport) {
+      if (e.transport === 'play' && !eng.playing) playBtn.click();
+      else if (e.transport === 'stop' && eng.playing) playBtn.click();
+      else if (e.transport === 'rec') $('#rec').classList.toggle('on');
+      return;
     }
+    keys.handle(e.raw, (e.port && e.port.name) || '');
   },
   onPorts: (ports) => {
     const s = $('#status');
-    s.innerHTML = ports && ports.length
-      ? '<b>' + esc(ports.map((p) => p.name).join(', ').slice(0, 40)) + '</b><br>connected — play it'
-      : 'no controller yet<br>usb: plug in · bluetooth: pair in settings';
+    if (!ports || !ports.length) {
+      s.innerHTML = 'no controller yet<br>usb: plug in · bluetooth: pair in settings';
+      return;
+    }
+    // Say what it decided the controller IS. That one word is the only piece of
+    // the key system that ever appears on screen, and it is there so a wrong
+    // guess is visible rather than mysterious.
+    const names = ports.map((p) => p.name).join(', ');
+    const n0 = ports[0] && ports[0].name;
+    const r = keys.decided(n0) ? keys.roleOf(n0) : null;
+    s.innerHTML = '<b>' + esc(names.slice(0, 40)) + '</b><br>' +
+      (r === 'pads' ? 'pads — hit them' : r === 'keys' ? 'keys — play it' : 'connected — play it');
   },
 });
 io.start().catch(() => {});
 io.keepLooking();
+// Losing the page mid-chord must not leave a note ringing forever.
+window.addEventListener('blur', () => keys.panic());
+document.addEventListener('visibilitychange', () => { if (document.hidden) keys.panic(); });
 
 
 // ---- LIBRARY ---------------------------------------------------------------
@@ -878,9 +1002,10 @@ window.addEventListener('keydown', (e) => {
 // A single handle for tests and for anyone poking at this in a console. Every
 // entry is something the UI itself uses — nothing here exists only for tests.
 window.__ult = {
-  atlas, song, eng, io, lib,
+  atlas, song, eng, io, lib, keys,
   assign: assignSample, densify, buildDeck, renderList,
   warmHas: (id) => warm.has(id),
+  focusCell: (i) => { lastCell = i; },
 };
 </script>
 </body>

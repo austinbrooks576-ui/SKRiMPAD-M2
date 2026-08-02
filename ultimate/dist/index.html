@@ -158,7 +158,9 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 .kb svg{width:clamp(44px,6vw,62px);height:auto;cursor:grab;touch-action:none;display:block;}
 .kb .kv{font-size:var(--fs-sm);font-variant-numeric:tabular-nums;}
 .kb .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
-#scope{width:100%;flex:1;min-height:120px;border-radius:12px;border:1px solid var(--line);
+/* flex-basis 0 for the same reason as the monitor canvas — an intrinsic canvas
+   height inside a column flex feeds back into layout and creeps. */
+#scope{width:100%;flex:1 1 0;min-height:120px;border-radius:12px;border:1px solid var(--line);
   background:rgba(0,0,0,.35);box-shadow:inset 0 1px 3px rgba(0,0,0,.6);}
 
 /* ---------- LIBRARY --------------------------------------------------------
@@ -203,6 +205,52 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    target — the UI should say so rather than leave you guessing. */
 .cell.arm{outline:2px solid var(--acc);outline-offset:-2px;}
 
+/* ---------- WAVELENGTH MONITOR --------------------------------------------
+   The key system has no UI at all, which is the right call and leaves the
+   player with nothing that confirms the instrument heard them. This is that
+   confirmation, and it is the only visible part: a live trace of what is
+   actually leaving the speaker, so pushing the mod wheel makes the wave
+   breathe and bending stretches its cycles under your finger.
+
+   It is fixed rather than laid out, so it costs nothing in the flow and can
+   never push anything around, and pointer-events are off so it is scenery you
+   cannot get stuck on. It fades itself out when there is no signal — invisible
+   until there is something to see, which is the whole brief. */
+#mon{position:fixed;left:0;right:0;z-index:41;pointer-events:none;
+  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 58px);
+  height:clamp(34px,6vh,62px);opacity:0;transition:opacity .5s ease;
+  /* Clear the library button on the right — it lives at this exact height, and
+     without the reservation the trace runs underneath it. */
+  padding:0 calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px) 0 max(12px,env(safe-area-inset-left));}
+#mon.live{opacity:1;}
+/* A whisper of shade under the trace so it reads as its own plane rather than
+   a line scribbled across whatever happens to be behind it. */
+#mon::before{content:'';position:absolute;inset:-14% 0;z-index:-1;
+  background:linear-gradient(180deg,transparent,rgba(4,6,10,.72) 45%,transparent);}
+/* flex-basis 0 AND min-width 0, both deliberately. A canvas carries an
+   intrinsic size from its width attribute, and that size feeds back into flex
+   layout: the box grows, we measure the bigger box, we set a bigger width
+   attribute, which grows the box again. Left alone it ran away to 37910px in
+   a 1280px window. min-width:0 is what actually breaks the loop — without it
+   the automatic minimum size keeps the canvas at its intrinsic width no matter
+   what the flex basis says. */
+/* The soft ends belong to the CANVAS, not to #mon. mask-clip defaults to
+   border-box, so masking the container also clipped away the readout sitting
+   just outside it — the text was present and correct and simply never painted. */
+#mon canvas{display:block;width:100%;min-width:0;height:100%;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);}
+/* The hands readout sits ABOVE the strip rather than beside it. In a row it
+   competed with the trace for width and won, which on a phone left the
+   waveform squeezed into a third of the screen — and the waveform is the
+   point. It only ever prints a control that is off its resting position, so an
+   untouched keyboard shows nothing here at all. */
+#hands{position:absolute;right:calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px);
+  bottom:100%;margin-bottom:3px;font-size:var(--fs-xs);letter-spacing:.13em;
+  color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;
+  text-shadow:0 1px 6px rgba(0,0,0,.9);}
+#hands b{color:var(--acc);font-weight:600;}
+
 /* ---------- STATUS --------------------------------------------------------- */
 #status{position:fixed;right:max(10px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));
   z-index:40;font-size:var(--fs-xs);color:var(--dim);text-align:right;max-width:44vw;line-height:1.5;}
@@ -233,6 +281,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   <input id="file" type="file" accept="audio/*" multiple hidden>
   <div id="list"></div>
 </aside>
+<div id="mon"><canvas id="monwave"></canvas><span id="hands"></span></div>
 <div id="bar">
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
@@ -673,6 +722,169 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
       return { stop };
     }
+    let lfo = null, lfoOut = null;
+    function vibrato() {
+      if (lfoOut) return lfoOut;
+      lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 5.2;
+      lfoOut = ctx.createGain();
+      lfoOut.gain.value = 1;
+      lfo.connect(lfoOut);
+      lfo.start();
+      return lfoOut;
+    }
+    function hold(voice, note, vel, when) {
+      init();
+      const t = when || ctx.currentTime;
+      const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
+      const env = ctx.createGain(), exp = ctx.createGain();
+      const flt = ctx.createBiquadFilter();
+      flt.type = "lowpass";
+      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      const base = Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75));
+      flt.frequency.setValueAtTime(base, t);
+      flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
+      let src, isSample = false;
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          src = ctx.createBufferSource();
+          src.buffer = buf;
+          isSample = true;
+          if (buf.duration > 0.55) {
+            src.loop = true;
+            src.loopStart = buf.duration * 0.2;
+            src.loopEnd = buf.duration;
+          }
+          src.playbackRate.value = Math.pow(2, (clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24)) / 12);
+        }
+      }
+      if (!src) {
+        src = ctx.createOscillator();
+        src.type = voice.wave || "sawtooth";
+        src.frequency.setValueAtTime(hz(note), t);
+        if (voice.tune) src.detune.setValueAtTime(clamp(voice.tune, -24, 24) * 100, t);
+      }
+      const bendable = src.detune || null;
+      let vibDepth = null;
+      if (bendable) {
+        vibDepth = ctx.createGain();
+        vibDepth.gain.value = 0;
+        vibrato().connect(vibDepth);
+        vibDepth.connect(bendable);
+      }
+      const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
+      const s = clamp(voice.sustain, 0, 1), peak = v * clamp(voice.gain, 0, 1.4);
+      const held = Math.max(2e-4, peak * Math.max(0.08, s));
+      env.gain.setValueAtTime(1e-4, t);
+      env.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      env.gain.exponentialRampToValueAtTime(held, t + a + d);
+      exp.gain.setValueAtTime(1, t);
+      let chain = src;
+      chain.connect(flt);
+      chain = flt;
+      if (voice.drive > 0.02) {
+        const ws = ctx.createWaveShaper();
+        const k = clamp(voice.drive, 0, 1) * 60, curve = new Float32Array(1024);
+        for (let i = 0; i < 1024; i++) {
+          const x = i / 512 - 1;
+          curve[i] = (1 + k) * x / (1 + k * Math.abs(x));
+        }
+        ws.curve = curve;
+        ws.oversample = "2x";
+        chain.connect(ws);
+        chain = ws;
+      }
+      chain.connect(env);
+      env.connect(exp);
+      if (pan) {
+        pan.pan.value = clamp(voice.pan, -1, 1);
+        exp.connect(pan);
+        pan.connect(master);
+      } else exp.connect(master);
+      if (voice.space > 0.02) {
+        const sd = ctx.createGain();
+        sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
+        exp.connect(sd);
+        sd.connect(spaceIn);
+      }
+      src.start(t);
+      let dead = false, pressure = 0, timbre = 0, lev = 1;
+      function reflt() {
+        if (dead) return;
+        const open = Math.min(1, pressure * 0.75 + timbre);
+        try {
+          flt.frequency.setTargetAtTime(Math.min(18e3, base * (1 + open * 5.5)), ctx.currentTime, 0.02);
+        } catch (e) {
+        }
+      }
+      function relev() {
+        if (dead) return;
+        try {
+          exp.gain.setTargetAtTime(Math.max(1e-4, lev * (1 + pressure * 0.35)), ctx.currentTime, 0.025);
+        } catch (e) {
+        }
+      }
+      function fade(secs) {
+        if (dead) return;
+        dead = true;
+        const now = ctx.currentTime;
+        try {
+          env.gain.cancelScheduledValues(now);
+          env.gain.setValueAtTime(Math.max(2e-4, env.gain.value), now);
+          env.gain.exponentialRampToValueAtTime(1e-4, now + secs);
+        } catch (e) {
+        }
+        try {
+          src.stop(now + secs + 0.03);
+        } catch (e) {
+        }
+      }
+      return {
+        note,
+        isSample,
+        get dead() {
+          return dead;
+        },
+        // Bend arrives in SEMITONES, because that is the unit a player thinks in.
+        // Cents are an implementation detail of the audio graph.
+        bend(semis) {
+          if (bendable && !dead) try {
+            bendable.setTargetAtTime(clamp(semis, -48, 48) * 100, ctx.currentTime, 6e-3);
+          } catch (e) {
+          }
+        },
+        vib(cents) {
+          if (vibDepth && !dead) try {
+            vibDepth.gain.setTargetAtTime(clamp(cents, 0, 200), ctx.currentTime, 0.05);
+          } catch (e) {
+          }
+        },
+        press(p) {
+          pressure = clamp(p, 0, 1);
+          reflt();
+          relev();
+        },
+        timbre(b) {
+          timbre = clamp(b, 0, 1);
+          reflt();
+        },
+        level(l) {
+          lev = clamp(l, 0, 2);
+          relev();
+        },
+        off() {
+          fade(clamp(voice.release, 0.01, 4));
+        },
+        // A stolen voice still gets a release, just a very short one. 12ms is
+        // under the ear's time resolution and above the point where a hard stop
+        // becomes an audible tick.
+        steal() {
+          fade(0.012);
+        }
+      };
+    }
     const AHEAD = 0.12, TICK = 25;
     let playing = false, step = 0, nextTime = 0, timer = 0, onStep = null;
     function schedule(song2) {
@@ -710,6 +922,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         return playing;
       },
       play,
+      hold,
       decayMeters() {
         for (let i = 0; i < meters.length; i++) meters[i] *= 0.86;
       },
@@ -1369,6 +1582,400 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     };
   }
 
+  // ultimate/src/core/keys.js
+  var PORT_ROLES = "skrimpad_ultimate_ports";
+  var KEYISH = /key|piano|synth|s49|s61|s88|mpk|launchkey|keystation|keylab|minilab|oxygen|axiom|nektar|impact|smk|micro ?key|nano ?key|k-?board|seaboard|linnstr|osmose|xkey|reface|casio|prophet|moog|hydra|deepmind|jd-?xi|jp-?\d|montage|modx|fantom|jupiter|juno/i;
+  var PADISH = /\bmpd\d*\b|\bmpc\b|maschine|launchpad|pad ?kontrol|beatstep|beat ?pad|\bspd\b|dd-?\d{2}|linn ?drum|\batom\b|blocks|trigger ?finger|\bpads?\b|drum ?pad/i;
+  var PAD_LO = 36;
+  var PAD_HI = 63;
+  function readRoles() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PORT_ROLES) || "null");
+      return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function writeRoles(roles) {
+    try {
+      localStorage.setItem(PORT_ROLES, JSON.stringify(roles));
+    } catch (e) {
+    }
+  }
+  function guessRole(name) {
+    const n = String(name || "");
+    if (PADISH.test(n)) return "pads";
+    if (KEYISH.test(n)) return "keys";
+    return null;
+  }
+  function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = {}) {
+    const roles = readRoles();
+    const held = /* @__PURE__ */ new Map();
+    const sustained = /* @__PURE__ */ new Set();
+    const order = [];
+    let port = "";
+    let role = null;
+    const ch = [];
+    for (let i = 0; i < 16; i++) {
+      ch.push({
+        bend: 0,
+        range: 2,
+        mod: 0,
+        press: 0,
+        timbre: 0,
+        level: 1,
+        pedal: false,
+        rpn: -1,
+        rpnMsb: 0
+      });
+    }
+    const live = { bend: 0, mod: 0, press: 0, timbre: 0, notes: 0, at: 0, name: "", role: null };
+    function announce() {
+      live.at = Date.now();
+      onActivity && onActivity(live);
+    }
+    function decide(name, note) {
+      if (roles[name]) return roles[name];
+      const g = guessRole(name);
+      if (g) {
+        roles[name] = g;
+        writeRoles(roles);
+        return g;
+      }
+      if (note != null && (note < PAD_LO || note > PAD_HI)) {
+        roles[name] = "keys";
+        writeRoles(roles);
+        return "keys";
+      }
+      return "pads";
+    }
+    function sawExpressive(name) {
+      if (roles[name] === "keys") return;
+      roles[name] = "keys";
+      writeRoles(roles);
+      role = "keys";
+    }
+    const key = (c, n) => c + ":" + n;
+    function stealIfNeeded() {
+      while (order.length >= poly) {
+        const k = order.shift();
+        const h = held.get(k);
+        if (h) {
+          h.steal();
+          held.delete(k);
+        }
+        sustained.delete(k);
+      }
+    }
+    function noteOn(c, n, vel) {
+      const voice = voiceFor && voiceFor();
+      if (!voice) return;
+      engine.resume();
+      const k = key(c, n);
+      const prev = held.get(k);
+      if (prev) {
+        prev.steal();
+        held.delete(k);
+        const j = order.indexOf(k);
+        if (j >= 0) order.splice(j, 1);
+      }
+      stealIfNeeded();
+      const h = engine.hold(voice, n, vel, 0);
+      held.set(k, h);
+      order.push(k);
+      sustained.delete(k);
+      const s = ch[c];
+      h.bend(s.bend * s.range);
+      h.vib(s.mod * 60);
+      h.press(s.press);
+      h.timbre(s.timbre);
+      h.level(s.level);
+      live.notes = held.size;
+      announce();
+    }
+    function noteOff(c, n) {
+      const k = key(c, n);
+      const h = held.get(k);
+      if (!h) return;
+      if (ch[c].pedal) {
+        sustained.add(k);
+        return;
+      }
+      h.off();
+      held.delete(k);
+      const i = order.indexOf(k);
+      if (i >= 0) order.splice(i, 1);
+      live.notes = held.size;
+      announce();
+    }
+    function eachOn(c, fn) {
+      for (const [k, h] of held) if (+k.split(":")[0] === c) fn(h);
+    }
+    function allOff(c, hard) {
+      for (const [k, h] of held) {
+        if (c != null && +k.split(":")[0] !== c) continue;
+        hard ? h.steal() : h.off();
+        held.delete(k);
+      }
+      order.length = 0;
+      sustained.clear();
+      live.notes = 0;
+      announce();
+    }
+    function cc(c, num, val) {
+      const s = ch[c], v = val / 127;
+      switch (num) {
+        case 1:
+          s.mod = v;
+          sawExpressive(port);
+          eachOn(c, (h) => h.vib(v * 60));
+          live.mod = v;
+          announce();
+          break;
+        case 2:
+        case 11:
+          s.level = v;
+          eachOn(c, (h) => h.level(v));
+          announce();
+          break;
+        case 7:
+          s.level = v;
+          eachOn(c, (h) => h.level(v));
+          break;
+        case 64: {
+          const down = val >= 64;
+          if (down === s.pedal) break;
+          s.pedal = down;
+          sawExpressive(port);
+          if (!down) {
+            for (const k of Array.from(sustained)) {
+              if (+k.split(":")[0] !== c) continue;
+              const h = held.get(k);
+              if (h) {
+                h.off();
+                held.delete(k);
+              }
+              sustained.delete(k);
+              const i = order.indexOf(k);
+              if (i >= 0) order.splice(i, 1);
+            }
+            live.notes = held.size;
+            announce();
+          }
+          break;
+        }
+        case 74:
+          s.timbre = v;
+          eachOn(c, (h) => h.timbre(v));
+          live.timbre = v;
+          announce();
+          break;
+        case 121:
+          s.bend = 0;
+          s.mod = 0;
+          s.press = 0;
+          s.timbre = 0;
+          s.level = 1;
+          s.pedal = false;
+          eachOn(c, (h) => {
+            h.bend(0);
+            h.vib(0);
+            h.press(0);
+            h.timbre(0);
+            h.level(1);
+          });
+          live.bend = 0;
+          live.mod = 0;
+          live.press = 0;
+          live.timbre = 0;
+          announce();
+          break;
+        case 123:
+        case 120:
+          allOff(c, num === 120);
+          break;
+        // ---- RPN 0: the controller telling us its own bend range ----------
+        // This is the difference between "bend feels wrong on this keyboard" and
+        // bend simply being right everywhere. A controller set to ±12 announces
+        // it; assuming ±2 for everything makes a whole-step out of an octave.
+        case 101:
+          s.rpnMsb = val;
+          s.rpn = -1;
+          break;
+        case 100:
+          s.rpn = s.rpnMsb === 0 && val === 0 ? 0 : -1;
+          break;
+        case 6:
+          if (s.rpn === 0) {
+            s.range = Math.max(1, Math.min(48, val || 2));
+          }
+          break;
+        case 38:
+          if (s.rpn === 0) {
+            s.range = Math.floor(s.range) + val / 100;
+          }
+          break;
+        default:
+          break;
+      }
+    }
+    function bend(c, lsb, msb) {
+      const raw = (msb << 7 | lsb) - 8192;
+      const s = ch[c];
+      s.bend = raw / (raw < 0 ? 8192 : 8191);
+      sawExpressive(port);
+      eachOn(c, (h) => h.bend(s.bend * s.range));
+      live.bend = s.bend * s.range;
+      announce();
+    }
+    return {
+      get role() {
+        return role;
+      },
+      get live() {
+        return live;
+      },
+      get voices() {
+        return held.size;
+      },
+      panic() {
+        allOff(null, true);
+        for (const s of ch) s.pedal = false;
+      },
+      // Forget what we learned about a controller. Not surfaced anywhere yet, but
+      // the decision must be reversible or a single bad guess is permanent.
+      forget(name) {
+        delete roles[name];
+        writeRoles(roles);
+      },
+      // What this port WILL do, never null. Pads is the standing assumption for a
+      // controller nothing is known about yet, so that is the honest answer to
+      // give — an undecided port still behaves like something.
+      roleOf(name) {
+        return roles[name] || guessRole(name) || "pads";
+      },
+      // Whether that answer is a decision or just the assumption. The status line
+      // uses it to avoid claiming a controller is a pad bank before it knows.
+      decided(name) {
+        return !!(roles[name] || guessRole(name));
+      },
+      handle(data, portName) {
+        if (!data || data.length < 1) return;
+        port = portName || port || "midi";
+        const status = data[0] & 240, c = data[0] & 15;
+        if (status === 240 || data[0] >= 248) return;
+        if (status === 176) {
+          cc(c, data[1], data[2]);
+          return;
+        }
+        if (status === 224) {
+          bend(c, data[1], data[2]);
+          return;
+        }
+        if (status === 208) {
+          const v = data[1] / 127;
+          ch[c].press = v;
+          sawExpressive(port);
+          eachOn(c, (h) => h.press(v));
+          live.press = v;
+          announce();
+          return;
+        }
+        if (status === 160) {
+          const h = held.get(key(c, data[1]));
+          if (h) h.press(data[2] / 127);
+          live.press = data[2] / 127;
+          announce();
+          return;
+        }
+        const on = status === 144 && data[2] > 0;
+        const off = status === 128 || status === 144 && data[2] === 0;
+        if (!on && !off) return;
+        role = c === 9 ? "pads" : decide(port, data[1]);
+        live.name = port;
+        live.role = role;
+        if (role === "pads") {
+          if (on && onPad) onPad(data[1], data[2]);
+          return;
+        }
+        on ? noteOn(c, data[1], data[2]) : noteOff(c, data[1]);
+      }
+    };
+  }
+
+  // ultimate/src/core/wave.js
+  function createScope(analyser) {
+    let data = null, prevTrigger = 0, quiet = 0;
+    function findTrigger(buf, half) {
+      const H = 12;
+      let armed2 = false, best = -1;
+      for (let i = 1; i < half; i++) {
+        if (buf[i] < 128 - H) armed2 = true;
+        else if (armed2 && buf[i] >= 128 && buf[i - 1] < 128) {
+          if (best < 0 || Math.abs(i - prevTrigger) < Math.abs(best - prevTrigger)) best = i;
+          armed2 = false;
+          if (Math.abs(i - prevTrigger) < 24) break;
+        }
+      }
+      return best;
+    }
+    return function draw(cv, opts) {
+      if (!cv || !analyser) return 0;
+      const o = opts || {};
+      const r = cv.getBoundingClientRect();
+      if (!r.width) return 0;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.max(1, r.width * dpr | 0), h = Math.max(1, r.height * dpr | 0);
+      if (cv.width !== w || cv.height !== h) {
+        cv.width = w;
+        cv.height = h;
+      }
+      if (!data || data.length !== analyser.fftSize) data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+      const half = data.length >> 1;
+      let peak = 0;
+      for (let i = 0; i < data.length; i += 3) {
+        const a = Math.abs(data[i] - 128);
+        if (a > peak) peak = a;
+      }
+      peak /= 128;
+      const g = cv.getContext("2d");
+      g.clearRect(0, 0, w, h);
+      const hue = o.hue == null ? 168 : o.hue;
+      const mid = h / 2;
+      if (peak < 6e-3) {
+        quiet++;
+        g.strokeStyle = "hsl(" + hue + " 40% 60% / .18)";
+        g.lineWidth = Math.max(1, dpr);
+        g.beginPath();
+        g.moveTo(0, mid);
+        g.lineTo(w, mid);
+        g.stroke();
+        return 0;
+      }
+      quiet = 0;
+      let start = findTrigger(data, half);
+      if (start < 0) start = 0;
+      prevTrigger = start;
+      const amp = h * 0.44 * (0.35 + Math.pow(Math.min(1, peak), 0.6) * 0.65) / Math.max(0.08, peak);
+      const span = half;
+      g.lineJoin = "round";
+      g.lineCap = "round";
+      for (let pass = 0; pass < 2; pass++) {
+        g.beginPath();
+        for (let n = 0; n < span; n++) {
+          const x = n / span * w;
+          const y = mid - (data[start + n] - 128) / 128 * amp;
+          n ? g.lineTo(x, y) : g.moveTo(x, y);
+        }
+        g.lineWidth = (pass ? 1.4 : 4.5) * dpr;
+        g.strokeStyle = pass ? "hsl(" + hue + " 95% 76%)" : "hsl(" + hue + " 92% 58% / " + (0.16 + Math.min(0.3, peak * 0.4)) + ")";
+        g.stroke();
+      }
+      return Math.min(1, peak);
+    };
+  }
+
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var song = loadSong();
@@ -1400,6 +2007,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     if (lvl === 4) drawGrainSheet();
   }
   var deck = $("#deck");
+  var lastCell = 0;
   function buildDeck() {
     deck.innerHTML = "";
     liveCells(song).forEach((c, i) => {
@@ -1420,6 +2028,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
           assignSample(i, armed);
           return;
         }
+        lastCell = i;
         eng.resume();
         eng.play(c.voice, 0, 112, i);
         flash(i);
@@ -1602,7 +2211,6 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       host.appendChild(b);
     }
   }
-  var scopeData = null;
   function frame() {
     requestAnimationFrame(frame);
     const lvl = atlas.level, cells = liveCells(song);
@@ -1616,6 +2224,36 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     }
     if (lvl === 0) drawNebula(cells);
     if (lvl === 4) drawScope();
+    drawMonitor(cells);
+  }
+  var monScope = null;
+  var monQuiet = 0;
+  var monShown = false;
+  var handsTxt = "";
+  function drawMonitor(cells) {
+    var _a;
+    if (!eng.analyser) return;
+    if (!monScope) monScope = createScope(eng.analyser);
+    const c = cells[(_a = atlas.focusAt(1)) != null ? _a : lastCell] || cells[0];
+    const peak = monScope($("#monwave"), { hue: c ? c.hue : 168 });
+    if (peak > 8e-3) monQuiet = 0;
+    else monQuiet++;
+    const show = monQuiet < 90 || keys.voices > 0;
+    if (show !== monShown) {
+      monShown = show;
+      $("#mon").classList.toggle("live", show);
+    }
+    const h = keys.live, out = [];
+    if (Math.abs(h.bend) > 0.02) out.push("BEND <b>" + (h.bend > 0 ? "+" : "") + h.bend.toFixed(1) + "</b>");
+    if (h.mod > 0.01) out.push("MOD <b>" + Math.round(h.mod * 100) + "</b>");
+    if (h.press > 0.01) out.push("PRESS <b>" + Math.round(h.press * 100) + "</b>");
+    if (h.timbre > 0.01) out.push("TIMBRE <b>" + Math.round(h.timbre * 100) + "</b>");
+    if (keys.voices) out.push("<b>" + keys.voices + "</b> VOICE" + (keys.voices > 1 ? "S" : ""));
+    const txt = out.join("  \xB7  ");
+    if (txt !== handsTxt) {
+      handsTxt = txt;
+      $("#hands").innerHTML = txt;
+    }
   }
   var NEB = { hit: null, drag: null };
   function nebLayout(cells, W, H) {
@@ -1778,31 +2416,15 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     syncRibbon(i);
     saveSong(song);
   }
+  var grainScope = null;
   function drawScope() {
     var _a;
     const cv = document.getElementById("scope");
     if (!cv || !eng.analyser) return;
-    const r = cv.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (cv.width !== (r.width * dpr | 0)) {
-      cv.width = r.width * dpr;
-      cv.height = r.height * dpr;
-    }
-    if (!scopeData) scopeData = new Uint8Array(eng.analyser.fftSize);
-    eng.analyser.getByteTimeDomainData(scopeData);
-    const g = cv.getContext("2d"), W = cv.width, H = cv.height;
-    g.clearRect(0, 0, W, H);
-    const i = (_a = atlas.focusAt(2)) != null ? _a : 0, hue = liveCells(song)[i].hue;
-    g.lineWidth = 2 * dpr;
-    g.strokeStyle = "hsl(" + hue + " 88% 62%)";
-    g.shadowBlur = 14 * dpr;
-    g.shadowColor = "hsl(" + hue + " 88% 62% / .6)";
-    g.beginPath();
-    for (let n = 0; n < scopeData.length; n++) {
-      const x = n / scopeData.length * W, y = (scopeData[n] / 128 - 1) * (H * 0.42) + H / 2;
-      n ? g.lineTo(x, y) : g.moveTo(x, y);
-    }
-    g.stroke();
+    if (!grainScope) grainScope = createScope(eng.analyser);
+    const i = (_a = atlas.focusAt(2)) != null ? _a : 0;
+    const c = liveCells(song)[i];
+    grainScope(cv, { hue: c ? c.hue : 168 });
   }
   var playBtn = $("#play");
   playBtn.addEventListener("click", () => {
@@ -1847,25 +2469,57 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     saveSong(song);
     if (atlas.level === 2) drawCellSheet();
   });
+  var keys = createKeys({
+    engine: eng,
+    // Keys sound the cell you are looking at. There is no separate "instrument"
+    // to select, because you already selected one by flying to it — the thing
+    // under your attention is the thing under your hands.
+    voiceFor: () => {
+      var _a;
+      const c = liveCells(song)[(_a = atlas.focusAt(1)) != null ? _a : lastCell] || liveCells(song)[0];
+      return c && c.voice;
+    },
+    // A pad controller keeps doing exactly what it did before.
+    onPad: (note, vel) => {
+      const idx = ((note - 36) % CELLS + CELLS) % CELLS;
+      eng.resume();
+      eng.play(liveCells(song)[idx].voice, 0, vel, idx);
+      flash(idx);
+    }
+  });
   var io = createMidiIO({
-    onMessage: (data) => {
-      const st = data[0] & 240;
-      if (st === 144 && data[2] > 0) {
-        const i = (data[1] - 36) % CELLS;
-        const idx = (i % CELLS + CELLS) % CELLS;
-        eng.resume();
-        eng.play(liveCells(song)[idx].voice, 0, data[2], idx);
-        flash(idx);
+    // This callback is named onEvent, not onMessage. It was wired as onMessage,
+    // which the module never calls — so every byte of MIDI arriving in this
+    // edition was being dropped on the floor, silently, with a fully working
+    // transport underneath it.
+    onEvent: (e) => {
+      if (e.transport) {
+        if (e.transport === "play" && !eng.playing) playBtn.click();
+        else if (e.transport === "stop" && eng.playing) playBtn.click();
+        else if (e.transport === "rec") $("#rec").classList.toggle("on");
+        return;
       }
+      keys.handle(e.raw, e.port && e.port.name || "");
     },
     onPorts: (ports) => {
       const s = $("#status");
-      s.innerHTML = ports && ports.length ? "<b>" + esc(ports.map((p) => p.name).join(", ").slice(0, 40)) + "</b><br>connected \u2014 play it" : "no controller yet<br>usb: plug in \xB7 bluetooth: pair in settings";
+      if (!ports || !ports.length) {
+        s.innerHTML = "no controller yet<br>usb: plug in \xB7 bluetooth: pair in settings";
+        return;
+      }
+      const names = ports.map((p) => p.name).join(", ");
+      const n0 = ports[0] && ports[0].name;
+      const r = keys.decided(n0) ? keys.roleOf(n0) : null;
+      s.innerHTML = "<b>" + esc(names.slice(0, 40)) + "</b><br>" + (r === "pads" ? "pads \u2014 hit them" : r === "keys" ? "keys \u2014 play it" : "connected \u2014 play it");
     }
   });
   io.start().catch(() => {
   });
   io.keepLooking();
+  window.addEventListener("blur", () => keys.panic());
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) keys.panic();
+  });
   var armed = null;
   function renderList(items) {
     const host = $("#list");
@@ -2019,11 +2673,15 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     eng,
     io,
     lib,
+    keys,
     assign: assignSample,
     densify,
     buildDeck,
     renderList,
-    warmHas: (id) => warm.has(id)
+    warmHas: (id) => warm.has(id),
+    focusCell: (i) => {
+      lastCell = i;
+    }
   };
 })();
 
