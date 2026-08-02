@@ -47,6 +47,60 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   --e4:0 4px 8px rgba(0,0,0,.48), 0 20px 56px rgba(0,0,0,.46);
   --lip:inset 0 1px 0 rgba(255,255,255,.055);     /* raised: top edge lit */
   --well:inset 0 1px 3px rgba(0,0,0,.55);          /* recessed: light falls in */
+
+  /* ---- SEMANTIC LAYER ---------------------------------------------------
+     Everything above is a LITERAL: --green is the colour green. The app has
+     been using those literals to carry MEANING — var(--green) where it means
+     "this is on / safe / recording is armed", var(--red) where it means "stop
+     / danger / destructive". That works right up until one of the 70-odd skins
+     recolours green to a pink, at which point every state signal in the app
+     quietly stops signalling anything, and nothing looks broken enough to
+     report.
+
+     So: meaning gets its own names. These default to today's literals, so
+     nothing shifts by a single pixel on this commit — but from here a skin can
+     restyle the palette without touching what the palette MEANS, and a call
+     site that wants "danger" can ask for danger instead of asking for red and
+     hoping.
+
+     A skin that wants to override a semantic can now do so deliberately; one
+     that only sets the 32 literals inherits sane meanings for free. */
+  --success:var(--green);
+  --warning:var(--orange);
+  --danger:var(--red);
+  --info:var(--blue);
+  --accent:var(--teal);
+  --armed:var(--red);          /* record-armed — deliberately NOT "danger" */
+  --playing:var(--green);
+
+  /* Text has three jobs, not one colour. Naming them stops body copy and
+     captions drifting apart every time someone reaches for --mute. */
+  --text-primary:var(--txt);
+  --text-secondary:var(--mute);
+  --text-disabled:#3E4450;
+  --text-on-accent:#04121A;    /* dark ink for text sitting ON a bright accent */
+
+  /* Two border weights: one that separates, one that states. */
+  --border-subtle:var(--bdr);
+  --border-strong:#3C424F;
+
+  /* Surfaces by ROLE rather than by number, so "the raised one" survives a
+     refactor that renumbers the ramp. */
+  --surface:var(--surf);
+  --surface-raised:var(--surf2);
+  --surface-overlay:var(--surf3);
+
+  /* Interaction states. These were hardcoded rgba() at every hover/active
+     rule, which is why hover feels slightly different in each panel. */
+  --state-hover:rgba(255,255,255,.06);
+  --state-active:rgba(255,255,255,.11);
+  --state-selected:rgba(0,188,212,.16);
+  --scrim:rgba(6,8,12,.72);
+
+  /* Motion. One duration scale and one easing, so nothing in the app moves at
+     a speed no other thing moves at. Honoured by prefers-reduced-motion below. */
+  --dur-1:.10s; --dur-2:.18s; --dur-3:.28s;
+  --ease:cubic-bezier(.2,.7,.3,1);
 }
 @media (hover:hover) and (pointer:fine){ :root{ --hit:24px; } }
 
@@ -5758,8 +5812,65 @@ function applySkin(map, name) {
   const root = document.documentElement;
   SKIN_VARS.forEach(v => root.style.removeProperty(v));
   if (map) Object.entries(map).forEach(([k, v]) => { if (k.startsWith('--')) root.style.setProperty(k, v); });
+  ensureReadableMute(root);
   if (name) { try { localStorage.setItem('skrimpad_skin_active', name); } catch (e) {} }
   if (typeof drawWaveEditor === 'function') drawWaveEditor();
+}
+
+// ---- CONTRAST FLOOR --------------------------------------------------------
+// Secondary text (--mute) is a hand-picked hex in every skin, and an audit of
+// the built-ins found 16 of 23 below the WCAG AA 4.5:1 floor against the panel
+// they sit on — the shipped DEFAULT worst of all at 2.93:1. That is not a moody
+// palette, it is a caption a lot of people cannot read on a phone in daylight.
+//
+// Hand-correcting twenty hexes would fix twenty skins and let the twenty-first
+// repeat the mistake, and it would do nothing for the fifty importable skins or
+// for anything a user builds. So the floor is enforced here instead, once, for
+// every skin that will ever be applied.
+//
+// It only ever LIGHTENS toward the skin's own text colour, in small steps, and
+// stops the moment it passes — so the designer's hue survives and the change is
+// the smallest one that makes the text readable.
+function srgbLum(rgb) {
+  const c = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function parseColor(s) {
+  s = String(s || '').trim();
+  const m = s.match(/rgba?\(([^)]+)\)/);
+  if (m) return m[1].split(',').slice(0, 3).map((n) => parseFloat(n));
+  const h = s.replace('#', '');
+  if (/^[0-9a-f]{6}$/i.test(h)) return [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16));
+  if (/^[0-9a-f]{3}$/i.test(h)) return [0, 1, 2].map((i) => parseInt(h[i] + h[i], 16));
+  return null;
+}
+function contrastRatio(a, b) {
+  const x = parseColor(a), y = parseColor(b);
+  if (!x || !y) return null;
+  const L1 = srgbLum(x), L2 = srgbLum(y);
+  return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+}
+function ensureReadableMute(root) {
+  root = root || document.documentElement;
+  try {
+    const cs = getComputedStyle(root);
+    const surf = cs.getPropertyValue('--surf').trim();
+    const bg = cs.getPropertyValue('--bg').trim();
+    const txt = cs.getPropertyValue('--txt').trim();
+    let mute = cs.getPropertyValue('--mute').trim();
+    const m = parseColor(mute), t = parseColor(txt);
+    if (!m || !t) return;
+    // Judge against the DARKER of the two backgrounds it can land on, so the
+    // result is readable on the panel AND on the page behind it.
+    const back = (contrastRatio(mute, surf) || 99) <= (contrastRatio(mute, bg) || 99) ? surf : bg;
+    let cur = m.slice();
+    for (let i = 0; i < 24 && (contrastRatio('rgb(' + cur.join(',') + ')', back) || 99) < 4.5; i++) {
+      cur = cur.map((v, k) => Math.round(v + (t[k] - v) * 0.08));
+    }
+    if (cur.join() !== m.join()) {
+      root.style.setProperty('--mute', 'rgb(' + cur.join(',') + ')');
+    }
+  } catch (e) { /* a skin that cannot be measured is left exactly as authored */ }
 }
 function renderSkinButtons() {
   const host = document.getElementById('skin-list'); if (!host) return;
@@ -5774,6 +5885,10 @@ function renderSkinButtons() {
 renderSkinButtons();
 // restore the last-used skin on boot
 try { const last = localStorage.getItem('skrimpad_skin_active'); if (last && SKINS[last] !== undefined) applySkin(SKINS[last], last); } catch (e) {}
+// A first run has no stored skin, so applySkin never fires and the stylesheet's
+// own --mute goes unchecked — which is exactly the case that was worst (2.93:1).
+// Enforce the floor on the default palette too.
+try { ensureReadableMute(); } catch (e) {}
 document.getElementById('skin-import').addEventListener('click', () => {
   // Use Android native file picker if available
   if (typeof AndroidFileHandler !== 'undefined') {
