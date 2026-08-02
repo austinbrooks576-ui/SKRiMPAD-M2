@@ -33,8 +33,46 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   --sp-3:clamp(8px,0.55vw + 6.24px,14px);
   /* minimum comfortable touch height — relaxed where there is a real mouse */
   --hit:clamp(28px,1.8vw + 22.24px,34px);
+
+  /* ---- ELEVATION -------------------------------------------------------
+     One light source, above. A single flat box-shadow reads as a sticker;
+     real depth takes two shadows working together — a tight contact shadow
+     that anchors the edge to the surface below, and a wider ambient one for
+     the mass — plus a 1px highlight on the top lip where the light catches.
+     Because it is a scale, two surfaces at the same height always cast the
+     same shadow, and the eye can rank them without having to think. */
+  --e1:0 1px 1px rgba(0,0,0,.34), 0 2px 6px rgba(0,0,0,.22);
+  --e2:0 1px 2px rgba(0,0,0,.40), 0 4px 14px rgba(0,0,0,.30);
+  --e3:0 2px 4px rgba(0,0,0,.44), 0 10px 30px rgba(0,0,0,.38);
+  --e4:0 4px 8px rgba(0,0,0,.48), 0 20px 56px rgba(0,0,0,.46);
+  --lip:inset 0 1px 0 rgba(255,255,255,.055);     /* raised: top edge lit */
+  --well:inset 0 1px 3px rgba(0,0,0,.55);          /* recessed: light falls in */
 }
 @media (hover:hover) and (pointer:fine){ :root{ --hit:24px; } }
+
+/* ---- RENDERING QUALITY ---------------------------------------------------
+   Three things that decide whether an interface reads as sharp or as soft.
+   Grayscale antialiasing keeps light-on-dark text from smearing into colour
+   fringes — the usual cause of a dark UI looking slightly out of focus.
+   optimizeLegibility turns on kerning and ligatures. And pinning the text
+   size stops a phone silently inflating it and breaking the type scale. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  text-rendering:optimizeLegibility;}
+/* Numbers that change while you watch — meters, readouts, times — must not
+   change WIDTH as they change value, or the row twitches. */
+.knob-val,.mix-val,#bpm,#bpm-val,[id$="-val"],.time,.meter-val{font-variant-numeric:tabular-nums;}
+/* Raised surfaces get the elevation scale and the lit top lip. */
+.synth-section,.pedal,.mod,.card,.panel{box-shadow:var(--e2),var(--lip);}
+/* Recessed things read as cut INTO the panel, so their light comes from the
+   opposite direction — this is what separates a well from a button. */
+#seq-wrap,#mixer,.scope,.wave-box{box-shadow:var(--well);}
+/* A focus ring has to be visible against every one of the 40+ skins, so it is
+   drawn as a ring plus a dark halo rather than trusting one colour to contrast. */
+:where(button,select,input,[tabindex]):focus-visible{
+  outline:2px solid var(--teal);outline-offset:2px;
+  box-shadow:0 0 0 4px rgba(0,0,0,.55);
+}
 /* Motion is decoration here, never information — honour the OS setting. */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important;}
@@ -121,13 +159,71 @@ body.programming .pad{outline:1px dashed rgba(255,255,255,.28);outline-offset:-3
 /* SYNTH */
 .synth-section{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:10px;margin-bottom:10px;}
 .synth-title{font-size:var(--fs-sm);font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);margin-bottom:8px;}
-.knob-row{display:flex;gap:10px;flex-wrap:wrap;}
-.knob-wrap{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:54px;}
-.knob-label{font-size:var(--fs-sm);color:var(--mute);font-weight:600;letter-spacing:.06em;text-transform:uppercase;text-align:center;}
-.knob-val{font-size:var(--fs-sm);color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums;min-width:32px;text-align:center;}
-.knob{width:48px;height:48px;border-radius:50%;background:conic-gradient(var(--teal) 0deg,var(--teal) 0deg,var(--surf3) 0deg);border:2px solid var(--bdr);position:relative;cursor:pointer;touch-action:none;}
-.knob-dot{position:absolute;width:4px;height:4px;background:var(--txt);border-radius:50%;top:4px;left:50%;transform:translateX(-50%);}
-.knob-inner{position:absolute;inset:5px;border-radius:50%;background:var(--surf2);}
+/* ============================ KNOBS ======================================
+   A real rotary control, not a slider with a round hat. Drawn in SVG so the
+   curves stay clean at any device pixel ratio — a CSS conic-gradient knob
+   bands visibly on the arc and softens on a 3x phone screen.
+
+   The shading assumes ONE light source, above and slightly left, consistent
+   with every other raised surface in the app. That single rule is what makes
+   a control read as a physical object rather than a circle with effects on
+   it: the body gradient runs light→dark along that axis, the specular sits
+   where the light would actually hit, and the cast shadow falls opposite.
+   ---------------------------------------------------------------------- */
+.knob-row{display:flex;gap:var(--sp-3);flex-wrap:wrap;}
+.knob-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px;}
+.knob-label{font-size:var(--fs-xs);color:var(--mute);font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-align:center;line-height:1.25;}
+/* tabular numerals: without them the readout jitters horizontally as you turn */
+.knob-val{font-size:var(--fs-sm);color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums;text-align:center;line-height:1.2;white-space:nowrap;}
+.knob-val .knob-unit{color:var(--mute);font-weight:600;margin-left:1px;}
+/* Size is a variable so a dense transport bar can run compact knobs without a
+   second component. The SVG carries a viewBox, so it scales exactly — no
+   re-authoring, no blur, and every proportion inside stays correct. */
+.knob{position:relative;display:block;touch-action:none;cursor:grab;
+  width:var(--knob-sz,46px);height:var(--knob-sz,46px);
+  -webkit-tap-highlight-color:transparent;outline:none;}
+.knob:active{cursor:grabbing;}
+.knob svg{display:block;overflow:visible;width:100%;height:100%;}
+/* Focus must be visible for keyboard users but must not look like a hover
+   state — a ring outside the bezel, never a fill change. */
+.knob:focus-visible .knob-focus{opacity:1;}
+.knob-focus{opacity:0;transition:opacity .12s;}
+.knob .knob-ind{transition:none;}
+/* The real <input> stays in the DOM for keyboard and assistive tech, but must
+   take up no space and cover nothing. `position:absolute` alone is not enough —
+   with no containing block it resolves against a far ancestor and the 1px box
+   lands on top of unrelated panels. The wrapper becomes the containing block,
+   and clip-path removes it from paint entirely. */
+.knobbed{position:relative;}
+.knobbed > input[type=range]{
+  position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;
+  border:0;opacity:0;pointer-events:none;overflow:hidden;clip-path:inset(50%);
+  white-space:nowrap;min-height:0;
+}
+/* the old sibling readout is replaced by the knob's own, tabular one */
+.knobbed > span[id$="-val"]{display:none;}
+.knob-tip{position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%) translateY(3px);
+  background:rgba(8,10,14,.94);border:1px solid var(--bdr);color:var(--txt);
+  font-size:var(--fs-xs);font-weight:700;padding:3px 7px;border-radius:var(--r2);
+  white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .12s,transform .12s;
+  box-shadow:0 4px 14px rgba(0,0,0,.5);z-index:6;}
+.knob.dragging .knob-tip{opacity:1;transform:translateX(-50%) translateY(0);}
+@media (any-pointer:coarse){ .knob-wrap{min-width:62px;} }
+/* The studio transport bar is a fixed-height nowrap strip, so a stacked knob
+   (dial over value over label) is taller than the bar and gets cut off at the
+   window edge. Inside that bar the knob turns SIDEWAYS instead: dial on the
+   left, value and role stacked tight beside it. Same component, same roles
+   still legible, a third of the height. */
+body.studio .loop-master .knob-wrap{--knob-sz:28px;
+  display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;
+  align-items:center;gap:0 5px;min-width:0;}
+body.studio .loop-master .knob-wrap > .knob{grid-column:1;grid-row:1 / span 2;}
+body.studio .loop-master .knob-wrap > .knob-val{grid-column:2;grid-row:1;
+  font-size:var(--fs-xs);line-height:1.15;text-align:left;}
+body.studio .loop-master .knob-wrap > .knob-label{grid-column:2;grid-row:2;
+  font-size:var(--fs-xs);letter-spacing:.02em;text-align:left;line-height:1.15;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+body.studio .loop-master{align-items:center;}
 select.ctrl{background:var(--surf3);border:1px solid var(--bdr);color:var(--txt);border-radius:var(--r2);padding:5px 8px;font-size:var(--fs-md);outline:none;cursor:pointer;}
 .range-wrap{display:flex;flex-direction:column;gap:3px;flex:1;min-width:80px;}
 .range-wrap label{font-size:var(--fs-sm);color:var(--mute);font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;}
@@ -342,15 +438,25 @@ body.studio #studio{
 #slot-pads{grid-area:pads;display:flex;flex-direction:column;align-items:center;}
 #slot-seq{grid-area:seq;display:flex;flex-direction:column;overflow:hidden;}
 #slot-keys{grid-area:keys;display:flex;flex-direction:column;gap:5px;overflow:hidden;}
-#slot-fx{grid-area:fx;display:flex;flex-direction:column;overflow-y:auto;}
-#slot-wave{grid-area:wave;display:flex;flex-direction:column;overflow-y:auto;}
+/* Scroll clearance. These columns scroll under the master strip, so without a
+   bottom gutter the final row can never be scrolled clear of it — the last FX
+   pedal's RELEASE knob sat permanently behind the REMIX button. The gutter is
+   part of the scrollable content, so the column can always be scrolled past. */
+#slot-fx{grid-area:fx;display:flex;flex-direction:column;overflow-y:auto;padding-bottom:34px;}
+#slot-wave{grid-area:wave;display:flex;flex-direction:column;overflow-y:auto;padding-bottom:34px;}
+#slot-keyseq{padding-bottom:26px;}
 #slot-faders{grid-area:faders;display:flex;flex-direction:column;overflow:hidden;padding:5px 6px;}
 #slot-master{grid-area:master;}
 .tile-drop{outline:2px dashed var(--teal);outline-offset:-2px;}
 /* per-pad fader strips */
 #fader-col{display:flex;flex-direction:column;gap:1px;flex:1;min-height:0;overflow:hidden;}
 .fader-strip{display:flex;align-items:center;gap:3px;flex:1;min-height:0;}
-.fader-label{font-size:var(--fs-xs);font-weight:800;color:var(--mute);width:26px;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;flex-shrink:0;}
+/* 26px truncated every channel name to "KI…", "SN…", "CL…" — a mixer whose
+   labels you cannot read is a mixer you cannot use. The column has the room;
+   give the name enough of it to survive, and let the fader take the rest. */
+.fader-label{font-size:var(--fs-xs);font-weight:800;color:var(--mute);
+  width:auto;min-width:44px;max-width:76px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;text-transform:uppercase;flex-shrink:0;}
 .fader-bar{flex:1;accent-color:var(--teal);height:12px;cursor:pointer;min-width:0;}
 
 /* hover ? tooltips */
@@ -420,7 +526,16 @@ body.studio .loop-master .range-wrap label{font-size:var(--fs-xs);}
 body.studio .loop-master .tbtn{padding:4px 9px;font-size:var(--fs-md);line-height:1.2;}
 
 /* fx slot — roomy, takes former oscillator-list space */
-body.studio .pedals{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+/* The pedalboard is a grid inside a flex column. A flex item defaults to
+   flex-shrink:1, so the column was squashing the grid BELOW its content height
+   and every pedal's knobs spilled 60px into the pedal beneath it. Pinning the
+   grid to its content height makes the column scroll instead of overlapping —
+   which is what the overflow-y:auto on it was always for. */
+body.studio .pedals{display:grid;grid-template-columns:1fr 1fr;gap:5px;flex:0 0 auto;}
+/* Pedals are small boxes two-up in a narrow column; full-size dials force the
+   three knobs onto two rows and make every pedal half again as tall. */
+body.studio .pedal .knob-wrap{--knob-sz:34px;min-width:46px;}
+body.studio .pedal .knob-label{font-size:var(--fs-xs);}
 body.studio .pedal{min-width:0;padding:6px;}
 body.studio .pedal-name{font-size:var(--fs-sm);}
 .fx-viz{height:16px;width:44px;flex-shrink:0;opacity:.9;}
@@ -3706,6 +3821,252 @@ function loadJSON(key, fallback) {
   if (Array.isArray(fallback) !== Array.isArray(v)) return fallback;
   if (typeof fallback === 'object' && typeof v !== 'object') return fallback;
   return v;
+}
+// ======================== ROTARY KNOB ENGINE ================================
+// Every synth, filter, envelope, LFO and effect parameter in the app is an
+// <input type="range"> that something is already listening to. Rather than
+// re-wire 60 parameters — and risk breaking bindings that work — this DRESSES
+// each one as a real knob and leaves the input as the single source of truth:
+// the knob writes `input.value` and dispatches `input`/`change`, so every
+// existing listener keeps firing, unchanged. The input stays in the DOM,
+// focusable and keyboard-operable, so arrow keys / Home / End / PageUp still
+// work natively and screen readers still see a real slider.
+//
+// TAPER — a linear knob is wrong for most audio parameters. Cutoff swept
+// linearly spends 90% of its travel above 2 kHz where the ear hears almost no
+// change, and the musically useful 100-800 Hz range is crammed into the first
+// few degrees. Anything spanning more than a 40:1 range is given a logarithmic
+// taper so equal rotation is equal MUSICAL change, which is how hardware does
+// it and why hardware feels right.
+const KNOB_SWEEP = 280;               // degrees of travel; 40deg dead zone at the bottom
+const KNOB_START = 180 + (360 - KNOB_SWEEP) / 2;
+
+function knobTaper(input) {
+  const min = +input.min || 0, max = +input.max || 1;
+  return (min > 0 && max / min >= 40) ? 'log' : 'lin';
+}
+function knobToNorm(input, v) {            // value -> 0..1 along the knob
+  const min = +input.min || 0, max = +input.max || 1;
+  if (max === min) return 0;
+  if (knobTaper(input) === 'log') {
+    return Math.log(Math.max(v, min) / min) / Math.log(max / min);
+  }
+  return (v - min) / (max - min);
+}
+function knobFromNorm(input, t) {          // 0..1 -> value, snapped to step
+  const min = +input.min || 0, max = +input.max || 1;
+  const step = +input.step || ((max - min) / 100);
+  t = Math.max(0, Math.min(1, t));
+  let v = (knobTaper(input) === 'log') ? min * Math.pow(max / min, t) : min + t * (max - min);
+  v = Math.round((v - min) / step) * step + min;
+  return Math.max(min, Math.min(max, v));
+}
+// Readouts have to stay narrow AND precise. 12000 Hz reads as 12.0k; 0.35 of a
+// second reads as 350 ms. A knob whose number overflows its column is a knob
+// that shoves the whole panel sideways every time you turn it.
+function knobFormat(v, unit) {
+  const a = Math.abs(v);
+  if (unit === 'Hz' && a >= 1000) return (v / 1000).toFixed(a >= 10000 ? 1 : 2) + 'k';
+  if (unit === 's') { if (a < 1) return Math.round(v * 1000) + ''; return v.toFixed(2); }
+  if (a >= 1000) return Math.round(v) + '';
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  if (Number.isInteger(v)) return v + '';
+  return v.toFixed(2);
+}
+function knobUnitFor(v, unit) { return (unit === 's' && Math.abs(v) < 1) ? 'ms' : unit; }
+
+function knobArcPath(cx, cy, r, a0, a1) {
+  const p = (a) => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return 'M' + x0.toFixed(2) + ' ' + y0.toFixed(2) +
+    ' A' + r + ' ' + r + ' 0 ' + (Math.abs(a1 - a0) > 180 ? 1 : 0) + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2);
+}
+
+let knobUID = 0;
+// Turn one <input type="range"> into a knob. Idempotent: an input that already
+// carries a knob is left alone, so this is safe to re-run after any re-render.
+function makeKnob(input, opts) {
+  if (!input || input.dataset.knobbed === '1') return null;
+  opts = opts || {};
+  const wrap = input.closest('.range-wrap') || input.closest('.pknob') || input.parentNode;
+  if (!wrap) return null;
+
+  // The role and its units are already written on the page — read them rather
+  // than keeping a second table that can drift out of sync with the markup.
+  // Two shapes exist: `<label>CUTOFF <span id=x-val>2000</span> Hz</label>` and
+  // `<label>DRIVE</label><input><span id=x-val>0</span>`, so look for the live
+  // readout inside the label first, then alongside it.
+  const lab = wrap.querySelector('label');
+  let name = opts.label || '', unit = opts.unit || '';
+  let valSpan = (lab && lab.querySelector('span[id$="-val"]')) ||
+                wrap.querySelector(':scope > span[id$="-val"]') ||
+                (lab && lab.querySelector('span')) || null;
+  if (lab) {
+    const shown = (valSpan && lab.contains(valSpan)) ? (valSpan.textContent || '') : '';
+    // Strip the live value out of the caption, then split role from unit. Taking
+    // "the first word" would turn LOOP LENGTH into LOOP and call LENGTH a unit —
+    // plenty of roles are two words. Only a RECOGNISED unit is treated as one;
+    // everything else stays part of the name.
+    const parts = (lab.textContent || '').replace(shown, ' ').trim().split(/\s+/).filter(Boolean);
+    const UNITS = /^(hz|khz|s|ms|db|%|x|ct|cents?|st|semi|semitones?|bars?|beats?|bpm|deg|oct|octaves?)$/i;
+    if (parts.length > 1 && UNITS.test(parts[parts.length - 1])) {
+      unit = unit || parts.pop();
+    }
+    name = name || parts.join(' ');
+  }
+  name = name || input.id || 'PARAM';
+
+  const uid = 'k' + (++knobUID);
+  const SZ = 46, C = SZ / 2, R_BODY = 15, R_ARC = 19.5;
+  const def = input.dataset.knobDefault != null ? +input.dataset.knobDefault : +input.value;
+
+  const host = document.createElement('div');
+  host.className = 'knob-wrap';
+  host.innerHTML =
+    '<div class="knob" tabindex="-1" role="presentation">' +
+      '<div class="knob-tip"></div>' +
+      '<svg width="' + SZ + '" height="' + SZ + '" viewBox="0 0 ' + SZ + ' ' + SZ + '" aria-hidden="true">' +
+        '<defs>' +
+          // Body: light from above-left. Two stops is flat; three gives the
+          // shoulder that reads as a curved surface.
+          '<radialGradient id="' + uid + 'b" cx="34%" cy="26%" r="78%">' +
+            '<stop offset="0%" stop-color="#4a5163"/><stop offset="52%" stop-color="#2b303c"/>' +
+            '<stop offset="100%" stop-color="#171a22"/></radialGradient>' +
+          // Bezel: bright at the top edge where the light grazes it, dark at the
+          // bottom — the rim of a machined dial, not an outline.
+          '<linearGradient id="' + uid + 'r" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0%" stop-color="#7b8399"/><stop offset="45%" stop-color="#333a49"/>' +
+            '<stop offset="100%" stop-color="#0d0f14"/></linearGradient>' +
+          '<linearGradient id="' + uid + 's" x1="0" y1="0" x2="0.4" y2="1">' +
+            '<stop offset="0%" stop-color="#fff" stop-opacity=".30"/>' +
+            '<stop offset="60%" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
+          '<filter id="' + uid + 'g" x="-60%" y="-60%" width="220%" height="220%">' +
+            '<feGaussianBlur stdDeviation="1.6" result="bl"/>' +
+            '<feMerge><feMergeNode in="bl"/><feMergeNode in="SourceGraphic"/></feMerge></filter>' +
+        '</defs>' +
+        // focus ring sits OUTSIDE everything so it never reads as a hover fill
+        '<circle class="knob-focus" cx="' + C + '" cy="' + C + '" r="' + (R_ARC + 3) + '" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-opacity=".9"/>' +
+        // recessed groove the value rides in
+        '<path class="knob-track" d="' + knobArcPath(C, C, R_ARC, KNOB_START, KNOB_START + KNOB_SWEEP) + '" fill="none" stroke="#0b0d12" stroke-width="4" stroke-linecap="round"/>' +
+        '<path class="knob-trackhi" d="' + knobArcPath(C, C, R_ARC, KNOB_START, KNOB_START + KNOB_SWEEP) + '" fill="none" stroke="#333a49" stroke-width="1" stroke-linecap="round" opacity=".85"/>' +
+        '<path class="knob-arc" d="" fill="none" stroke="var(--knob-accent,var(--teal))" stroke-width="3.2" stroke-linecap="round" filter="url(#' + uid + 'g)"/>' +
+        // cast shadow, then bezel, then body: the stack that makes it sit ON the panel
+        '<ellipse cx="' + C + '" cy="' + (C + 2.2) + '" rx="' + (R_BODY - 1) + '" ry="' + (R_BODY - 2.5) + '" fill="#000" opacity=".45"/>' +
+        '<circle cx="' + C + '" cy="' + C + '" r="' + R_BODY + '" fill="url(#' + uid + 'r)"/>' +
+        '<circle cx="' + C + '" cy="' + C + '" r="' + (R_BODY - 0.8) + '" fill="url(#' + uid + 'b)"/>' +
+        '<circle cx="' + C + '" cy="' + C + '" r="' + (R_BODY - 0.8) + '" fill="none" stroke="#000" stroke-opacity=".55" stroke-width="1"/>' +
+        // specular: an arc, not a blob — a blob looks like a sticker
+        '<ellipse cx="' + (C - 3.6) + '" cy="' + (C - 5.2) + '" rx="7.2" ry="4.4" fill="url(#' + uid + 's)" transform="rotate(-28 ' + (C - 3.6) + ' ' + (C - 5.2) + ')"/>' +
+        '<g class="knob-rot">' +
+          '<line class="knob-ind" x1="' + C + '" y1="' + (C - 5) + '" x2="' + C + '" y2="' + (C - R_BODY + 2.4) + '" stroke="#eef3ff" stroke-width="2.2" stroke-linecap="round"/>' +
+        '</g>' +
+        '<circle cx="' + C + '" cy="' + C + '" r="3.1" fill="#20242f" stroke="#000" stroke-opacity=".6" stroke-width=".8"/>' +
+        '<circle cx="' + (C - 0.7) + '" cy="' + (C - 0.9) + '" r="1.5" fill="#fff" opacity=".13"/>' +
+      '</svg>' +
+    '</div>' +
+    '<div class="knob-val"></div>' +
+    '<div class="knob-label"></div>';
+
+  const knob = host.querySelector('.knob');
+  const rot = host.querySelector('.knob-rot');
+  const arc = host.querySelector('.knob-arc');
+  const tip = host.querySelector('.knob-tip');
+  const out = host.querySelector('.knob-val');
+  host.querySelector('.knob-label').textContent = name;
+
+  function paint() {
+    const v = +input.value;
+    const t = Math.max(0, Math.min(1, knobToNorm(input, v)));
+    const a = KNOB_START + t * KNOB_SWEEP;
+    // The indicator is authored pointing straight up, which is -90deg in SVG
+    // coordinates (0deg = east, positive = clockwise). Rotating by a+90 aims it
+    // at the same angle the value arc has reached, so line and arc always agree.
+    rot.setAttribute('transform', 'rotate(' + (a + 90).toFixed(2) + ' ' + C + ' ' + C + ')');
+    // 0-length arcs render a stray dot under stroke-linecap:round — draw nothing.
+    arc.setAttribute('d', t > 0.001 ? knobArcPath(C, C, R_ARC, KNOB_START, a) : '');
+    const u = knobUnitFor(v, unit);
+    out.innerHTML = esc(knobFormat(v, unit)) + (u ? '<span class="knob-unit">' + esc(u) + '</span>' : '');
+    tip.textContent = name + '  ' + knobFormat(v, unit) + (u ? ' ' + u : '');
+    input.setAttribute('aria-valuetext', knobFormat(v, unit) + (u ? ' ' + u : ''));
+    if (valSpan) valSpan.textContent = knobFormat(v, unit);   // keep legacy readers working
+  }
+
+  // Writing through the input keeps it the single source of truth, so every
+  // listener already bound to this parameter fires exactly as it did before.
+  function commit(v, fire) {
+    const before = input.value;
+    input.value = v;
+    paint();
+    if (fire !== false && input.value !== before) {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  let drag = null;
+  knob.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    knob.setPointerCapture(e.pointerId);
+    knob.classList.add('dragging');
+    drag = { y: e.clientY, t: knobToNorm(input, +input.value) };
+  });
+  knob.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    // Vertical drag is the DAW convention and it survives a knob that sits at
+    // the edge of the screen, where a circular gesture would run out of room.
+    // 180px of travel covers the full range; shift drops that to a fifth for
+    // the fine adjustments that actually matter on cutoff and tuning.
+    const span = e.shiftKey ? 900 : 180;
+    drag.t = Math.max(0, Math.min(1, drag.t + (drag.y - e.clientY) / span));
+    drag.y = e.clientY;
+    commit(knobFromNorm(input, drag.t));
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    drag = null; knob.classList.remove('dragging');
+    try { knob.releasePointerCapture(e.pointerId); } catch (err) {}
+  };
+  knob.addEventListener('pointerup', endDrag);
+  knob.addEventListener('pointercancel', endDrag);
+  knob.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const d = (e.deltaY > 0 ? -1 : 1) * (e.shiftKey ? 0.005 : 0.025);
+    commit(knobFromNorm(input, knobToNorm(input, +input.value) + d));
+  }, { passive: false });
+  // Double-click resets to the factory value — the standard plugin gesture, and
+  // the only way back once you have swept a log-taper knob somewhere silly.
+  knob.addEventListener('dblclick', (e) => { e.preventDefault(); commit(def); });
+  // Keyboard goes through the real input, so arrows/Home/End behave natively.
+  knob.addEventListener('focus', () => input.focus());
+  input.addEventListener('input', paint);
+  input.addEventListener('change', paint);
+
+  input.dataset.knobbed = '1';
+  // The input stays reachable for keyboard and assistive tech; it is only
+  // removed from the visual flow — display:none would take it out of the
+  // accessibility tree and off the tab order entirely. The hiding itself lives
+  // in the .range-wrap.knobbed rule, which also supplies the containing block
+  // so the 1px box cannot escape and land on another panel.
+  input.setAttribute('aria-label', name);
+  if (lab) lab.style.display = 'none';
+  wrap.classList.add('knobbed');
+  wrap.insertBefore(host, input);
+  paint();
+  return { el: host, paint, input };
+}
+
+// Dress every parameter on the page. Safe to call again after a re-render —
+// makeKnob skips anything already wearing a knob.
+function buildAllKnobs(root) {
+  const scope = root || document;
+  let n = 0;
+  // .range-wrap is the synth/filter/envelope shape, .pknob is the FX pedal
+  // shape. Mixer faders are deliberately NOT included — a channel strip wants a
+  // vertical fader you can read at a glance across 20 channels, not a dial.
+  scope.querySelectorAll('.range-wrap > input[type=range], .pknob > input[type=range]').forEach((i) => { if (makeKnob(i)) n++; });
+  return n;
 }
 const PAD_LAYOUTS = { '3x3': { cols: 3, size: 9 }, '4x4': { cols: 4, size: 16 }, '4x2': { cols: 4, size: 8 } };
 let padLayoutId = '3x3';
@@ -12264,6 +12625,28 @@ console.log('Music Brain ready');
   setTimeout(() => check(false), 5000);
   setInterval(() => check(false), CHECK_EVERY);
   console.log('Auto-update ready · v' + VERSION + ' · ' + EDITION + '/' + platform);
+})();
+
+// ---- DRESS EVERY PARAMETER AS A KNOB --------------------------------------
+// Panels are built and rebuilt at different times (the rack, the DAW inspector,
+// per-track inserts), so one pass at boot is not enough. A MutationObserver
+// catches every parameter that appears later; makeKnob is idempotent, so a
+// re-render of an already-knobbed panel costs nothing.
+(function () {
+  const run = () => { try { return buildAllKnobs(); } catch (e) { return 0; } };
+  const start = () => {
+    const n = run();
+    if (window.console) console.log('Knobs built: ' + n);
+    let queued = false;
+    const obs = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; run(); });
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();
 
 </script>
