@@ -14,7 +14,7 @@
 //    reclaims a stopped node automatically, whereas a pool has to track state
 //    and gets it wrong under a 128-note flood. No pool means no stuck voice.
 
-export function createEngine() {
+export function createEngine({ sampleFor } = {}) {
   let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
   const meters = new Float32Array(64);
   let ready = false;
@@ -79,7 +79,22 @@ export function createEngine() {
     flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
 
     let src;
-    if (voice.kind === 'drum') {
+    // A sample, if one is assigned AND already decoded. Never await here: this
+    // function is called from the scheduler with an exact future start time, and
+    // an await would hand that time back to the event loop and land the note
+    // late. The library warms the buffer when the sample is assigned instead.
+    if (voice.sampleId && sampleFor) {
+      const buf = sampleFor(voice.sampleId);
+      if (buf) {
+        src = ctx.createBufferSource();
+        src.buffer = buf;
+        // Tune a sample by playback rate — the honest, zero-cost way. tune is in
+        // semitones so it reads the same as it does on a synth voice.
+        src.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
+      }
+    }
+    if (src) { /* sample wins */ }
+    else if (voice.kind === 'drum') {
       // Drums are two ingredients: a pitched body that falls, and noise. Which
       // one dominates is the whole difference between a kick and a hat, so it
       // is derived from the voice's own note rather than a separate switch.
@@ -124,7 +139,11 @@ export function createEngine() {
       const sd = ctx.createGain(); sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
       g.connect(sd); sd.connect(spaceIn);
     }
-    src.start(t); src.stop(stop + 0.02);
+    src.start(t);
+    // A one-shot sample should be allowed to finish. Stopping it at the envelope
+    // release would chop the tail off every crash and every vocal.
+    const natural = src.buffer ? src.buffer.duration / (src.playbackRate ? src.playbackRate.value : 1) : 0;
+    src.stop(Math.max(stop, t + natural) + 0.02);
     if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
     return { stop };
   }

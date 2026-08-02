@@ -161,6 +161,48 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 #scope{width:100%;flex:1;min-height:120px;border-radius:12px;border:1px solid var(--line);
   background:rgba(0,0,0,.35);box-shadow:inset 0 1px 3px rgba(0,0,0,.6);}
 
+/* ---------- LIBRARY --------------------------------------------------------
+   The library is not a panel and not a modal. It is a shelf that slides in over
+   whatever altitude you are on, so you can drop a sound onto a cell WITHOUT
+   leaving the place you were working. A modal would force you to close it to
+   see the thing you were aiming at, which is exactly why sample assignment
+   feels like a chore in every other DAW. */
+#shelf{position:fixed;top:0;right:0;bottom:0;width:min(320px,84vw);z-index:50;
+  background:rgba(9,12,17,.94);border-left:1px solid var(--line);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  transform:translateX(101%);transition:transform .26s cubic-bezier(.2,.7,.3,1);
+  display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.55);}
+#shelf.open{transform:none;}
+#shelf header{padding:14px 14px 10px;display:flex;align-items:center;gap:8px;flex:none;}
+#shelf header .t{font-size:var(--fs-lg);flex:1;letter-spacing:.1em;}
+#drop{margin:0 14px 10px;padding:18px 10px;border:1px dashed var(--line);border-radius:12px;
+  text-align:center;font-size:var(--fs-sm);color:var(--dim);cursor:pointer;flex:none;
+  line-height:1.7;transition:all .16s;}
+#drop:hover,#drop.hot{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.07);}
+#list{flex:1;overflow-y:auto;padding:0 10px 14px;display:flex;flex-direction:column;gap:4px;}
+.snd{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;
+  border:1px solid transparent;background:rgba(255,255,255,.035);cursor:grab;
+  font-size:var(--fs-sm);min-height:var(--hit);}
+.snd:hover{border-color:var(--acc);background:rgba(75,227,200,.09);}
+.snd .k{font-size:var(--fs-xs);color:var(--acc);letter-spacing:.1em;flex:none;min-width:48px;}
+.snd .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.snd .d{font-size:var(--fs-xs);color:var(--dim);font-variant-numeric:tabular-nums;flex:none;}
+.snd.armed{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 0 20px rgba(75,227,200,.3);}
+#libbtn{position:fixed;right:max(10px,env(safe-area-inset-right));
+  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 62px);z-index:45;
+  width:var(--hit);height:var(--hit);border-radius:50%;border:1px solid var(--line);
+  background:var(--glass);color:var(--ink);cursor:pointer;display:grid;place-items:center;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--e1);}
+#libbtn.on{border-color:var(--acc);color:var(--acc);}
+#libbtn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+/* A cell that owns a sample says so, quietly and permanently. */
+.cell.hassample::before{content:'';position:absolute;right:9px;top:10px;width:6px;height:6px;
+  border-radius:50%;background:hsl(var(--h) 96% 76%);box-shadow:0 0 9px hsl(var(--h) 96% 76%);z-index:2;}
+/* Every cell lights up while a sound is armed, because every cell is now a
+   target — the UI should say so rather than leave you guessing. */
+.cell.arm{outline:2px solid var(--acc);outline-offset:-2px;}
+
 /* ---------- STATUS --------------------------------------------------------- */
 #status{position:fixed;right:max(10px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));
   z-index:40;font-size:var(--fs-xs);color:var(--dim);text-align:right;max-width:44vw;line-height:1.5;}
@@ -184,6 +226,13 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 <nav id="rail"></nav>
 <div id="hint">PINCH OR SCROLL TO FLY</div>
 <div id="status">connecting…</div>
+<button id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
+<aside id="shelf">
+  <header><span class="t">SOUNDS</span><button class="tb" id="shelfx" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div id="drop">DROP AUDIO HERE<br>OR TAP TO BROWSE</div>
+  <input id="file" type="file" accept="audio/*" multiple hidden>
+  <div id="list"></div>
+</aside>
 <div id="bar">
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
@@ -488,7 +537,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   var liveCells = (song2) => liveScene(song2).cells;
 
   // ultimate/src/core/engine.js
-  function createEngine() {
+  function createEngine({ sampleFor } = {}) {
     let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
     const meters = new Float32Array(64);
     let ready = false;
@@ -556,7 +605,16 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       flt.frequency.setValueAtTime(60 * Math.pow(233, clamp(voice.cutoff, 0, 1)), t);
       flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
       let src;
-      if (voice.kind === "drum") {
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
+        }
+      }
+      if (src) {
+      } else if (voice.kind === "drum") {
         const low = voice.note < 45;
         if (low) {
           src = ctx.createOscillator();
@@ -610,7 +668,8 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         sd.connect(spaceIn);
       }
       src.start(t);
-      src.stop(stop + 0.02);
+      const natural = src.buffer ? src.buffer.duration / (src.playbackRate ? src.playbackRate.value : 1) : 0;
+      src.stop(Math.max(stop, t + natural) + 0.02);
       if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
       return { stop };
     }
@@ -1103,10 +1162,219 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     };
   }
 
+  // ultimate/src/core/library.js
+  var DB = "skrimpad_ultimate_lib";
+  var STORE = "sounds";
+  var BUDGET = 96 * 1024 * 1024;
+  var AUDIO_RE = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|caf|au)$/i;
+  var KINDS = [
+    [/kick|\bbd\b|bassdrum|\b808\b|boom/i, "KICK"],
+    [/snare|\bsd\b|rim(shot)?/i, "SNARE"],
+    [/clap|hand ?clap/i, "CLAP"],
+    [/hi.?hat|hihat|\bhh\b|\bhat\b/i, "HAT"],
+    [/\btom\b|floor.?tom/i, "TOM"],
+    [/crash|ride|splash|china|cymbal|\bcym\b/i, "CYMBAL"],
+    [/shaker|tamb|conga|bongo|perc|cowbell|clave|block/i, "PERC"],
+    [/sub|\b808 ?bass\b/i, "SUB"],
+    [/bass|reese|wobble/i, "BASS"],
+    [/pad|atmos|drone|choir/i, "PAD"],
+    [/pluck|stab|chord/i, "PLUCK"],
+    [/lead|arp|acid|saw/i, "LEAD"],
+    [/bell|chime|glock|kalimba/i, "BELL"],
+    [/key|piano|rhodes|organ|wurli/i, "KEYS"],
+    [/vox|vocal|voice|acap|chant/i, "VOCAL"],
+    [/riser|sweep|whoosh|impact|fx|noise|foley/i, "FX"],
+    [/loop|beat|groove|break/i, "LOOP"]
+  ];
+  function classify(name, buffer) {
+    const n = String(name || "");
+    for (const [re, kind] of KINDS) if (re.test(n)) return kind;
+    if (!buffer) return "SAMPLE";
+    const d = buffer.getChannelData(0), n2 = d.length;
+    const step = Math.max(1, Math.floor(n2 / 3e4));
+    let zc = 0, peak = 0, energy = 0, count = 0;
+    for (let i = step; i < n2; i += step) {
+      if (d[i - step] < 0 !== d[i] < 0) zc++;
+      const a = Math.abs(d[i]);
+      if (a > peak) peak = a;
+      energy += a;
+      count++;
+    }
+    const zcr = count ? zc / count : 0;
+    const sustained = count && energy / count > peak * 0.18;
+    const dur = buffer.duration;
+    if (dur > 4) return "LOOP";
+    if (dur > 1.2 && sustained) return zcr > 0.22 ? "PAD" : "BASS";
+    if (dur <= 0.22 && zcr > 0.3) return "HAT";
+    if (dur <= 0.5 && zcr > 0.18) return "SNARE";
+    if (dur <= 0.9 && zcr < 0.08) return "KICK";
+    return "PERC";
+  }
+  function openDB() {
+    return new Promise((resolve) => {
+      if (typeof indexedDB === "undefined") return resolve(null);
+      let req;
+      try {
+        req = indexedDB.open(DB, 1);
+      } catch (e) {
+        return resolve(null);
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+  }
+  function tx(db, mode, fn) {
+    return new Promise((resolve) => {
+      if (!db) return resolve(null);
+      let t;
+      try {
+        t = db.transaction(STORE, mode);
+      } catch (e) {
+        return resolve(null);
+      }
+      let out = null;
+      try {
+        out = fn(t.objectStore(STORE));
+      } catch (e) {
+        return resolve(null);
+      }
+      t.oncomplete = () => resolve(out && out.result !== void 0 ? out.result : out);
+      t.onerror = t.onabort = () => resolve(null);
+    });
+  }
+  function createLibrary({ ctx, onChange } = {}) {
+    const items = [];
+    const cache = /* @__PURE__ */ new Map();
+    const pinned = /* @__PURE__ */ new Set();
+    let bytes = 0, db = null, nextId = 1;
+    const sizeOf = (b) => b ? b.length * b.numberOfChannels * 4 : 0;
+    function evict() {
+      if (bytes <= BUDGET) return;
+      for (const [id, buf] of cache) {
+        if (pinned.has(id)) continue;
+        cache.delete(id);
+        bytes -= sizeOf(buf);
+        if (bytes <= BUDGET * 0.8) break;
+      }
+    }
+    async function boot() {
+      db = await openDB();
+      const rows = await tx(db, "readonly", (s) => s.getAll());
+      (rows || []).forEach((r) => {
+        items.push({ id: r.id, name: r.name, kind: r.kind, dur: r.dur, size: r.size });
+        const n = +String(r.id).replace(/\D/g, "");
+        if (n >= nextId) nextId = n + 1;
+      });
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
+      return items;
+    }
+    async function bufferFor(id) {
+      if (cache.has(id)) {
+        const b = cache.get(id);
+        cache.delete(id);
+        cache.set(id, b);
+        return b;
+      }
+      const row = await tx(db, "readonly", (s) => s.get(id));
+      if (!row || !row.bytes) return null;
+      try {
+        const buf = await ctx().decodeAudioData(row.bytes.slice(0));
+        cache.set(id, buf);
+        bytes += sizeOf(buf);
+        evict();
+        return buf;
+      } catch (e) {
+        return null;
+      }
+    }
+    async function add(file) {
+      if (!file) return null;
+      const name = file.name || "sound " + nextId;
+      if (!AUDIO_RE.test(name) && !/^audio\//.test(file.type || "")) return null;
+      const raw = await file.arrayBuffer();
+      let buf = null;
+      try {
+        buf = await ctx().decodeAudioData(raw.slice(0));
+      } catch (e) {
+        return null;
+      }
+      const id = "sx" + nextId++;
+      const rec = {
+        id,
+        name: name.replace(/\.[^.]+$/, ""),
+        kind: classify(name, buf),
+        dur: +buf.duration.toFixed(3),
+        size: raw.byteLength,
+        bytes: raw
+      };
+      await tx(db, "readwrite", (s) => s.put(rec));
+      const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
+      items.push(meta);
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      cache.set(id, buf);
+      bytes += sizeOf(buf);
+      evict();
+      onChange && onChange(items);
+      return meta;
+    }
+    async function addFiles(list) {
+      const out = [];
+      for (const f of Array.from(list || [])) {
+        const m = await add(f);
+        if (m) out.push(m);
+      }
+      return out;
+    }
+    async function remove(id) {
+      await tx(db, "readwrite", (s) => s.delete(id));
+      const i = items.findIndex((x) => x.id === id);
+      if (i >= 0) items.splice(i, 1);
+      if (cache.has(id)) {
+        bytes -= sizeOf(cache.get(id));
+        cache.delete(id);
+      }
+      pinned.delete(id);
+      onChange && onChange(items);
+    }
+    return {
+      boot,
+      add,
+      addFiles,
+      remove,
+      bufferFor,
+      get items() {
+        return items.slice();
+      },
+      find: (id) => items.find((x) => x.id === id) || null,
+      pin(id) {
+        if (id) pinned.add(id);
+      },
+      unpin(id) {
+        pinned.delete(id);
+      },
+      // Re-pin from scratch after any assignment change, so a sample that is no
+      // longer on any cell becomes evictable again instead of leaking.
+      repin(ids) {
+        pinned.clear();
+        (ids || []).forEach((i) => i && pinned.add(i));
+      },
+      stats() {
+        return { count: items.length, ram: Math.round(bytes / 1048576) + "MB", cached: cache.size };
+      }
+    };
+  }
+
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var song = loadSong();
-  var eng = createEngine();
+  var warm = /* @__PURE__ */ new Map();
+  var eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+  var lib = createLibrary({ ctx: () => eng.init(), onChange: renderList });
   var hist = createHistory();
   hist.push(song);
   var atlas = createAtlas({ onRender: onAltitude });
@@ -1141,12 +1409,17 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       el.style.setProperty("--e", 0);
       el.dataset.i = i;
       el.innerHTML = '<div class="cname"></div><div class="ribbon"></div>';
+      if (c.voice.sampleId) el.classList.add("hassample");
       el.querySelector(".cname").textContent = c.name;
       const rib = el.querySelector(".ribbon");
       for (let s = 0; s < STEPS; s++) rib.appendChild(document.createElement("b"));
       let held = 0;
       el.addEventListener("pointerdown", (ev) => {
         ev.preventDefault();
+        if (armed) {
+          assignSample(i, armed);
+          return;
+        }
         eng.resume();
         eng.play(c.voice, 0, 112, i);
         flash(i);
@@ -1344,36 +1617,166 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     if (lvl === 0) drawNebula(cells);
     if (lvl === 4) drawScope();
   }
+  var NEB = { hit: null, drag: null };
+  function nebLayout(cells, W, H) {
+    const cx = W / 2, cy = H / 2;
+    const t = performance.now() / 1e3;
+    return cells.map((c, i) => {
+      const density = c.steps.reduce((a, v) => a + (v ? 1 : 0), 0) / STEPS;
+      const ang = i / cells.length * Math.PI * 2 + t * 0.02;
+      const rad = (0.44 - density * 0.27) * Math.min(W, H);
+      return {
+        i,
+        c,
+        density,
+        ang,
+        x: cx + Math.cos(ang) * rad,
+        y: cy + Math.sin(ang) * rad * 0.78,
+        r: 6 + density * 15 + (eng.meters[i] || 0) * 22
+      };
+    });
+  }
   function drawNebula(cells) {
-    const r = neb.getBoundingClientRect();
+    const rect = neb.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (neb.width !== (r.width * dpr | 0)) {
-      neb.width = r.width * dpr;
-      neb.height = r.height * dpr;
+    if (neb.width !== (rect.width * dpr | 0)) {
+      neb.width = rect.width * dpr;
+      neb.height = rect.height * dpr;
     }
     const W = neb.width, H = neb.height, cx = W / 2, cy = H / 2;
     nctx.clearRect(0, 0, W, H);
-    const t = performance.now() / 1e3;
-    cells.forEach((c, i) => {
-      const density = c.steps.reduce((a, v) => a + (v ? 1 : 0), 0) / STEPS;
-      const ang = i / cells.length * Math.PI * 2 + t * 0.045;
-      const rad = (0.16 + (1 - density) * 0.32) * Math.min(W, H);
-      const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad * 0.72;
-      const e = eng.meters[i] || 0;
-      const size = (5 + density * 16 + e * 20) * dpr;
-      const g = nctx.createRadialGradient(x, y, 0, x, y, size * 2.6);
-      const col = "hsl(" + c.hue + " 90% " + (54 + e * 26) + "%";
-      g.addColorStop(0, col + " / " + (c.mute ? 0.18 : 0.95) + ")");
+    for (let sc = SCENES - 1; sc >= 0; sc--) {
+      const rr = (0.17 + sc * 0.085) * Math.min(W, H);
+      const live = sc === song.scene;
+      nctx.beginPath();
+      nctx.ellipse(cx, cy, rr, rr * 0.78, 0, 0, 7);
+      nctx.strokeStyle = live ? "rgba(75,227,200,.30)" : "rgba(255,255,255,.055)";
+      nctx.lineWidth = (live ? 1.6 : 1) * dpr;
+      nctx.stroke();
+    }
+    if (eng.playing) {
+      const a = eng.step / 16 * Math.PI * 2 - Math.PI / 2;
+      const rr = 0.47 * Math.min(W, H);
+      const g = nctx.createLinearGradient(cx, cy, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.78);
+      g.addColorStop(0, "rgba(75,227,200,.35)");
+      g.addColorStop(1, "rgba(75,227,200,0)");
+      nctx.strokeStyle = g;
+      nctx.lineWidth = 2.4 * dpr;
+      nctx.beginPath();
+      nctx.moveTo(cx, cy);
+      nctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.78);
+      nctx.stroke();
+    }
+    const bodies = nebLayout(cells, W, H);
+    NEB.hit = bodies;
+    bodies.forEach((b) => {
+      const e = eng.meters[b.i] || 0;
+      const size = b.r * dpr;
+      const col = "hsl(" + b.c.hue + " 92% " + (52 + e * 30) + "%";
+      const g = nctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, size * 2.8);
+      g.addColorStop(0, col + " / " + (b.c.mute ? 0.12 : 0.8) + ")");
       g.addColorStop(1, col + " / 0)");
       nctx.fillStyle = g;
       nctx.beginPath();
-      nctx.arc(x, y, size * 2.6, 0, 7);
+      nctx.arc(b.x, b.y, size * 2.8, 0, 7);
       nctx.fill();
-      nctx.fillStyle = col + " / " + (c.mute ? 0.25 : 1) + ")";
+      nctx.fillStyle = col + " / " + (b.c.mute ? 0.3 : 1) + ")";
       nctx.beginPath();
-      nctx.arc(x, y, size * 0.36, 0, 7);
+      nctx.arc(b.x, b.y, size * 0.42, 0, 7);
       nctx.fill();
+      if (b.c.mute) {
+        nctx.strokeStyle = "rgba(255,255,255,.5)";
+        nctx.lineWidth = 1.4 * dpr;
+        nctx.beginPath();
+        nctx.moveTo(b.x - size * 0.6, b.y - size * 0.6);
+        nctx.lineTo(b.x + size * 0.6, b.y + size * 0.6);
+        nctx.stroke();
+      }
+      if (b.density > 0.06 || e > 0.15) {
+        nctx.font = 10 * dpr + "px Oswald, sans-serif";
+        nctx.fillStyle = "hsl(" + b.c.hue + " 90% 82% / " + (b.c.mute ? 0.35 : 0.9) + ")";
+        nctx.textAlign = "center";
+        nctx.fillText(b.c.name, b.x, b.y + size * 0.42 + 15 * dpr);
+      }
     });
+  }
+  function nebPick(ev) {
+    if (!NEB.hit) return null;
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const x = (ev.clientX - rect.left) * dpr, y = (ev.clientY - rect.top) * dpr;
+    let best = null, bd = 1e9;
+    for (const b of NEB.hit) {
+      const d = Math.hypot(b.x - x, b.y - y);
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    return bd < Math.max(34 * dpr, best ? best.r * dpr * 2.2 : 0) ? best : null;
+  }
+  var nebTap = 0;
+  var nebLast = 0;
+  neb.addEventListener("pointerdown", (ev) => {
+    const b = nebPick(ev);
+    if (!b) return;
+    ev.preventDefault();
+    neb.setPointerCapture(ev.pointerId);
+    const rect = neb.getBoundingClientRect();
+    NEB.drag = { i: b.i, r0: Math.hypot(
+      ev.clientX - rect.left - rect.width / 2,
+      ev.clientY - rect.top - rect.height / 2
+    ), moved: 0 };
+    nebTap = performance.now();
+  });
+  neb.addEventListener("pointermove", (ev) => {
+    if (!NEB.drag) return;
+    const rect = neb.getBoundingClientRect();
+    const r = Math.hypot(ev.clientX - rect.left - rect.width / 2, ev.clientY - rect.top - rect.height / 2);
+    const d = NEB.drag.r0 - r;
+    if (Math.abs(d) < 14) return;
+    NEB.drag.moved = 1;
+    const c = liveCells(song)[NEB.drag.i];
+    const cur = c.steps.reduce((a, v) => a + (v ? 1 : 0), 0);
+    const want = Math.max(0, Math.min(STEPS, Math.round(cur + Math.sign(d))));
+    if (want !== cur) densify(NEB.drag.i, want);
+    NEB.drag.r0 = r;
+  });
+  neb.addEventListener("pointerup", (ev) => {
+    const held = performance.now() - nebTap;
+    if (NEB.drag && !NEB.drag.moved && held < 400) {
+      const i = NEB.drag.i;
+      const dbl = performance.now() - nebLast < 320;
+      nebLast = performance.now();
+      if (dbl) {
+        toggleMute(i);
+      } else {
+        eng.resume();
+        eng.play(liveCells(song)[i].voice, 0, 112, i);
+      }
+    }
+    if (NEB.drag && NEB.drag.moved) {
+      hist.push(song);
+      saveSong(song);
+    }
+    NEB.drag = null;
+  });
+  var GRID_ORDER = [0, 8, 4, 12, 2, 6, 10, 14, 1, 3, 5, 7, 9, 11, 13, 15];
+  function densify(i, want) {
+    const c = liveCells(song)[i];
+    const on = () => c.steps.reduce((a, v) => a + (v ? 1 : 0), 0);
+    while (on() < want) {
+      const slot = GRID_ORDER.find((k) => !c.steps[k]);
+      if (slot === void 0) break;
+      c.steps[slot] = 100;
+    }
+    while (on() > want) {
+      const slot = [...GRID_ORDER].reverse().find((k) => c.steps[k]);
+      if (slot === void 0) break;
+      c.steps[slot] = 0;
+    }
+    syncRibbon(i);
+    saveSong(song);
   }
   function drawScope() {
     var _a;
@@ -1463,11 +1866,131 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   io.start().catch(() => {
   });
   io.keepLooking();
+  var armed = null;
+  function renderList(items) {
+    const host = $("#list");
+    if (!host) return;
+    host.innerHTML = "";
+    if (!items.length) {
+      host.innerHTML = '<div style="color:var(--dim);font-size:var(--fs-sm);padding:10px 4px;line-height:1.6">Nothing here yet.<br>Drop a WAV, MP3 or FLAC above \u2014 it stays on this device and survives a restart.</div>';
+      return;
+    }
+    items.forEach((it) => {
+      const el = document.createElement("div");
+      el.className = "snd" + (armed === it.id ? " armed" : "");
+      el.draggable = true;
+      el.innerHTML = '<span class="k"></span><span class="n"></span><span class="d"></span>';
+      el.querySelector(".k").textContent = it.kind;
+      el.querySelector(".n").textContent = it.name;
+      el.querySelector(".d").textContent = it.dur.toFixed(2) + "s";
+      el.addEventListener("click", async () => {
+        armed = armed === it.id ? null : it.id;
+        renderList(lib.items);
+        const buf = await lib.bufferFor(it.id);
+        if (buf && armed) {
+          warm.set(it.id, buf);
+          previewBuffer(buf);
+        }
+        deck.querySelectorAll(".cell").forEach((c) => c.classList.toggle("arm", !!armed));
+      });
+      el.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/sx", it.id);
+        armed = it.id;
+      });
+      host.appendChild(el);
+    });
+  }
+  function previewBuffer(buf) {
+    const ctx = eng.init();
+    eng.resume();
+    const s2 = ctx.createBufferSource();
+    s2.buffer = buf;
+    const g2 = ctx.createGain();
+    g2.gain.value = 0.9;
+    s2.connect(g2);
+    g2.connect(ctx.destination);
+    s2.start();
+  }
+  async function assignSample(cellIdx, sampleId) {
+    const c = liveCells(song)[cellIdx];
+    if (!c) return;
+    const buf = await lib.bufferFor(sampleId);
+    if (!buf) return;
+    warm.set(sampleId, buf);
+    c.voice.sampleId = sampleId;
+    const meta = lib.find(sampleId);
+    if (meta) c.name = meta.name.slice(0, 12).toUpperCase();
+    lib.repin(liveCells(song).map((x) => x.voice.sampleId));
+    buildDeck();
+    liveCells(song).forEach((_, i) => syncRibbon(i));
+    hist.push(song);
+    saveSong(song);
+    armed = null;
+    renderList(lib.items);
+  }
+  $("#libbtn").addEventListener("click", () => {
+    const sh = $("#shelf");
+    sh.classList.toggle("open");
+    $("#libbtn").classList.toggle("on", sh.classList.contains("open"));
+  });
+  $("#shelfx").addEventListener("click", () => {
+    $("#shelf").classList.remove("open");
+    $("#libbtn").classList.remove("on");
+  });
+  $("#drop").addEventListener("click", () => $("#file").click());
+  $("#file").addEventListener("change", async (e) => {
+    eng.init();
+    const added = await lib.addFiles(e.target.files);
+    e.target.value = "";
+    if (added.length) toast(added.length + " sound" + (added.length > 1 ? "s" : "") + " added");
+  });
+  ["dragover", "drop"].forEach((n) => window.addEventListener(n, (e) => e.preventDefault()));
+  window.addEventListener("dragover", () => $("#drop").classList.add("hot"));
+  window.addEventListener("dragleave", () => $("#drop").classList.remove("hot"));
+  window.addEventListener("drop", async (e) => {
+    $("#drop").classList.remove("hot");
+    const sx = e.dataTransfer.getData("text/sx");
+    if (sx) {
+      const cell = e.target.closest && e.target.closest(".cell");
+      if (cell) return assignSample(+cell.dataset.i, sx);
+    }
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      eng.init();
+      $("#shelf").classList.add("open");
+      $("#libbtn").classList.add("on");
+      const added = await lib.addFiles(e.dataTransfer.files);
+      if (added.length) toast(added.length + " sound" + (added.length > 1 ? "s" : "") + " added");
+      else toast("nothing there this app could decode");
+    }
+  });
+  function toast(msg) {
+    let t = document.getElementById("toast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "toast";
+      t.style.cssText = "position:fixed;left:50%;bottom:calc(max(12px,env(safe-area-inset-bottom)) + 74px);transform:translateX(-50%);z-index:60;padding:9px 16px;border-radius:999px;background:rgba(9,12,17,.94);border:1px solid var(--line);font-size:var(--fs-sm);letter-spacing:.08em;pointer-events:none;transition:opacity .25s;box-shadow:var(--e2)";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = "1";
+    clearTimeout(t.__h);
+    t.__h = setTimeout(() => {
+      t.style.opacity = "0";
+    }, 1900);
+  }
   function esc(v) {
     return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   buildDeck();
   buildScenePick();
+  lib.boot().then(() => {
+    const ids = liveCells(song).map((c) => c.voice.sampleId).filter(Boolean);
+    lib.repin(ids);
+    ids.forEach(async (id) => {
+      const b = await lib.bufferFor(id);
+      if (b) warm.set(id, b);
+    });
+  });
   liveCells(song).forEach((_, i) => syncRibbon(i));
   $("#bpm").value = song.bpm;
   atlas.setFocus(2, 0);
@@ -1490,7 +2013,18 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       }
     }
   });
-  window.__ult = { atlas, song, eng, io };
+  window.__ult = {
+    atlas,
+    song,
+    eng,
+    io,
+    lib,
+    assign: assignSample,
+    densify,
+    buildDeck,
+    renderList,
+    warmHas: (id) => warm.has(id)
+  };
 })();
 
 </script>
