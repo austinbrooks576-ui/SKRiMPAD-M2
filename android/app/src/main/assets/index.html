@@ -8275,11 +8275,12 @@ window.onNativeBLEPackets = function (packets, addr, name) {
 // played still reports itself instead of leaving the app looking dead.
 window.onNativeMIDIDevices = function (list) {
   notePadOnlyDevices((list || []).map(function (d) { return d.name; }));
-  const el = document.getElementById('midi-status');
-  if (!el) return;
-  el.textContent = (list && list.length)
-    ? '\uD83D\uDFE2 ' + list.length + ' MIDI: ' + list.map(function (d) { return d.name; }).join(', ').slice(0, 44)
-    : 'No MIDI device - connect a USB or BT controller';
+  // MIDILink owns the wording and the retry cadence; handing it the list keeps
+  // one source of truth for "is anything actually attached".
+  try { MIDILink.noteDevices(list); } catch (e) {
+    const el = document.getElementById('midi-status');
+    if (el) el.textContent = (list && list.length) ? '\uD83D\uDFE2 ' + list.length + ' MIDI' : 'No MIDI device';
+  }
 };
 function initNativeMIDI() {
   try {
@@ -8449,8 +8450,141 @@ if (midiBtBtn) midiBtBtn.addEventListener('click', initBluetoothMIDI);
 // KORG BLE-MIDI endpoint once you CONNECT it in the KORG panel — gets hooked
 // with no button press, and re-hooks on hot-plug via onstatechange. (Browsers
 // would prompt, so this is Electron-only; the APK uses the native bridge.)
-if (navigator.requestMIDIAccess && /Electron/i.test(navigator.userAgent || '')) {
-  setTimeout(() => { try { if (!midiAccess) initMIDI(); } catch (e) {} }, 800);
+// ============================ MIDI LINK =====================================
+// Connecting a controller has to be the single most reliable thing this app
+// does. Before this, MIDI was only started when the user found and opened the
+// Hardware menu — so on the phone build a plugged-in controller did nothing at
+// all until you went looking for a setting. That is backwards. You plug it in,
+// it works.
+//
+// Every real-world way this fails, and what is done about it:
+//
+//  1. THE BRIDGE ISN'T THERE YET. On Android the native object is injected by
+//     the WebView after our script runs, so a single check at boot finds
+//     nothing and gives up forever. We WAIT for it.
+//  2. THE DEVICE ISN'T THERE YET. Android enumerates USB-OTG and Bluetooth
+//     endpoints asynchronously; the list is routinely empty for the first few
+//     seconds. One look is not enough, so we keep looking on a backoff.
+//  3. THE USER PAIRED IT WHILE WE WEREN'T LOOKING. Pairing a BLE controller
+//     means leaving for Android Settings and coming back. Returning to the app
+//     is the strongest possible hint to re-scan, so that is exactly when we do.
+//  4. THE BROWSER WANTS A GESTURE. Web MIDI can require a user gesture, and the
+//     old code only armed on a button inside a menu. Now the FIRST touch or key
+//     anywhere in the app arms it.
+//  5. NOTHING TELLS THE USER WHAT IS HAPPENING. Silence reads as "broken". The
+//     status line is always saying something in plain words, and it says what
+//     to DO, not what failed.
+const MIDILink = (function () {
+  let started = false, connected = 0, tries = 0, timer = 0, t0 = 0;
+  let deviceNames = [];
+
+  const el = () => document.getElementById('midi-status');
+  const hasBridge = () => !!(window.AndroidMidi && typeof window.AndroidMidi.enable === 'function');
+  const isAndroid = () => /Android/i.test(navigator.userAgent || '');
+
+  // Plain words. No codes, no jargon, and always the next physical action.
+  function say(msg) {
+    const e = el(); if (e) e.textContent = msg;
+    const b = document.getElementById('midi-banner');
+    if (b) b.textContent = msg;
+  }
+  function report() {
+    if (connected) {
+      const n = deviceNames.filter(Boolean);
+      say('\u2705 ' + (n.length ? n.join(', ').slice(0, 40) : 'Controller') + ' connected \u2014 hit a pad or a key');
+      return;
+    }
+    // Escalate on TIME, not on retry count. The backoff means four sweeps take
+    // about eleven seconds, and someone who just plugged a controller in has
+    // decided the app is broken long before that. Four seconds of "looking",
+    // then say exactly what to do — while still searching underneath.
+    // Only claim to be looking if there is something to look WITH. When the
+    // platform offers no MIDI path at all, a spinner is just a lie that wastes
+    // the user's time — go straight to what they can actually do about it.
+    const searchable = hasBridge() || !!navigator.requestMIDIAccess || !!midiAccess;
+    // Otherwise escalate on TIME, not on retry count: the backoff makes four
+    // sweeps take about eleven seconds, and someone who just plugged something
+    // in has written the app off long before that.
+    if (searchable && Date.now() - t0 < 2500) { say('\uD83D\uDD0D Looking for your controller\u2026'); return; }
+    say(isAndroid()
+      ? 'No controller yet. USB: plug it into the phone (some need an OTG adapter). Bluetooth: pair it in Android Settings, then come back here.'
+      : 'No controller yet. Plug in USB, or pair Bluetooth, and it will appear on its own.');
+  }
+
+  // Ask every path we have. Cheap, idempotent, and safe to repeat.
+  function sweep() {
+    if (hasBridge()) {
+      try { window.AndroidMidi.enable(); nativeMidiOn = true; } catch (e) {}
+      try { if (typeof window.AndroidMidi.scanBluetooth === 'function') window.AndroidMidi.scanBluetooth(); } catch (e) {}
+    }
+    if (navigator.requestMIDIAccess && !midiAccess) { try { initMIDI(); } catch (e) {} }
+    if (midiAccess) {
+      // Re-hook every input every sweep: a port that appeared between sweeps
+      // otherwise stays silent because nothing is listening to it.
+      try {
+        midiAccess.inputs.forEach((inp) => { inp.onmidimessage = onMIDI; });
+        deviceNames = [...midiAccess.inputs.values()].map((i) => i.name);
+        connected = midiAccess.inputs.size;
+      } catch (e) {}
+    }
+  }
+
+  // Backoff while nothing is attached: quick at first because most controllers
+  // show up within a couple of seconds, then easing off so an app left open all
+  // day is not scanning every second forever.
+  function schedule() {
+    clearTimeout(timer);
+    const wait = connected ? 8000 : Math.min(1200 * Math.pow(1.6, Math.min(tries, 6)), 12000);
+    timer = setTimeout(tick, wait);
+  }
+  function tick() { tries++; sweep(); report(); schedule(); }
+
+  function start(why) {
+    if (started) { retryNow(why); return; }
+    started = true;
+    tries = 0; t0 = Date.now();
+    sweep(); report(); schedule();
+    // The bridge can arrive late; keep checking for it independently of the
+    // device sweep so a slow WebView injection does not cost a whole backoff.
+    let waited = 0;
+    const waitBridge = setInterval(() => {
+      waited += 300;
+      if (hasBridge()) { clearInterval(waitBridge); sweep(); report(); }
+      else if (waited > 12000) clearInterval(waitBridge);
+    }, 300);
+  }
+  function retryNow(why) { tries = 0; sweep(); report(); schedule(); }
+
+  // Something actually arrived — the truth comes from the device list and from
+  // real bytes, not from whether a call returned without throwing.
+  function noteDevices(list) {
+    deviceNames = (list || []).map((d) => d && d.name).filter(Boolean);
+    connected = (list || []).length;
+    report(); schedule();
+  }
+  function noteTraffic(name) {
+    if (!connected) { connected = 1; if (name && deviceNames.indexOf(name) < 0) deviceNames.push(name); }
+    report();
+  }
+
+  // Coming back to the app is the single strongest signal that the user just
+  // paired something in Settings. Re-scan immediately, every time.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) retryNow('foreground'); });
+  window.addEventListener('focus', () => retryNow('focus'));
+  // A browser that needs a gesture gets one from the first touch ANYWHERE,
+  // instead of demanding the user find a button inside a menu.
+  const arm = () => { start('gesture'); window.removeEventListener('pointerdown', arm); window.removeEventListener('keydown', arm); };
+  window.addEventListener('pointerdown', arm, { once: false });
+  window.addEventListener('keydown', arm, { once: false });
+
+  return { start, retryNow, noteDevices, noteTraffic, get connected() { return connected; }, get names() { return deviceNames.slice(); } };
+})();
+
+// Start on every platform that can start without prompting. The APK and
+// Electron both can; a plain browser waits for the first gesture above.
+if (window.AndroidMidi || /Electron|Android/i.test(navigator.userAgent || '')) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => MIDILink.start('boot'));
+  else setTimeout(() => MIDILink.start('boot'), 0);
 }
 
 const midiEnableBtn = document.getElementById('midi-enable');
