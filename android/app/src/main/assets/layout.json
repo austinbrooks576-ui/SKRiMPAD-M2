@@ -10,7 +10,7 @@
     "ink": "#120404",
     "paper": "#e8dcc0",
     "accent": "#c0392b",
-    "font": "'Oswald', 'Arial Narrow', sans-serif"
+    "font": "'Oswald', 'Roboto Condensed', 'Helvetica Neue Condensed', 'Arial Narrow', system-ui, sans-serif"
   },
   "hud": {
     "type": "orbital_radar",
