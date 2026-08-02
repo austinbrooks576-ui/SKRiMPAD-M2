@@ -697,8 +697,64 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     let startPromise = null;
     function start() {
-      return startPromise = startPromise || _start();
+      if (startPromise) return startPromise;
+      startPromise = _start().then((r) => {
+        if (!r || r.mode === "none") startPromise = null;
+        return r;
+      }, (e) => {
+        startPromise = null;
+        throw e;
+      });
+      return startPromise;
     }
+    let sweepTimer = 0, sweeps = 0, sweeping = false;
+    function sweep() {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        nativeMode = true;
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+      }
+      if (access) {
+        try {
+          access.inputs.forEach((inp) => {
+            inp.onmidimessage = (e) => emit(e.data, inp);
+          });
+        } catch (e) {
+        }
+      }
+      start().catch(() => {
+      });
+      onPorts && onPorts(listInputs());
+    }
+    function keepLooking() {
+      if (sweeping) return;
+      sweeping = true;
+      const tick = () => {
+        sweeps++;
+        sweep();
+        const found = inputCount() > 0 || typeof window !== "undefined" && window.AndroidMidi;
+        const wait = found ? 8e3 : Math.min(1200 * Math.pow(1.6, Math.min(sweeps, 6)), 12e3);
+        clearTimeout(sweepTimer);
+        sweepTimer = setTimeout(tick, wait);
+      };
+      tick();
+    }
+    function rescan() {
+      sweeps = 0;
+      sweep();
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) rescan();
+      });
+    }
+    if (typeof window !== "undefined") window.addEventListener("focus", () => rescan());
     async function _start() {
       if (typeof window !== "undefined" && window.AndroidMidi) {
         nativeMode = true;
@@ -881,6 +937,8 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
     }
     return {
       start,
+      keepLooking,
+      rescan,
       listInputs,
       inputCount,
       connectBluetooth,
@@ -4570,6 +4628,7 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
   };
   io.start().then((m) => console.info("[LIVEx] MIDI:", m.mode)).catch(() => {
   });
+  io.keepLooking();
   io.autoReconnect({ onStatus: btStatus }).catch(() => {
   });
   createGamepad({

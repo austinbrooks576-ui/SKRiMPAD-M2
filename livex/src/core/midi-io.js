@@ -125,7 +125,57 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // alive for requestDevice(). Losing that activation is exactly what broke
   // Bluetooth in SKRiMPAD M2.
   let startPromise = null;
-  function start() { return (startPromise = startPromise || _start()); }
+  // Memoising start() forever was the bug that made a controller "not register".
+  // The Android bridge is injected by the WebView AFTER this module runs, so if
+  // start() happened to be called first, the native branch was skipped and the
+  // {mode:'none'} result was cached for the life of the app. Only a run that
+  // actually FOUND a path is worth keeping; anything else must be retryable.
+  function start() {
+    if (startPromise) return startPromise;
+    startPromise = _start().then((r) => {
+      if (!r || r.mode === 'none') startPromise = null;   // nothing found — stay retryable
+      return r;
+    }, (e) => { startPromise = null; throw e; });
+    return startPromise;
+  }
+
+  // Keep asking until something answers. Android enumerates USB-OTG and BLE
+  // endpoints asynchronously and the list is routinely empty for the first few
+  // seconds, so a single look is not a connection attempt — it is a coin flip.
+  let sweepTimer = 0, sweeps = 0, sweeping = false;
+  function sweep() {
+    if (typeof window !== 'undefined' && window.AndroidMidi) {
+      nativeMode = true;
+      try { window.AndroidMidi.enable(); } catch (e) {}
+      try { window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth(); } catch (e) {}
+    }
+    // Re-assert handlers every sweep: a port that appeared between sweeps is
+    // otherwise sitting there with nothing listening to it.
+    if (access) { try { access.inputs.forEach((inp) => { inp.onmidimessage = (e) => emit(e.data, inp); }); } catch (e) {} }
+    start().catch(() => {});
+    onPorts && onPorts(listInputs());
+  }
+  function keepLooking() {
+    if (sweeping) return;
+    sweeping = true;
+    const tick = () => {
+      sweeps++;
+      sweep();
+      const found = inputCount() > 0 || (typeof window !== 'undefined' && window.AndroidMidi);
+      // ease off once something is attached, but never stop entirely — unplugging
+      // and re-plugging has to be noticed too
+      const wait = found ? 8000 : Math.min(1200 * Math.pow(1.6, Math.min(sweeps, 6)), 12000);
+      clearTimeout(sweepTimer); sweepTimer = setTimeout(tick, wait);
+    };
+    tick();
+  }
+  // Coming back to the app is the strongest possible signal that the user just
+  // paired a controller in system Bluetooth settings. Re-scan on the spot.
+  function rescan() { sweeps = 0; sweep(); }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) rescan(); });
+  }
+  if (typeof window !== 'undefined') window.addEventListener('focus', () => rescan());
 
   async function _start() {
     // Android WebView has no Web MIDI → native bridge injects window.AndroidMidi.
@@ -333,7 +383,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   }
 
   return {
-    start, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
+    start, keepLooking, rescan, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
     hasLiveData, access: () => access, _emit: emit,
     // devices reported by the native bridge, with their raw Android properties —
     // read by the MIDI monitor so an unidentified controller can be diagnosed

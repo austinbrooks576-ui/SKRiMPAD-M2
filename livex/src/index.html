@@ -882,7 +882,12 @@ window.SKRIMPAD_VERSION='1.0.0';/*BUILD_VERSION*/</script>
       else if (s.mode === 'gatt' && !s.connected) toast('📶 ' + (s.name || 'Controller') + ' dropped — reconnecting…');
       else if (s.hint) toast(s.hint);
     };
+    // Not a one-shot: keepLooking() retries on a backoff until a controller
+    // answers, re-asserts handlers on ports that appear later, and re-scans the
+    // instant the app comes back to the foreground (which is exactly when
+    // someone returns from pairing a Bluetooth controller in system settings).
     io.start().then((m) => console.info('[LIVEx] MIDI:', m.mode)).catch(() => {});
+    io.keepLooking();
     // Pair once, then never again: silently re-open any controller this app was
     // already granted, and watch for it to wake if it is out of range.
     io.autoReconnect({ onStatus: btStatus }).catch(() => {});
