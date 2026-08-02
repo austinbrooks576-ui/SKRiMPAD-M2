@@ -197,6 +197,38 @@ function canvasScript() {
   }`;
 }
 
+// An .ico is a tiny container format: a 6-byte header, one 16-byte directory
+// entry per image, then the images back to back. The images may be raw DIBs or
+// — since Vista — PNGs stored verbatim, which is what this writes, because
+// hand-rolling a bottom-up BGRA DIB with an AND mask to save a few kilobytes is
+// a lot of surface area for no benefit.
+//
+// The one trap: a 256px image records its width and height as 0. The fields are
+// a single byte each, 256 does not fit, and 0 is the agreed escape. Writing 256
+// there silently produces an icon Windows reads as 0x0 and refuses.
+function buildIco(images) {
+  const head = Buffer.alloc(6);
+  head.writeUInt16LE(0, 0);              // reserved
+  head.writeUInt16LE(1, 2);              // 1 = icon (2 would be a cursor)
+  head.writeUInt16LE(images.length, 4);
+
+  const dir = Buffer.alloc(16 * images.length);
+  let offset = head.length + dir.length;
+  images.forEach((img, i) => {
+    const at = i * 16;
+    dir.writeUInt8(img.size >= 256 ? 0 : img.size, at);      // 0 means 256
+    dir.writeUInt8(img.size >= 256 ? 0 : img.size, at + 1);
+    dir.writeUInt8(0, at + 2);           // palette size — 0 for truecolour
+    dir.writeUInt8(0, at + 3);           // reserved
+    dir.writeUInt16LE(1, at + 4);        // colour planes
+    dir.writeUInt16LE(32, at + 6);       // bits per pixel
+    dir.writeUInt32LE(img.buf.length, at + 8);
+    dir.writeUInt32LE(offset, at + 12);
+    offset += img.buf.length;
+  });
+  return Buffer.concat([head, dir, ...images.map((i) => i.buf)]);
+}
+
 const DENSITIES = [
   ['mipmap-mdpi', 48], ['mipmap-hdpi', 72], ['mipmap-xhdpi', 96],
   ['mipmap-xxhdpi', 144], ['mipmap-xxxhdpi', 192],
@@ -252,10 +284,25 @@ async function main() {
   }
   // A big one for the store listing, which wants 512x512 and will not take
   // an APK resource.
+  const brand = path.join(ROOT, 'ultimate/brand');
+  fs.mkdirSync(brand, { recursive: true });
   const store = await pg.evaluate(([src]) => eval(src)(512, false), [canvasScript()]);
-  fs.mkdirSync(path.join(ROOT, 'ultimate/brand'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'ultimate/brand/icon-512.png'), Buffer.from(store.split(',')[1], 'base64'));
+  fs.writeFileSync(path.join(brand, 'icon-512.png'), Buffer.from(store.split(',')[1], 'base64'));
   console.log('raster: ultimate/brand/icon-512.png (store listing)');
+
+  // ---- Windows .ico -------------------------------------------------------
+  // Same mark, because a person who installs both should see one product.
+  // Every size is rendered at its own resolution rather than downscaled from
+  // one big PNG: a 16px icon scaled down from 256 turns the rings into grey
+  // mush, whereas drawing at 16 keeps the stroke widths honest.
+  const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+  const pngs = [];
+  for (const s of icoSizes) {
+    const u = await pg.evaluate(([src, sz]) => eval(src)(sz, false), [canvasScript(), s]);
+    pngs.push({ size: s, buf: Buffer.from(u.split(',')[1], 'base64') });
+  }
+  fs.writeFileSync(path.join(brand, 'icon.ico'), buildIco(pngs));
+  console.log('raster: ultimate/brand/icon.ico (' + icoSizes.join('/') + ')');
 
   await b.close();
 }
