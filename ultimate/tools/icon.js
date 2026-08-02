@@ -1,0 +1,263 @@
+// icon.js — the launcher mark, and every file Android wants it in.
+//
+// WHAT THE MARK IS, AND WHY.
+// ULTIMATE's one idea is ALTITUDE: the whole app is a single continuous depth
+// you fly through, from the constellation down to the grain. So the icon is
+// that seen head-on — four rounded squares receding into a lit core. It reads
+// as a pad at a glance, which is what the app is, and as a tunnel on a second
+// look, which is what the app does.
+//
+// It is drawn from geometry rather than traced from an image because a launcher
+// icon has to survive being 48px on an mdpi phone. Nested squares hold their
+// shape at any size; anything with fine strokes or a wordmark turns to mush,
+// and mush is exactly what the current 310-byte black square already achieves.
+//
+// EVERY SIZE COMES FROM ONE SOURCE. There is one geometry function below and
+// every output is rendered from it, so the adaptive vector and the five legacy
+// rasters cannot drift apart — which is the usual fate of icon sets kept as
+// six hand-exported PNGs.
+//
+// THE 108dp / 66dp RULE. An adaptive icon is a 108x108dp canvas of which the
+// launcher may mask ANY shape inside the middle 72dp, and only the middle 66dp
+// is guaranteed visible on every device. Art drawn out to the edge gets its
+// corners eaten on a circle mask. The mark is therefore laid out inside the
+// safe circle, and the background carries the bleed.
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '../..');
+const RES = path.join(ROOT, 'android/app/src/main/res');
+
+// The app's own palette. The icon is not allowed its own colours — it is the
+// front door of a specific room and should be the colour of that room.
+const VOID = '#06070B';
+const DEEP = '#0C1220';
+const ACC = '#4BE3C8';      // the accent, the thing that means "live"
+const MID = '#3E8FD6';
+const FAR = '#6E4BE3';      // the violet the deck runs to at its far end
+
+// ---- the mark, in a 0..1 square ------------------------------------------
+// Four rings, each a rounded square, shrinking and warming toward the centre.
+// Returned as data rather than drawn, so the SVG writer and the canvas
+// renderer are looking at exactly the same numbers.
+function rings() {
+  const out = [];
+  const N = 4;
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);                 // 0 outermost .. 1 core
+    const half = 0.5 - t * 0.335;          // shrinks inward
+    out.push({
+      t,
+      half,
+      // The OUTER rings are the round ones. That is backwards from how this
+      // looks on paper and right for where it lives: the outermost ring is the
+      // one a circular launcher mask is about to cut, and rounding it moves its
+      // corners in toward the centre where they survive. It also reads well —
+      // a soft outer shell resolving to a crisp pad at the core.
+      r: half * (0.52 - t * 0.22),
+      color: t < 0.34 ? FAR : t < 0.67 ? MID : ACC,
+      // The outer rings are structure; the core is the light. Stroke weight
+      // falls away so the eye lands in the middle rather than on the frame.
+      w: 0.085 - t * 0.028,
+      fill: i === N - 1,
+    });
+  }
+  return out;
+}
+
+// ---- adaptive icon: vector foreground + vector background ----------------
+function svgForeground() {
+  const S = 108, C = S / 2;
+  // The safe zone is a CIRCLE of 66dp, not a 66dp box — so what has to fit is
+  // the mark's furthest point, which for a rounded square is out on the
+  // diagonal, not on the flat edge. Sizing the box to 66 puts the corners at
+  // 66*0.707 = 47dp from centre against a 33dp budget, and a circular launcher
+  // mask shaves all four of them off.
+  //
+  // So the fit is COMPUTED from the geometry rather than picked by eye: find
+  // the furthest point any ring reaches (corner arc centre, plus its radius,
+  // plus half a stroke, since strokes straddle their path) and scale until
+  // that lands exactly on the safe circle. Change the rings above and this
+  // still fits — which is the only way an icon stays correct after someone
+  // adjusts it a year from now.
+  const reach = Math.max(...rings().map((g) => {
+    const corner = (g.half - g.r) * Math.SQRT2 + g.r;
+    return corner + (g.fill ? 0 : g.w / 2);
+  }));
+  const SAFE = 33 / reach;
+  const px = (v) => +(v * SAFE).toFixed(3);
+  const body = rings().map((g) => {
+    const h = px(g.half), r = px(g.r), w = px(g.w);
+    const x = (C - h).toFixed(3), y = (C - h).toFixed(3), d = (h * 2).toFixed(3);
+    return g.fill
+      ? `  <path android:fillColor="${g.color}"
+        android:pathData="${roundRect(C - h, C - h, h * 2, h * 2, r)}"/>`
+      : `  <path android:strokeColor="${g.color}" android:strokeWidth="${w.toFixed(3)}"
+        android:strokeLineJoin="round" android:fillColor="#00000000"
+        android:pathData="${roundRect(C - h, C - h, h * 2, h * 2, r)}"/>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated by ultimate/tools/icon.js — edit that, not this. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+${body}
+</vector>
+`;
+}
+
+function svgBackground() {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated by ultimate/tools/icon.js — edit that, not this. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <path android:pathData="M0,0h108v108h-108z">
+    <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+      <gradient android:type="radial"
+          android:centerX="54" android:centerY="46" android:gradientRadius="74">
+        <item android:offset="0" android:color="${DEEP}"/>
+        <item android:offset="1" android:color="${VOID}"/>
+      </gradient>
+    </aapt:attr>
+  </path>
+</vector>
+`;
+}
+
+// A rounded rectangle as SVG/vector path data. Written out longhand rather than
+// leaning on rx/ry, because Android's <vector> pathData understands neither.
+function roundRect(x, y, w, h, r) {
+  const n = (v) => +v.toFixed(3);
+  r = Math.min(r, w / 2, h / 2);
+  return [
+    `M${n(x + r)},${n(y)}`,
+    `L${n(x + w - r)},${n(y)}`, `A${n(r)},${n(r)} 0 0 1 ${n(x + w)},${n(y + r)}`,
+    `L${n(x + w)},${n(y + h - r)}`, `A${n(r)},${n(r)} 0 0 1 ${n(x + w - r)},${n(y + h)}`,
+    `L${n(x + r)},${n(y + h)}`, `A${n(r)},${n(r)} 0 0 1 ${n(x)},${n(y + h - r)}`,
+    `L${n(x)},${n(y + r)}`, `A${n(r)},${n(r)} 0 0 1 ${n(x + r)},${n(y)}`,
+    'Z',
+  ].join(' ');
+}
+
+// ---- legacy rasters -------------------------------------------------------
+// Pre-26 launchers get PNGs. The canvas draw mirrors the vector exactly, plus
+// the glow the vector format cannot express — a legacy icon is a flat bitmap
+// and may as well use the one thing bitmaps are better at.
+function canvasScript() {
+  const g = rings();
+  return `(size, round) => {
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const x = c.getContext('2d');
+    const S = size, C = S / 2;
+    const rings = ${JSON.stringify(g)};
+
+    // Legacy icons carry their own shape, so the plate is drawn here. A circle
+    // for the round variant, a squircle for the square one — matching what the
+    // platform would have masked for us on 26+.
+    x.save();
+    x.beginPath();
+    if (round) x.arc(C, C, C, 0, 7);
+    else {
+      const r = S * 0.22, e = S;
+      x.moveTo(r, 0); x.lineTo(e - r, 0); x.quadraticCurveTo(e, 0, e, r);
+      x.lineTo(e, e - r); x.quadraticCurveTo(e, e, e - r, e);
+      x.lineTo(r, e); x.quadraticCurveTo(0, e, 0, e - r);
+      x.lineTo(0, r); x.quadraticCurveTo(0, 0, r, 0);
+    }
+    x.closePath(); x.clip();
+
+    const bg = x.createRadialGradient(C, S * 0.42, 0, C, C, S * 0.72);
+    bg.addColorStop(0, '${DEEP}'); bg.addColorStop(1, '${VOID}');
+    x.fillStyle = bg; x.fillRect(0, 0, S, S);
+
+    // The mark sits in the safe area even here, so the square and round icons
+    // read as the same object at the same scale.
+    const SAFE = S * 0.62;
+    x.lineJoin = 'round';
+    for (const ring of rings) {
+      const h = ring.half * SAFE, rr = ring.r * SAFE;
+      x.beginPath();
+      const px = C - h, py = C - h, w = h * 2;
+      x.moveTo(px + rr, py);
+      x.lineTo(px + w - rr, py); x.quadraticCurveTo(px + w, py, px + w, py + rr);
+      x.lineTo(px + w, py + w - rr); x.quadraticCurveTo(px + w, py + w, px + w - rr, py + w);
+      x.lineTo(px + rr, py + w); x.quadraticCurveTo(px, py + w, px, py + w - rr);
+      x.lineTo(px, py + rr); x.quadraticCurveTo(px, py, px + rr, py);
+      x.closePath();
+      x.shadowColor = ring.color;
+      x.shadowBlur = S * (ring.fill ? 0.11 : 0.045);
+      if (ring.fill) { x.fillStyle = ring.color; x.fill(); x.fill(); }
+      else { x.strokeStyle = ring.color; x.lineWidth = Math.max(1, ring.w * SAFE); x.stroke(); }
+    }
+    x.restore();
+    return c.toDataURL('image/png');
+  }`;
+}
+
+const DENSITIES = [
+  ['mipmap-mdpi', 48], ['mipmap-hdpi', 72], ['mipmap-xhdpi', 96],
+  ['mipmap-xxhdpi', 144], ['mipmap-xxxhdpi', 192],
+];
+
+async function main() {
+  // ---- vectors (no browser needed) ---------------------------------------
+  const drawable = path.join(RES, 'drawable');
+  const anydpi = path.join(RES, 'mipmap-anydpi-v26');
+  fs.mkdirSync(drawable, { recursive: true });
+  fs.mkdirSync(anydpi, { recursive: true });
+  fs.writeFileSync(path.join(drawable, 'ic_launcher_foreground.xml'), svgForeground());
+  fs.writeFileSync(path.join(drawable, 'ic_launcher_background.xml'), svgBackground());
+
+  // monochrome pulls double duty as the Android 13+ themed icon, so the app
+  // gets a themed launcher for free instead of a washed-out auto-generated one.
+  const adaptive = (name) => `<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated by ultimate/tools/icon.js — edit that, not this. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+    <monochrome android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+`;
+  fs.writeFileSync(path.join(anydpi, 'ic_launcher.xml'), adaptive());
+  fs.writeFileSync(path.join(anydpi, 'ic_launcher_round.xml'), adaptive());
+  console.log('vector: adaptive icon + themed monochrome');
+
+  // ---- rasters (needs a browser to rasterise) -----------------------------
+  let chromium;
+  try { chromium = require('playwright-core').chromium; }
+  catch (e) {
+    try { chromium = require('playwright').chromium; }
+    catch (e2) {
+      console.log('no browser available — vectors written, legacy PNGs skipped');
+      return;
+    }
+  }
+  const exe = process.env.CHROME_PATH ||
+    ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome']
+      .find((p) => fs.existsSync(p));
+  const b = await chromium.launch(exe ? { executablePath: exe, args: ['--no-sandbox'] } : { args: ['--no-sandbox'] });
+  const pg = await b.newPage();
+  await pg.setContent('<body></body>');
+
+  for (const [dir, size] of DENSITIES) {
+    fs.mkdirSync(path.join(RES, dir), { recursive: true });
+    for (const [file, round] of [['ic_launcher.png', false], ['ic_launcher_round.png', true]]) {
+      const url = await pg.evaluate(([src, s, r]) => eval(src)(s, r), [canvasScript(), size, round]);
+      fs.writeFileSync(path.join(RES, dir, file), Buffer.from(url.split(',')[1], 'base64'));
+    }
+    console.log('raster: ' + dir + ' @ ' + size + 'px');
+  }
+  // A big one for the store listing, which wants 512x512 and will not take
+  // an APK resource.
+  const store = await pg.evaluate(([src]) => eval(src)(512, false), [canvasScript()]);
+  fs.mkdirSync(path.join(ROOT, 'ultimate/brand'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'ultimate/brand/icon-512.png'), Buffer.from(store.split(',')[1], 'base64'));
+  console.log('raster: ultimate/brand/icon-512.png (store listing)');
+
+  await b.close();
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

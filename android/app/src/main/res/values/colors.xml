@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The one colour the whole app floats in. Named once here so the splash,
+         the window background and the system bars cannot drift apart. -->
+    <color name="void_bg">#06070B</color>
+</resources>
