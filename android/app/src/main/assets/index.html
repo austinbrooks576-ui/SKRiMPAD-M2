@@ -69,8 +69,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    dragged somewhere else: at that point the position is a deliberate choice,
    and the app should not keep reserving space for a place it no longer is. */
 .pane{width:min(94vw,1180px);height:min(calc(88svh - var(--dock,0px)),860px);position:relative;
-  margin-bottom:var(--dock,0px);
-  transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),height .28s cubic-bezier(.2,.7,.3,1);}
+  margin-bottom:var(--dock,0px);}
+/* The size transition is for when the console is DRAGGED, and only then. At
+   boot --dock starts unset, so the pane began full height and animated down to
+   its docked size over 280ms — and for those 280ms the bottom row of pads
+   genuinely was underneath the pill. Layout that animates on launch is not a
+   nicety anyway; it is a wrong layout, briefly. */
+body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
+                            height .28s cubic-bezier(.2,.7,.3,1);}
 
 /* A slow drifting field so the void reads as depth rather than as a dead
    background. Pure CSS, no canvas, no per-frame cost. */
@@ -341,6 +347,15 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 #hint{position:fixed;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);
   z-index:40;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.16em;pointer-events:none;
   transition:opacity .3s;}
+/* There was exactly ONE focus style in this entire file, on the tempo field.
+   Everything else could be reached by keyboard and gave no sign of where you
+   were — which makes keyboard operation a guessing game even for someone who
+   can see the screen perfectly well. :focus-visible, so a mouse click does not
+   leave a ring behind it. */
+:focus-visible{outline:2px solid var(--acc);outline-offset:3px;border-radius:6px;}
+.cell:focus-visible{outline-offset:-3px;}
+.kb svg:focus-visible{outline-offset:2px;}
+
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
@@ -355,7 +370,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   <div class="layer" data-alt="4"><div class="pane"><div class="sheet" id="grainsheet"></div></div></div>
 </div>
 <nav id="rail"></nav>
-<div id="hint">PINCH OR SCROLL TO FLY</div>
+<div id="hint">PRESS PLAY</div>
 <div id="status">connecting…</div>
 <aside id="shelf">
   <header><span class="t">SOUNDS</span><button class="tb" id="shelfx" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
@@ -370,7 +385,8 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   <div id="grip" title="Drag to move · double-tap to recentre"><i></i></div>
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
-  <span class="blab">BPM</span><input id="bpm" type="number" min="20" max="300" value="100">
+  <span class="blab" id="bpmlab">BPM</span><input id="bpm" type="number" min="20" max="300" value="100"
+    aria-labelledby="bpmlab" aria-label="Tempo, beats per minute">
   <button class="tb" id="dice" title="Surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
   <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -832,16 +848,25 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   var liveCells = (song2) => liveScene(song2).cells;
 
   // ultimate/src/core/engine.js
-  function createEngine({ sampleFor, context } = {}) {
+  function createEngine({ sampleFor, context, onFail } = {}) {
     let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
     const meters = new Float32Array(64);
     let ready = false;
+    let dead = false;
     function init() {
-      if (ready) return ctx;
-      if (context) ctx = typeof context === "function" ? context() : context;
-      else {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        ctx = new AC({ latencyHint: "interactive" });
+      if (ready || dead) return ctx;
+      try {
+        if (context) ctx = typeof context === "function" ? context() : context;
+        else {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) throw new Error("no AudioContext");
+          ctx = new AC({ latencyHint: "interactive" });
+        }
+      } catch (e) {
+        dead = true;
+        ctx = null;
+        onFail && onFail(e);
+        return null;
       }
       master = ctx.createGain();
       master.gain.value = 0.55;
@@ -881,7 +906,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     }
     const resume = () => {
       init();
-      if (ctx.state !== "running" && ctx.resume) ctx.resume().catch(() => {
+      if (ctx && ctx.state !== "running" && ctx.resume) ctx.resume().catch(() => {
       });
     };
     const clamp = (v, lo, hi) => {
@@ -1020,7 +1045,10 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       return oscs;
     }
     function play(voice, when, vel, cellIndex) {
-      init();
+      if (!init()) {
+        if (cellIndex != null) meters[cellIndex] = 1;
+        return { stop: 0 };
+      }
       const t = when || ctx.currentTime;
       const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
       const g = ctx.createGain();
@@ -1105,8 +1133,31 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       lfo.start();
       return lfoOut;
     }
+    function silentVoice() {
+      let gone = false;
+      const noop = () => {
+      };
+      return {
+        note: 0,
+        isSample: false,
+        get dead() {
+          return gone;
+        },
+        bend: noop,
+        vib: noop,
+        press: noop,
+        timbre: noop,
+        level: noop,
+        off() {
+          gone = true;
+        },
+        steal() {
+          gone = true;
+        }
+      };
+    }
     function hold(voice, note, vel, when) {
-      init();
+      if (!init()) return silentVoice();
       const t = when || ctx.currentTime;
       const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
       const env = ctx.createGain(), exp = ctx.createGain();
@@ -1176,9 +1227,9 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       }
       const sources = unison || [src];
       sources.forEach((o) => o.start(t));
-      let dead = false, pressure = 0, timbre = 0, lev = 1;
+      let dead2 = false, pressure = 0, timbre = 0, lev = 1;
       function reflt() {
-        if (dead) return;
+        if (dead2) return;
         const open = Math.min(1, pressure * 0.75 + timbre);
         try {
           flt.frequency.setTargetAtTime(Math.min(18e3, base * (1 + open * 5.5)), ctx.currentTime, 0.02);
@@ -1186,15 +1237,15 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         }
       }
       function relev() {
-        if (dead) return;
+        if (dead2) return;
         try {
           exp.gain.setTargetAtTime(Math.max(1e-4, lev * (1 + pressure * 0.35)), ctx.currentTime, 0.025);
         } catch (e) {
         }
       }
       function fade(secs) {
-        if (dead) return;
-        dead = true;
+        if (dead2) return;
+        dead2 = true;
         const now = ctx.currentTime;
         try {
           env.gain.cancelScheduledValues(now);
@@ -1213,14 +1264,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         note,
         isSample,
         get dead() {
-          return dead;
+          return dead2;
         },
         // Bend arrives in SEMITONES, because that is the unit a player thinks in.
         // Cents are an implementation detail of the audio graph.
         // Each voice keeps its own unison offset and the bend is added ON TOP of
         // it, so a chord bends as a chord instead of collapsing to one pitch.
         bend(semis) {
-          if (dead) return;
+          if (dead2) return;
           const c = clamp(semis, -48, 48) * 100;
           bendable.forEach((p, i) => {
             try {
@@ -1230,7 +1281,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
           });
         },
         vib(cents) {
-          if (vibDepth && !dead) try {
+          if (vibDepth && !dead2) try {
             vibDepth.gain.setTargetAtTime(clamp(cents, 0, 200), ctx.currentTime, 0.05);
           } catch (e) {
           }
@@ -1301,12 +1352,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         for (let i = 0; i < meters.length; i++) meters[i] *= 0.86;
       },
       setMaster(v) {
-        init();
-        master.gain.value = clamp(v, 0, 1.2);
+        if (init()) master.gain.value = clamp(v, 0, 1.2);
+      },
+      get silent() {
+        return dead;
       },
       start(song2, cb) {
         resume();
-        if (playing) return;
+        if (playing || !ctx) return;
         playing = true;
         step = 0;
         onStep = cb || null;
@@ -2400,9 +2453,20 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
+  var FIRST_RUN = !localStorage.getItem("skrimpad_ultimate_song");
   var song = loadSong();
   var warm = /* @__PURE__ */ new Map();
-  var eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+  var eng = createEngine({
+    sampleFor: (id) => warm.get(id) || null,
+    // No output device, or a WebView with audio switched off. Everything else in
+    // the app still works — you can program, arrange and import — so say what
+    // happened instead of leaving someone tapping a grid that makes no sound and
+    // drawing their own conclusions about whether it is broken.
+    onFail: () => {
+      const s = $("#status");
+      if (s) s.innerHTML = "<b>no audio output</b><br>the app still works \u2014 you just cannot hear it";
+    }
+  });
   var lib = createLibrary({
     ctx: () => eng.init(),
     onChange: renderList,
@@ -2482,6 +2546,8 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       el.className = "cell";
       el.style.setProperty("--h", c.hue);
       el.style.setProperty("--e", 0);
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
       el.style.setProperty("--l1", lightnessFor(c.hue, 0.72, 0.1) + "%");
       el.style.setProperty("--l2", lightnessFor(c.hue, 0.64, 0.03) + "%");
       el.style.setProperty("--lt", lightnessFor(c.hue, 0.42, 0.68) + "%");
@@ -2489,6 +2555,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       el.innerHTML = '<div class="cname"></div><div class="ribbon"></div>';
       if (c.voice.sampleId) el.classList.add("hassample");
       el.querySelector(".cname").textContent = c.name;
+      syncCellLabel(el, c, i);
       const rib = el.querySelector(".ribbon");
       for (let s = 0; s < STEPS; s++) rib.appendChild(document.createElement("b"));
       let held = 0;
@@ -2516,12 +2583,34 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       };
       el.addEventListener("pointerup", up);
       el.addEventListener("pointerleave", up);
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          lastCell = i;
+          eng.resume();
+          eng.play(c.voice, 0, 112, i);
+          flash(i);
+        } else if (ev.key === "m" || ev.key === "M") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          toggleMute(i);
+        }
+      });
       el.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         toggleMute(i);
       });
       deck.appendChild(el);
     });
+  }
+  function syncCellLabel(el, c, i) {
+    const on = c.steps.filter((v) => v > 0).length;
+    el.setAttribute(
+      "aria-label",
+      c.name + ", pad " + (i + 1) + " of " + CELLS + ", " + (on ? on + " of " + STEPS + " steps" : "empty") + (c.mute ? ", muted" : "")
+    );
+    el.setAttribute("aria-pressed", c.mute ? "true" : "false");
   }
   function flash(i) {
     const el = deck.children[i];
@@ -2532,6 +2621,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     const c = liveCells(song)[i];
     c.mute = !c.mute;
     deck.children[i].classList.toggle("mute", c.mute);
+    syncCellLabel(deck.children[i], c, i);
     hist.push(song);
     saveSong(song);
   }
@@ -2573,6 +2663,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     if (!el) return;
     const c = liveCells(song)[i], bs = el.querySelectorAll(".ribbon b");
     for (let s = 0; s < STEPS; s++) bs[s].classList.toggle("on", !!c.steps[s]);
+    syncCellLabel(el, c, i);
   }
   var PARAMS = [
     ["cutoff", "CUTOFF", 0, 1],
@@ -2612,7 +2703,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     const wrap = document.createElement("div");
     wrap.className = "kb";
     const C = 24, R = 15, AR = 19.5;
-    wrap.innerHTML = '<svg viewBox="0 0 48 48" role="slider" tabindex="0" aria-label="' + label + '"><path d="' + arcPath(C, C, AR, START, START + SWEEP) + '" fill="none" stroke="#0A0D12" stroke-width="3.4" stroke-linecap="round"/><path class="arc" d="" fill="none" stroke="hsl(' + cell.hue + ' 88% 58%)" stroke-width="2.8" stroke-linecap="round"/><circle cx="' + C + '" cy="' + (C + 1.6) + '" r="' + (R - 1) + '" fill="#000" opacity=".45"/><circle cx="' + C + '" cy="' + C + '" r="' + R + '" fill="#2A313E"/><circle cx="' + C + '" cy="' + C + '" r="' + (R - 1) + '" fill="#1A1F29" stroke="#000" stroke-opacity=".5"/><ellipse cx="' + (C - 4) + '" cy="' + (C - 5) + '" rx="6.5" ry="4" fill="#fff" opacity=".10" transform="rotate(-28 ' + (C - 4) + " " + (C - 5) + ')"/><g class="rot"><line x1="' + C + '" y1="' + (C - 4.5) + '" x2="' + C + '" y2="' + (C - R + 2.6) + '" stroke="#EEF3FA" stroke-width="2.1" stroke-linecap="round"/></g><circle cx="' + C + '" cy="' + C + '" r="2.8" fill="#101419"/></svg><div class="kv"></div><div class="kl">' + label + "</div>";
+    wrap.innerHTML = '<svg viewBox="0 0 48 48" role="slider" tabindex="0" aria-label="' + label + '" aria-valuemin="' + lo + '" aria-valuemax="' + hi + '"><path d="' + arcPath(C, C, AR, START, START + SWEEP) + '" fill="none" stroke="#0A0D12" stroke-width="3.4" stroke-linecap="round"/><path class="arc" d="" fill="none" stroke="hsl(' + cell.hue + ' 88% 58%)" stroke-width="2.8" stroke-linecap="round"/><circle cx="' + C + '" cy="' + (C + 1.6) + '" r="' + (R - 1) + '" fill="#000" opacity=".45"/><circle cx="' + C + '" cy="' + C + '" r="' + R + '" fill="#2A313E"/><circle cx="' + C + '" cy="' + C + '" r="' + (R - 1) + '" fill="#1A1F29" stroke="#000" stroke-opacity=".5"/><ellipse cx="' + (C - 4) + '" cy="' + (C - 5) + '" rx="6.5" ry="4" fill="#fff" opacity=".10" transform="rotate(-28 ' + (C - 4) + " " + (C - 5) + ')"/><g class="rot"><line x1="' + C + '" y1="' + (C - 4.5) + '" x2="' + C + '" y2="' + (C - R + 2.6) + '" stroke="#EEF3FA" stroke-width="2.1" stroke-linecap="round"/></g><circle cx="' + C + '" cy="' + C + '" r="2.8" fill="#101419"/></svg><div class="kv"></div><div class="kl">' + label + "</div>";
     const svg = wrap.querySelector("svg"), arc = wrap.querySelector(".arc");
     const rot = wrap.querySelector(".rot"), out = wrap.querySelector(".kv");
     const norm = () => (cell.voice[key] - lo) / (hi - lo);
@@ -2623,8 +2714,45 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       arc.setAttribute("d", t > 2e-3 ? arcPath(C, C, AR, START, a) : "");
       const v = cell.voice[key];
       out.textContent = Math.abs(v) >= 10 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(2);
-      svg.setAttribute("aria-valuenow", String(v));
+      svg.setAttribute("aria-valuenow", String(+v.toFixed(3)));
+      svg.setAttribute("aria-valuetext", label + " " + out.textContent);
     }
+    svg.addEventListener("keydown", (e) => {
+      const span = hi - lo;
+      const step = e.shiftKey ? span / 200 : span / 50;
+      let v = cell.voice[key], handled = true;
+      switch (e.key) {
+        case "ArrowUp":
+        case "ArrowRight":
+          v += step;
+          break;
+        case "ArrowDown":
+        case "ArrowLeft":
+          v -= step;
+          break;
+        case "PageUp":
+          v += span / 8;
+          break;
+        case "PageDown":
+          v -= span / 8;
+          break;
+        case "Home":
+          v = lo;
+          break;
+        case "End":
+          v = hi;
+          break;
+        default:
+          handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cell.voice[key] = Math.max(lo, Math.min(hi, v));
+      paint();
+      saveSong(song);
+      hist.push(song);
+    });
     let drag2 = null;
     svg.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -2928,6 +3056,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   }
   placeConsole();
   addEventListener("resize", placeConsole);
+  if (window.ResizeObserver) new ResizeObserver(() => placeConsole()).observe(cons);
   var drag = null;
   grip.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -3188,8 +3317,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   liveCells(song).forEach((_, i) => syncRibbon(i));
   $("#bpm").value = song.bpm;
   atlas.setFocus(2, 0);
+  var HINT_FLY = "PINCH OR SCROLL TO FLY";
+  if (!FIRST_RUN) $("#hint").textContent = HINT_FLY;
+  else playBtn.addEventListener("click", () => {
+    $("#hint").textContent = HINT_FLY;
+  }, { once: true });
   atlas.paint();
   frame();
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add("ready")));
   ["pointerdown", "keydown"].forEach((e) => window.addEventListener(e, () => eng.resume(), { once: true }));
   window.addEventListener("keydown", (e) => {
     if (e.key === " " && !/input/i.test(e.target.tagName)) {

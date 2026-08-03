@@ -19,17 +19,32 @@
 // be rendered and measured without playing it, and how a song will be bounced
 // to a file later. Everything below is written against ctx, so neither path
 // needs a special case.
-export function createEngine({ sampleFor, context } = {}) {
+export function createEngine({ sampleFor, context, onFail } = {}) {
   let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
   const meters = new Float32Array(64);
   let ready = false;
 
+  // Audio can simply fail to start: no output device, a locked-down embedded
+  // WebView, an ancient browser with no AudioContext at all. Every one of those
+  // used to throw straight out of init() and take the app with it — and the
+  // app is still worth having without sound, because programming a pattern,
+  // arranging a song and importing a library all work fine. Silence is a
+  // degraded mode, not a crash.
+  let dead = false;
+
   function init() {
-    if (ready) return ctx;
-    if (context) ctx = typeof context === 'function' ? context() : context;
-    else {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC({ latencyHint: 'interactive' });
+    if (ready || dead) return ctx;
+    try {
+      if (context) ctx = typeof context === 'function' ? context() : context;
+      else {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) throw new Error('no AudioContext');
+        ctx = new AC({ latencyHint: 'interactive' });
+      }
+    } catch (e) {
+      dead = true; ctx = null;
+      onFail && onFail(e);
+      return null;
     }
     // 0.55, not 0.85. With a full arrangement running, 0.85 pushed the sum so
     // far past the compressor's threshold that the compressor stopped being a
@@ -91,7 +106,7 @@ export function createEngine({ sampleFor, context } = {}) {
   }
   // An OfflineAudioContext has no resume() and is never 'suspended' in the way
   // this cares about, so guard rather than assume a live context.
-  const resume = () => { init(); if (ctx.state !== 'running' && ctx.resume) ctx.resume().catch(() => {}); };
+  const resume = () => { init(); if (ctx && ctx.state !== 'running' && ctx.resume) ctx.resume().catch(() => {}); };
 
   const clamp = (v, lo, hi) => { const n = +v; return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : lo; };
 
@@ -280,7 +295,9 @@ export function createEngine({ sampleFor, context } = {}) {
   // `when` is an absolute AudioContext time. Passing 0 means "now" — the live
   // path — and the sequencer always passes a real future time.
   function play(voice, when, vel, cellIndex) {
-    init();
+    // Silence is a mode, not an error: everything upstream still runs, the
+    // meters still light, and the pattern is still being edited.
+    if (!init()) { if (cellIndex != null) meters[cellIndex] = 1; return { stop: 0 }; }
     const t = when || ctx.currentTime;
     const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
     const g = ctx.createGain();
@@ -396,8 +413,20 @@ export function createEngine({ sampleFor, context } = {}) {
     return lfoOut;
   }
 
+  // The same shape as a real voice handle, doing nothing. The key system tracks
+  // and releases it exactly as it would a sounding note, so polyphony, the
+  // sustain pedal and panic all keep working with no audio at all — and none of
+  // that code needs to know.
+  function silentVoice() {
+    let gone = false;
+    const noop = () => {};
+    return { note: 0, isSample: false, get dead() { return gone; },
+             bend: noop, vib: noop, press: noop, timbre: noop, level: noop,
+             off() { gone = true; }, steal() { gone = true; } };
+  }
+
   function hold(voice, note, vel, when) {
-    init();
+    if (!init()) return silentVoice();
     const t = when || ctx.currentTime;
     const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
 
@@ -569,9 +598,10 @@ export function createEngine({ sampleFor, context } = {}) {
     get playing() { return playing; },
     play, hold,
     decayMeters() { for (let i = 0; i < meters.length; i++) meters[i] *= 0.86; },
-    setMaster(v) { init(); master.gain.value = clamp(v, 0, 1.2); },
+    setMaster(v) { if (init()) master.gain.value = clamp(v, 0, 1.2); },
+    get silent() { return dead; },
     start(song, cb) {
-      resume(); if (playing) return;
+      resume(); if (playing || !ctx) return;
       playing = true; step = 0; onStep = cb || null;
       nextTime = ctx.currentTime + 0.06;
       schedule(song);
