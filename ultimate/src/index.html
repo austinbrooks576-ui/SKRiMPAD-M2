@@ -204,7 +204,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 
 /* ---------- CONSTELLATION -------------------------------------------------- */
 #nebula{position:absolute;inset:0;width:100%;height:100%;}
-.scenepick{position:absolute;left:50%;bottom:6%;transform:translateX(-50%);display:flex;gap:8px;}
+.scenepick{position:absolute;left:50%;bottom:11%;transform:translateX(-50%);display:flex;gap:8px;}
+/* Song-level actions live at the song-level altitude. Clearing a scene, copying
+   one, and exporting are all things you do to the WHOLE arrangement, and
+   CONSTELLATION is the only place the whole arrangement is on screen. Putting
+   them in the transport pill would have meant a ninth control in a row that is
+   already tight on a 390px phone. */
+.sceneops{position:absolute;left:50%;bottom:4.5%;transform:translateX(-50%);
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:92vw;}
+.sop{padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:var(--glass);
+  color:var(--dim);font-size:var(--fs-xs);letter-spacing:.12em;cursor:pointer;min-height:26px;
+  transition:color .15s,border-color .15s;}
+.sop:hover{color:var(--acc);border-color:var(--acc);}
+.sop[disabled]{opacity:.5;cursor:default;}
 .spill{padding:7px 15px;border-radius:999px;border:1px solid var(--line);background:var(--glass);
   font-size:var(--fs-sm);cursor:pointer;min-height:var(--hit);}
 .spill.on{border-color:var(--acc);color:var(--acc);box-shadow:0 0 16px rgba(75,227,200,.25);}
@@ -385,7 +397,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 </head>
 <body>
 <div id="sky">
-  <div class="layer" data-alt="0"><div class="pane"><canvas id="nebula"></canvas><div class="scenepick" id="scenepick"></div></div></div>
+  <div class="layer" data-alt="0"><div class="pane"><canvas id="nebula"></canvas>
+    <div class="scenepick" id="scenepick"></div>
+    <div class="sceneops" id="sceneops">
+      <button class="sop" id="sclear">CLEAR</button>
+      <button class="sop" id="scopy">COPY TO NEXT</button>
+      <button class="sop" id="sbounce">EXPORT WAV</button>
+    </div></div></div>
   <div class="layer" data-alt="1"><div class="pane"><div class="grid" id="deck"></div></div></div>
   <div class="layer" data-alt="2"><div class="pane"><div class="sheet" id="cellsheet"></div></div></div>
   <div class="layer" data-alt="3"><div class="pane"><div class="sheet" id="voicesheet"></div></div></div>
@@ -419,12 +437,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 
 <script type="module">
 import { createAtlas, bindGestures, ALTITUDES } from './core/atlas.js';
-import { loadSong, saveSong, createHistory, liveCells, STEPS, CELLS, SCENES } from './core/model.js';
+import { loadSong, saveSong, createHistory, liveCells, liveScene, STEPS, CELLS, SCENES } from './core/model.js';
 import { createEngine } from './core/engine.js';
 import { createMidiIO } from './core/midi-io.js';
 import { createLibrary } from './core/library.js';
 import { createKeys } from './core/keys.js';
 import { createScope } from './core/wave.js';
+import { bounceScene, saveBlob } from './core/bounce.js';
 
 const $ = (s) => document.querySelector(s);
 // Did this app just arrive, or is someone coming back to their work? The
@@ -840,6 +859,56 @@ function buildScenePick() {
     host.appendChild(b);
   }
 }
+
+// ---- WHOLE-SONG ACTIONS ----------------------------------------------------
+// Four scenes you can switch between but never clear, copy or duplicate makes
+// the arrangement view something to look at rather than something to use. These
+// are the three things you actually want to do to a scene.
+$('#sclear').addEventListener('click', () => {
+  const cells = liveCells(song);
+  if (!cells.some((c) => c.steps.some((v) => v > 0))) { toast('already empty'); return; }
+  cells.forEach((c, i) => { c.steps.fill(0); syncRibbon(i); });
+  // History first, so this is one ctrl+Z away. Clearing a scene you spent an
+  // hour on is exactly the action that needs to be undoable.
+  hist.push(song); saveSong(song); invalidateSheets();
+  toast('scene cleared — ctrl+Z to undo');
+});
+
+$('#scopy').addEventListener('click', () => {
+  const to = (song.scene + 1) % SCENES;
+  // Structured clone of the cells only. Copying the scene object would carry
+  // its name across too, and then two scenes would claim to be the same one.
+  song.scenes[to].cells = JSON.parse(JSON.stringify(liveCells(song)));
+  hist.push(song); saveSong(song);
+  toast('copied to ' + song.scenes[to].name);
+});
+
+$('#sbounce').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  const cells = liveCells(song);
+  if (!cells.some((c) => c.steps.some((v) => v > 0))) { toast('nothing to export'); return; }
+  btn.disabled = true; btn.textContent = 'RENDERING…';
+  try {
+    const out = await bounceScene({
+      song, sceneIndex: song.scene,
+      makeEngine: createEngine,
+      // The bounce needs the same decoded samples the live engine uses. An
+      // AudioBuffer is not bound to the context that made it, so the warm map
+      // works for both.
+      sampleFor: (id) => warm.get(id) || null,
+      bars: 4,
+    });
+    if (!out) { toast('this browser cannot render offline'); return; }
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    saveBlob(out.blob, 'SKRiMPAD ' + liveScene(song).name + ' ' + stamp + '.wav');
+    toast('exported ' + out.seconds.toFixed(1) + 's');
+  } catch (err) {
+    toast('export failed');
+  } finally {
+    btn.disabled = false; btn.textContent = 'EXPORT WAV';
+  }
+});
 
 // ---- LIVE RENDER LOOP ------------------------------------------------------
 // One loop for the whole app. Each altitude draws only when it is visible, so
@@ -1536,6 +1605,10 @@ window.__ult = {
 // by the kit tests to prove KICK and HAT are actually different sounds and not
 // just different labels, which is exactly the bug this kit replaced.
 window.__ultMakeEngine = createEngine;
+// The same renderer the EXPORT WAV button calls. Exposed so a test can check
+// what came out of it — a bounce is the one feature whose output nobody can
+// see, so it is the one that most needs measuring rather than eyeballing.
+window.__ultBounce = bounceScene;
 </script>
 </body>
 </html>

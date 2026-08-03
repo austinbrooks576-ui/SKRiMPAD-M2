@@ -598,7 +598,6 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     get playing() { return playing; },
     play, hold,
     decayMeters() { for (let i = 0; i < meters.length; i++) meters[i] *= 0.86; },
-    setMaster(v) { if (init()) master.gain.value = clamp(v, 0, 1.2); },
     get silent() { return dead; },
     start(song, cb) {
       resume(); if (playing || !ctx) return;

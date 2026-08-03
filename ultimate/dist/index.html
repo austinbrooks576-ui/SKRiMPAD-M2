@@ -204,7 +204,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 
 /* ---------- CONSTELLATION -------------------------------------------------- */
 #nebula{position:absolute;inset:0;width:100%;height:100%;}
-.scenepick{position:absolute;left:50%;bottom:6%;transform:translateX(-50%);display:flex;gap:8px;}
+.scenepick{position:absolute;left:50%;bottom:11%;transform:translateX(-50%);display:flex;gap:8px;}
+/* Song-level actions live at the song-level altitude. Clearing a scene, copying
+   one, and exporting are all things you do to the WHOLE arrangement, and
+   CONSTELLATION is the only place the whole arrangement is on screen. Putting
+   them in the transport pill would have meant a ninth control in a row that is
+   already tight on a 390px phone. */
+.sceneops{position:absolute;left:50%;bottom:4.5%;transform:translateX(-50%);
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:92vw;}
+.sop{padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:var(--glass);
+  color:var(--dim);font-size:var(--fs-xs);letter-spacing:.12em;cursor:pointer;min-height:26px;
+  transition:color .15s,border-color .15s;}
+.sop:hover{color:var(--acc);border-color:var(--acc);}
+.sop[disabled]{opacity:.5;cursor:default;}
 .spill{padding:7px 15px;border-radius:999px;border:1px solid var(--line);background:var(--glass);
   font-size:var(--fs-sm);cursor:pointer;min-height:var(--hit);}
 .spill.on{border-color:var(--acc);color:var(--acc);box-shadow:0 0 16px rgba(75,227,200,.25);}
@@ -385,7 +397,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 </head>
 <body>
 <div id="sky">
-  <div class="layer" data-alt="0"><div class="pane"><canvas id="nebula"></canvas><div class="scenepick" id="scenepick"></div></div></div>
+  <div class="layer" data-alt="0"><div class="pane"><canvas id="nebula"></canvas>
+    <div class="scenepick" id="scenepick"></div>
+    <div class="sceneops" id="sceneops">
+      <button class="sop" id="sclear">CLEAR</button>
+      <button class="sop" id="scopy">COPY TO NEXT</button>
+      <button class="sop" id="sbounce">EXPORT WAV</button>
+    </div></div></div>
   <div class="layer" data-alt="1"><div class="pane"><div class="grid" id="deck"></div></div></div>
   <div class="layer" data-alt="2"><div class="pane"><div class="sheet" id="cellsheet"></div></div></div>
   <div class="layer" data-alt="3"><div class="pane"><div class="sheet" id="voicesheet"></div></div></div>
@@ -1374,9 +1392,6 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       hold,
       decayMeters() {
         for (let i = 0; i < meters.length; i++) meters[i] *= 0.86;
-      },
-      setMaster(v) {
-        if (init()) master.gain.value = clamp(v, 0, 1.2);
       },
       get silent() {
         return dead;
@@ -2475,6 +2490,74 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     };
   }
 
+  // ultimate/src/core/bounce.js
+  function encodeWav(left, right, rate) {
+    const n = left.length;
+    const buf = new ArrayBuffer(44 + n * 4);
+    const v = new DataView(buf);
+    const w = (o, s) => {
+      for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i));
+    };
+    w(0, "RIFF");
+    v.setUint32(4, 36 + n * 4, true);
+    w(8, "WAVE");
+    w(12, "fmt ");
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);
+    v.setUint16(22, 2, true);
+    v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 4, true);
+    v.setUint16(32, 4, true);
+    v.setUint16(34, 16, true);
+    w(36, "data");
+    v.setUint32(40, n * 4, true);
+    for (let i = 0; i < n; i++) {
+      const l = Math.max(-1, Math.min(1, left[i]));
+      const r = Math.max(-1, Math.min(1, right[i]));
+      v.setInt16(44 + i * 4, l * 32767, true);
+      v.setInt16(46 + i * 4, r * 32767, true);
+    }
+    return new Blob([buf], { type: "audio/wav" });
+  }
+  async function bounceScene({ song: song2, sceneIndex, makeEngine, sampleFor, bars = 4, rate = 44100, tail = 2.5 }) {
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return null;
+    const scene = song2.scenes[sceneIndex] || song2.scenes[0];
+    const cells = scene.cells;
+    const spb = 60 / Math.max(20, Math.min(300, song2.bpm)) / 4;
+    const START2 = 0.05;
+    const length = Math.ceil((START2 + bars * 16 * spb + tail) * rate);
+    const oc = new OAC(2, length, rate);
+    const eng2 = makeEngine({ context: oc, sampleFor });
+    const anySolo = cells.some((c) => c.solo);
+    for (let bar = 0; bar < bars; bar++) {
+      for (let s = 0; s < 16; s++) {
+        const swung = s % 2 ? Math.max(0, Math.min(0.6, song2.swing || 0)) * spb * 0.6 : 0;
+        const t = START2 + (bar * 16 + s) * spb + swung;
+        for (let i = 0; i < cells.length; i++) {
+          const c = cells[i];
+          if (c.mute || anySolo && !c.solo) continue;
+          const vel = c.steps[s % c.steps.length];
+          if (vel > 0) eng2.play(c.voice, t, vel, null);
+        }
+      }
+    }
+    const buf = await oc.startRendering();
+    const L = buf.getChannelData(0);
+    const R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+    return { blob: encodeWav(L, R, rate), seconds: buf.duration };
+  }
+  function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1e4);
+  }
+
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var FIRST_RUN = !localStorage.getItem("skrimpad_ultimate_song");
@@ -2861,6 +2944,63 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       host.appendChild(b);
     }
   }
+  $("#sclear").addEventListener("click", () => {
+    const cells = liveCells(song);
+    if (!cells.some((c) => c.steps.some((v) => v > 0))) {
+      toast("already empty");
+      return;
+    }
+    cells.forEach((c, i) => {
+      c.steps.fill(0);
+      syncRibbon(i);
+    });
+    hist.push(song);
+    saveSong(song);
+    invalidateSheets();
+    toast("scene cleared \u2014 ctrl+Z to undo");
+  });
+  $("#scopy").addEventListener("click", () => {
+    const to = (song.scene + 1) % SCENES;
+    song.scenes[to].cells = JSON.parse(JSON.stringify(liveCells(song)));
+    hist.push(song);
+    saveSong(song);
+    toast("copied to " + song.scenes[to].name);
+  });
+  $("#sbounce").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    const cells = liveCells(song);
+    if (!cells.some((c) => c.steps.some((v) => v > 0))) {
+      toast("nothing to export");
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "RENDERING\u2026";
+    try {
+      const out = await bounceScene({
+        song,
+        sceneIndex: song.scene,
+        makeEngine: createEngine,
+        // The bounce needs the same decoded samples the live engine uses. An
+        // AudioBuffer is not bound to the context that made it, so the warm map
+        // works for both.
+        sampleFor: (id) => warm.get(id) || null,
+        bars: 4
+      });
+      if (!out) {
+        toast("this browser cannot render offline");
+        return;
+      }
+      const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      saveBlob(out.blob, "SKRiMPAD " + liveScene(song).name + " " + stamp + ".wav");
+      toast("exported " + out.seconds.toFixed(1) + "s");
+    } catch (err) {
+      toast("export failed");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "EXPORT WAV";
+    }
+  });
   function frame() {
     requestAnimationFrame(frame);
     const lvl = atlas.level, cells = liveCells(song);
@@ -3473,6 +3613,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     }
   };
   window.__ultMakeEngine = createEngine;
+  window.__ultBounce = bounceScene;
 })();
 
 </script>
