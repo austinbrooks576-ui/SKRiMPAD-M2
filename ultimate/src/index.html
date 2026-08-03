@@ -157,7 +157,12 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);}
 .cell{position:relative;border-radius:clamp(10px,1.3vw,18px);cursor:pointer;
   border:1px solid rgba(255,255,255,.07);overflow:hidden;
-  background:linear-gradient(158deg,hsl(var(--h) 72% 31%),hsl(var(--h) 64% 14%));
+  /* --l1/--l2 are computed per cell in buildDeck rather than fixed, so every
+     pad carries the same LUMINANCE regardless of hue. A fixed 31% lightness is
+     a very different brightness in yellow than in blue: the yellow-green pads
+     visually shouted over the blue ones, and their labels fell to 3.67:1 —
+     under the 4.5:1 the text needs to be readable. */
+  background:linear-gradient(158deg,hsl(var(--h) 72% var(--l1,31%)),hsl(var(--h) 64% var(--l2,14%)));
   box-shadow:var(--e1),var(--lip);transition:transform .12s cubic-bezier(.2,.7,.3,1),box-shadow .12s;}
 .cell:active{transform:scale(.972);}
 .cell.mute{filter:saturate(.15) brightness(.62);}
@@ -166,7 +171,11 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   box-shadow:inset 0 0 0 1px hsl(var(--h) 90% 62% / calc(var(--e) * .9)),
              0 0 calc(var(--e) * 26px) hsl(var(--h) 90% 58% / calc(var(--e) * .55));}
 .cname{position:absolute;left:9px;top:8px;font-size:var(--fs-sm);font-weight:600;
-  color:hsl(var(--h) 95% 86%);text-shadow:0 1px 3px rgba(0,0,0,.65);letter-spacing:.1em;}
+  /* --lt is computed too. The label was hsl(h 95% 86%), which is a very
+     different BRIGHTNESS per hue for exactly the same reason the pad is — so
+     pinning only the background left the blue and violet labels failing
+     instead of the yellow ones. Both sides of the ratio have to be held. */
+  color:hsl(var(--h) 42% var(--lt,86%));text-shadow:0 1px 3px rgba(0,0,0,.65);letter-spacing:.1em;}
 /* Step ribbon along the bottom of every pad: the pattern is visible without
    descending, so the DECK already tells you what the CELL contains. */
 .ribbon{position:absolute;left:8px;right:8px;bottom:8px;height:5px;display:grid;
@@ -383,12 +392,61 @@ function onAltitude(depth) {
   [...rail.children].forEach((b, i) => b.classList.toggle('on', i === lvl));
   const h = $('#hint');
   h.style.opacity = depth > 0.02 && depth < 0.98 ? '0' : '';
+  // onRender fires on every frame of a flight, not once on arrival — so a
+  // single trip to CELL used to rebuild its step grid about thirty times.
+  // Besides the waste, rebuilding mid-gesture destroys the element you are
+  // dragging on, so a paint stroke or a knob turn could be cut in half by the
+  // tail end of the animation that brought you there. Redraw only when the
+  // thing being shown actually changes.
+  const focus = atlas.focusAt(2) ?? 0;
+  if (lvl === sheetLvl && focus === sheetIdx) return;
+  sheetLvl = lvl; sheetIdx = focus;
   if (lvl === 2) drawCellSheet();
   if (lvl === 3) drawVoiceSheet();
   if (lvl === 4) drawGrainSheet();
 }
+let sheetLvl = -1, sheetIdx = -1;
+// One paint-drag state for the whole app, with ONE listener that lives forever.
+// It used to be a fresh {once:true} listener per rebuild: the first pointerup
+// consumed every one of them, so the SECOND drag had nothing left to clear its
+// flag and the grid stuck in paint mode — every step you hovered afterwards
+// flipped, with no way out but leaving the altitude.
+let painting = 0;
+window.addEventListener('pointerup', () => { painting = 0; });
+window.addEventListener('pointercancel', () => { painting = 0; });
+// Anything that edits the model behind the sheets has to say so, or the
+// redraw-only-on-change rule above will happily show a stale grid.
+function invalidateSheets() { sheetLvl = -1; sheetIdx = -1; }
 
 // ---- DECK (altitude 1) ------------------------------------------------------
+// What lightness does this hue need to hit a given relative luminance?
+//
+// HSL lightness is not brightness. hsl(60 72% 31%) — a yellow — is far brighter
+// to the eye than hsl(240 72% 31%), and the WCAG luminance formula agrees:
+// green carries 0.7152 of the weight, blue only 0.0722. Using one lightness for
+// all sixteen hues therefore produced a grid where a third of the pads glared
+// and their labels were unreadable, while the rest sat back.
+//
+// There is no closed form for the inverse, so this bisects — sixteen steps,
+// once per cell, at build time only.
+function lightnessFor(hue, sat, targetLum) {
+  const chan = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  const lumOf = (l) => {
+    const c = (1 - Math.abs(2 * l - 1)) * sat;
+    const h = ((hue % 360) + 360) % 360 / 60;
+    const x = c * (1 - Math.abs((h % 2) - 1));
+    const m = l - c / 2;
+    const t = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x]
+            : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+    return 0.2126 * chan(t[0] + m) + 0.7152 * chan(t[1] + m) + 0.0722 * chan(t[2] + m);
+  };
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (lumOf(mid) < targetLum) lo = mid; else hi = mid;
+  }
+  return +((lo + hi) / 2 * 100).toFixed(2);
+}
 const deck = $('#deck');
 // The cell a controller plays when you are not focused on one in particular.
 let lastCell = 0;
@@ -397,6 +455,17 @@ function buildDeck() {
   liveCells(song).forEach((c, i) => {
     const el = document.createElement('div');
     el.className = 'cell'; el.style.setProperty('--h', c.hue); el.style.setProperty('--e', 0);
+    // Equal luminance, not equal lightness — see the gradient rule above.
+    el.style.setProperty('--l1', lightnessFor(c.hue, 0.72, 0.100) + '%');
+    el.style.setProperty('--l2', lightnessFor(c.hue, 0.64, 0.030) + '%');
+    // 0.68 against the 0.100 top stop is (0.68+0.05)/(0.100+0.05) = 4.87:1,
+    // clear of the 4.5:1 floor with a little room for rounding.
+    // 42% saturation, not 95%. Both reach the same luminance and therefore the
+    // same contrast ratio, but at 95% the brighter hues come out as neon text,
+    // which is not what a pad label should be. Lower saturation lands on a
+    // gently tinted near-white — the look the design already had, now with the
+    // ratio actually guaranteed rather than assumed.
+    el.style.setProperty('--lt', lightnessFor(c.hue, 0.42, 0.68) + '%');
     el.dataset.i = i;
     el.innerHTML = '<div class="cname"></div><div class="ribbon"></div>';
     if (c.voice.sampleId) el.classList.add('hassample');
@@ -443,7 +512,6 @@ function drawCellSheet() {
     '<div class="sub">TAP A STEP TO PLACE IT · DRAG ACROSS TO PAINT · FLY DOWN FOR THE VOICE</div></div>' +
     '<div class="steps" id="steps"></div>';
   const st = sheet.querySelector('#steps');
-  let painting = 0;
   for (let s = 0; s < STEPS; s++) {
     const b = document.createElement('div');
     b.className = 'st' + (c.steps[s] ? ' on' : '') + (s % 4 === 0 ? ' beat' : '');
@@ -460,7 +528,6 @@ function drawCellSheet() {
     b.addEventListener('pointerenter', () => { if (painting) set(painting > 0); });
     st.appendChild(b);
   }
-  window.addEventListener('pointerup', () => { painting = 0; }, { once: true });
 }
 function syncRibbon(i) {
   const el = deck.children[i]; if (!el) return;
@@ -577,7 +644,7 @@ function buildScenePick() {
     b.className = 'spill' + (s === song.scene ? ' on' : '');
     b.textContent = song.scenes[s].name;
     b.addEventListener('click', () => {
-      song.scene = s; buildScenePick(); buildDeck(); saveSong(song);
+      song.scene = s; buildScenePick(); buildDeck(); invalidateSheets(); saveSong(song);
     });
     host.appendChild(b);
   }
@@ -1065,7 +1132,7 @@ async function assignSample(cellIdx, sampleId) {
   // Re-pin from the model, so a sample no longer used by any cell becomes
   // evictable again instead of pinning RAM forever.
   lib.repin(liveCells(song).map((x) => x.voice.sampleId));
-  buildDeck(); liveCells(song).forEach((_, i) => syncRibbon(i));
+  buildDeck(); invalidateSheets(); liveCells(song).forEach((_, i) => syncRibbon(i));
   hist.push(song); saveSong(song);
   armed = null; renderList(lib.items);
 }
@@ -1142,7 +1209,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' ' && !/input/i.test(e.target.tagName)) { e.preventDefault(); playBtn.click(); }
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
     const s = hist.undo(song);
-    if (s) { Object.assign(song, s); buildDeck(); buildScenePick(); liveCells(song).forEach((_, i) => syncRibbon(i)); saveSong(song); }
+    if (s) { Object.assign(song, s); buildDeck(); buildScenePick(); invalidateSheets();
+             liveCells(song).forEach((_, i) => syncRibbon(i)); saveSong(song); }
   }
 });
 // A single handle for tests and for anyone poking at this in a console. Every
