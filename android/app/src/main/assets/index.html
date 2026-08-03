@@ -192,8 +192,17 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 .spill.on{border-color:var(--acc);color:var(--acc);box-shadow:0 0 16px rgba(75,227,200,.25);}
 
 /* ---------- CELL / VOICE / GRAIN ------------------------------------------- */
-.sheet{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;gap:calc(var(--sp)*1.7);
-  padding:clamp(10px,2vw,26px);}
+/* A sheet scrolls when its contents genuinely do not fit — twelve knobs on a
+   1024x400 landscape window overflowed by 18px, off the bottom of the pane with
+   no way to reach them.
+
+   justify-content: SAFE center, not plain center: ordinary centring on an
+   overflowing flex column pushes the first row off the TOP, where there is no
+   scrollbar direction to recover it. Safe centring falls back to start the
+   moment the content is too tall, so everything stays reachable. */
+.sheet{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:safe center;gap:calc(var(--sp)*1.7);
+  padding:clamp(10px,2vw,26px);overflow-y:auto;overscroll-behavior:contain;}
 .title{font-size:var(--fs-xl);font-weight:600;line-height:1;letter-spacing:.04em;}
 .sub{font-size:var(--fs-sm);color:var(--dim);}
 .steps{display:grid;grid-template-columns:repeat(16,1fr);gap:clamp(3px,.5vw,7px);
@@ -461,7 +470,19 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   function bindGestures(el, atlas2, { onTapEmpty } = {}) {
     let pinch0 = 0, depth0 = 0, pinching = false;
     const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    function scrollableUnder(target, dy) {
+      let n = target;
+      while (n && n !== el) {
+        if (n.scrollHeight - n.clientHeight > 1) {
+          const room = dy > 0 ? n.scrollHeight - n.clientHeight - n.scrollTop : n.scrollTop;
+          if (room > 1) return true;
+        }
+        n = n.parentElement;
+      }
+      return false;
+    }
     el.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey && scrollableUnder(e.target, e.deltaY)) return;
       e.preventDefault();
       const k = e.ctrlKey ? 0.01 : 35e-4;
       atlas2.nudge(e.deltaY * k);

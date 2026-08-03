@@ -134,10 +134,28 @@ export function bindGestures(el, atlas, { onTapEmpty } = {}) {
   let pinch0 = 0, depth0 = 0, pinching = false;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
+  // Is the pointer over something that can still scroll the way the wheel is
+  // asking? Then the wheel belongs to that thing, not to flying. Without this a
+  // sheet tall enough to need scrolling could never BE scrolled, because the
+  // altitude engine swallowed every wheel event over the whole sky.
+  function scrollableUnder(target, dy) {
+    let n = target;
+    while (n && n !== el) {
+      if (n.scrollHeight - n.clientHeight > 1) {
+        const room = dy > 0 ? n.scrollHeight - n.clientHeight - n.scrollTop : n.scrollTop;
+        if (room > 1) return true;
+      }
+      n = n.parentElement;
+    }
+    return false;
+  }
+
   el.addEventListener('wheel', (e) => {
     // ctrl+wheel is the trackpad pinch on every desktop OS; plain wheel scrolls
     // depth too, because a mouse has no pinch and must not be a second-class
-    // citizen.
+    // citizen. ctrl+wheel still flies even over a scrollable panel — that is an
+    // explicit zoom gesture, not a scroll.
+    if (!e.ctrlKey && scrollableUnder(e.target, e.deltaY)) return;
     e.preventDefault();
     const k = e.ctrlKey ? 0.010 : 0.0035;
     atlas.nudge(e.deltaY * k);
