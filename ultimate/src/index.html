@@ -63,7 +63,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 #sky{position:fixed;inset:0;overflow:hidden;touch-action:none;}
 .layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   transform-origin:50% 50%;will-change:transform,opacity;}
-.pane{width:min(94vw,1180px);height:min(88svh,860px);position:relative;}
+/* --dock is the room the console needs where it sits by default. Every
+   altitude shortens itself by that much, so the console has somewhere to be
+   that is not on top of the work. It drops to 0 the moment the console is
+   dragged somewhere else: at that point the position is a deliberate choice,
+   and the app should not keep reserving space for a place it no longer is. */
+.pane{width:min(94vw,1180px);height:min(calc(88svh - var(--dock,0px)),860px);position:relative;
+  margin-bottom:var(--dock,0px);
+  transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),height .28s cubic-bezier(.2,.7,.3,1);}
 
 /* A slow drifting field so the void reads as depth rather than as a dead
    background. Pure CSS, no canvas, no per-frame cost. */
@@ -92,11 +99,39 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 /* ---------- TRANSPORT -----------------------------------------------------
    Floats bottom-centre at every altitude, because "play" must never be more
    than one reach away no matter how deep you have flown. */
-#bar{position:fixed;left:50%;transform:translateX(-50%);
-  bottom:max(12px,env(safe-area-inset-bottom));z-index:40;
-  display:flex;align-items:center;gap:var(--sp);padding:8px 12px;
+/* ---------- THE CONSOLE ----------------------------------------------------
+   The transport pill and the wave monitor are ONE object, and it moves.
+
+   They belong together because they are the same thing from two directions —
+   what you told the app to do, and what the app is actually doing about it —
+   and because a monitor that floats loose across the deck reads as damage
+   rather than as a display. Bound to the pill it has an edge, a size and a
+   place, and it goes wherever you put the pill.
+
+   Movable because a fixed overlay is always in the wrong place for someone:
+   it lands on the bottom row of pads on a short screen, over the constellation
+   at CONSTELLATION altitude, and under your palm if you play left-handed.
+   Rather than guess, let it be dragged and remember where it was left. */
+/* An explicit width, so the monitor and the pill are the same object rather
+   than two things that happen to be near each other. Without it the console
+   was shrink-to-fit and the well came out wider than the pill it sits on. */
+#console{position:fixed;z-index:40;width:min(92vw,600px);
+  display:flex;flex-direction:column;align-items:stretch;gap:6px;touch-action:none;}
+#console.dragging{opacity:.9;}
+#console.dragging #bar{border-color:var(--acc);}
+#bar{display:flex;align-items:center;justify-content:center;gap:var(--sp);padding:8px 12px;
   background:var(--glass);border:1px solid var(--line);border-radius:999px;
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:var(--e2),var(--lip);}
+/* The grip is the only part of the pill that is not a control, so it is the
+   only part safe to drag from — dragging off a button would make every mistimed
+   press move the console instead of doing what you asked. */
+#grip{width:16px;height:var(--hit);flex:none;cursor:grab;display:grid;place-items:center;
+  border-radius:8px;touch-action:none;}
+#grip:active{cursor:grabbing;}
+#grip i{display:block;width:3px;height:3px;border-radius:50%;background:var(--dim);
+  box-shadow:0 -6px var(--dim),0 6px var(--dim),5px 0 var(--dim),5px -6px var(--dim),5px 6px var(--dim);}
+#grip:hover i{background:var(--acc);
+  box-shadow:0 -6px var(--acc),0 6px var(--acc),5px 0 var(--acc),5px -6px var(--acc),5px 6px var(--acc);}
 .tb{width:var(--hit);height:var(--hit);border-radius:50%;border:1px solid var(--line);
   background:transparent;display:grid;place-items:center;cursor:pointer;transition:all .15s;flex:none;}
 .tb:hover{border-color:var(--acc);}
@@ -190,14 +225,11 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 .snd .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .snd .d{font-size:var(--fs-xs);color:var(--dim);font-variant-numeric:tabular-nums;flex:none;}
 .snd.armed{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 0 20px rgba(75,227,200,.3);}
-#libbtn{position:fixed;right:max(10px,env(safe-area-inset-right));
-  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 62px);z-index:45;
-  width:var(--hit);height:var(--hit);border-radius:50%;border:1px solid var(--line);
-  background:var(--glass);color:var(--ink);cursor:pointer;display:grid;place-items:center;
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--e1);}
-#libbtn.on{border-color:var(--acc);color:var(--acc);}
-#libbtn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;
-  stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+/* The sounds button lives ON the console. It used to float on its own at the
+   bottom right, which meant two independent overlays that collided with each
+   other on a narrow phone and both collided with the deck. One floating object
+   that carries everything is easier to place, easier to move out of the way,
+   and impossible to trap the other one under. */
 /* A cell that owns a sample says so, quietly and permanently. */
 .cell.hassample::before{content:'';position:absolute;right:9px;top:10px;width:6px;height:6px;
   border-radius:50%;background:hsl(var(--h) 96% 76%);box-shadow:0 0 9px hsl(var(--h) 96% 76%);z-index:2;}
@@ -216,17 +248,23 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    never push anything around, and pointer-events are off so it is scenery you
    cannot get stuck on. It fades itself out when there is no signal — invisible
    until there is something to see, which is the whole brief. */
-#mon{position:fixed;left:0;right:0;z-index:41;pointer-events:none;
-  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 58px);
-  height:clamp(34px,6vh,62px);opacity:0;transition:opacity .5s ease;
-  /* Clear the library button on the right — it lives at this exact height, and
-     without the reservation the trace runs underneath it. */
-  padding:0 calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px) 0 max(12px,env(safe-area-inset-left));}
+/* The monitor is a WELL now, not a strip. Before, it was a full-width trace
+   fixed across the bottom of the screen, so at DECK altitude it ran straight
+   through the bottom row of pads and read as a crack in the glass rather than
+   as a display. Sound belongs inside something. Giving it a border, a floor
+   and a fixed size makes it an instrument panel — and bounding it inside the
+   console means it can never overlap anything again, because it is no longer
+   free to be anywhere. */
+#mon{width:100%;height:clamp(30px,5.2vh,54px);border-radius:12px;overflow:hidden;
+  position:relative;opacity:0;transition:opacity .45s ease;
+  background:linear-gradient(180deg,rgba(3,5,9,.86),rgba(6,9,15,.78));
+  border:1px solid var(--line);box-shadow:var(--well),var(--e1);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 #mon.live{opacity:1;}
-/* A whisper of shade under the trace so it reads as its own plane rather than
-   a line scribbled across whatever happens to be behind it. */
-#mon::before{content:'';position:absolute;inset:-14% 0;z-index:-1;
-  background:linear-gradient(180deg,transparent,rgba(4,6,10,.72) 45%,transparent);}
+/* A centre line, so a silent monitor still looks like an instrument at rest
+   rather than an empty box someone forgot to fill. */
+#mon::before{content:'';position:absolute;left:8px;right:8px;top:50%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.10),transparent);}
 /* flex-basis 0 AND min-width 0, both deliberately. A canvas carries an
    intrinsic size from its width attribute, and that size feeds back into flex
    layout: the box grows, we measure the bigger box, we set a bigger width
@@ -237,18 +275,24 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 /* The soft ends belong to the CANVAS, not to #mon. mask-clip defaults to
    border-box, so masking the container also clipped away the readout sitting
    just outside it — the text was present and correct and simply never painted. */
+/* min-width:0 is load-bearing. A canvas carries an intrinsic size from its
+   width attribute, that size feeds layout, we measure the bigger box and set a
+   bigger attribute — left alone it ran away to 37910px in a 1280px window. */
 #mon canvas{display:block;width:100%;min-width:0;height:100%;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
-  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);}
-/* The hands readout sits ABOVE the strip rather than beside it. In a row it
-   competed with the trace for width and won, which on a phone left the
-   waveform squeezed into a third of the screen — and the waveform is the
-   point. It only ever prints a control that is off its resting position, so an
-   untouched keyboard shows nothing here at all. */
-#hands{position:absolute;right:calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px);
-  bottom:100%;margin-bottom:3px;font-size:var(--fs-xs);letter-spacing:.13em;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);}
+/* The readout gets its OWN LINE above the well rather than sitting on top of
+   the trace. Laid over the waveform it was legible but wrong: two things
+   competing for the same pixels, which is exactly the kind of conflict this
+   pass is meant to remove. It only ever prints a control that is off its
+   resting position, and :empty collapses the row entirely, so an untouched
+   keyboard costs no space at all. */
+#hands{align-self:flex-end;padding:0 4px;font-size:var(--fs-xs);letter-spacing:.11em;
   color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;
-  text-shadow:0 1px 6px rgba(0,0,0,.9);}
+  pointer-events:none;text-shadow:0 1px 5px rgba(0,0,0,.95);
+  opacity:0;transition:opacity .25s;}
+#hands:not(:empty){opacity:1;}
+#hands:empty{display:none;}
 #hands b{color:var(--acc);font-weight:600;}
 
 /* ---------- STATUS --------------------------------------------------------- */
@@ -274,20 +318,24 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 <nav id="rail"></nav>
 <div id="hint">PINCH OR SCROLL TO FLY</div>
 <div id="status">connecting…</div>
-<button id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
 <aside id="shelf">
   <header><span class="t">SOUNDS</span><button class="tb" id="shelfx" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
   <div id="drop">DROP AUDIO HERE<br>OR TAP TO BROWSE</div>
   <input id="file" type="file" accept="audio/*" multiple hidden>
   <div id="list"></div>
 </aside>
-<div id="mon"><canvas id="monwave"></canvas><span id="hands"></span></div>
+<div id="console">
+<span id="hands"></span>
+<div id="mon"><canvas id="monwave"></canvas></div>
 <div id="bar">
+  <div id="grip" title="Drag to move · double-tap to recentre"><i></i></div>
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
   <span class="blab">BPM</span><input id="bpm" type="number" min="20" max="300" value="100">
   <button class="tb" id="dice" title="Surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
+  <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+</div>
 </div>
 
 <script type="module">
@@ -759,6 +807,88 @@ function drawScope() {
   grainScope(cv, { hue: c ? c.hue : 168 });
 }
 
+// ---- THE CONSOLE MOVES -----------------------------------------------------
+// A floating overlay is always in the wrong place for someone: it lands on the
+// bottom row of pads on a short screen, over the constellation up at altitude
+// 0, and under your palm if you play left-handed. Rather than guess a position
+// that works for everybody, let it be dragged and remember where it was left.
+//
+// It is dragged by a GRIP, not by the pill itself. Dragging off the body would
+// mean every slightly-off press of PLAY moves the console instead of starting
+// the song, and on a phone almost every press is slightly off.
+const cons = $('#console'), grip = $('#grip');
+const CONSOLE_POS = 'skrimpad_ultimate_console';
+let cpos = null;                       // null = the default, centred at the bottom
+
+function placeConsole() {
+  const r = cons.getBoundingClientRect();
+  const w = r.width || 320, h = r.height || 80;
+  // Reserve room only while it is docked. Measured from the console itself
+  // rather than hard-coded, so it stays correct as the monitor's fluid height
+  // changes with the viewport.
+  document.documentElement.style.setProperty('--dock', cpos ? '0px' : Math.round(h + 16) + 'px');
+  if (!cpos) {
+    // The default is expressed in CSS, not in numbers here, so the resting
+    // position still respects the safe-area insets on a notched phone.
+    cons.style.left = '50%'; cons.style.top = 'auto';
+    cons.style.bottom = 'max(12px, env(safe-area-inset-bottom))';
+    cons.style.transform = 'translateX(-50%)';
+    return;
+  }
+  // Clamp on every placement, not just on drag. A phone rotating from landscape
+  // to portrait would otherwise strand the console off-screen with no way to
+  // reach it — the one bug that makes a movable panel worse than a fixed one.
+  const x = Math.max(6, Math.min(window.innerWidth - w - 6, cpos.x));
+  const y = Math.max(6, Math.min(window.innerHeight - h - 6, cpos.y));
+  cons.style.left = x + 'px'; cons.style.top = y + 'px';
+  cons.style.bottom = 'auto'; cons.style.transform = 'none';
+}
+try {
+  const raw = JSON.parse(localStorage.getItem(CONSOLE_POS) || 'null');
+  // Shape-checked, like every other read: a stored "null" parses fine and then
+  // throws on the first property access.
+  if (raw && typeof raw === 'object' && Number.isFinite(+raw.x) && Number.isFinite(+raw.y)) {
+    cpos = { x: +raw.x, y: +raw.y };
+  }
+} catch (e) {}
+placeConsole();
+addEventListener('resize', placeConsole);
+
+let drag = null;
+grip.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const r = cons.getBoundingClientRect();
+  drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+  grip.setPointerCapture(e.pointerId);
+  cons.classList.add('dragging');
+});
+grip.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.moved = true;
+  cpos = { x: e.clientX - drag.dx, y: e.clientY - drag.dy };
+  placeConsole();
+});
+function endDrag() {
+  if (!drag) return;
+  if (drag.moved && cpos) {
+    // Store the CLAMPED position, not the raw pointer maths, so a drag that
+    // ended past the edge does not come back next session still past it.
+    const r = cons.getBoundingClientRect();
+    cpos = { x: r.left, y: r.top };
+    try { localStorage.setItem(CONSOLE_POS, JSON.stringify(cpos)); } catch (e) {}
+  }
+  drag = null; cons.classList.remove('dragging');
+}
+grip.addEventListener('pointerup', endDrag);
+grip.addEventListener('pointercancel', endDrag);
+// Double-tap the grip to put it back. A movable thing needs a way home, or the
+// first person to fling it into a corner has broken their own app.
+grip.addEventListener('dblclick', () => {
+  cpos = null;
+  try { localStorage.removeItem(CONSOLE_POS); } catch (e) {}
+  placeConsole();
+});
+
 // ---- TRANSPORT -------------------------------------------------------------
 const playBtn = $('#play');
 playBtn.addEventListener('click', () => {
@@ -1007,6 +1137,10 @@ window.__ult = {
   warmHas: (id) => warm.has(id),
   focusCell: (i) => { lastCell = i; },
 };
+// Lets a voice be rendered offline and measured rather than listened to. Used
+// by the kit tests to prove KICK and HAT are actually different sounds and not
+// just different labels, which is exactly the bug this kit replaced.
+window.__ultMakeEngine = createEngine;
 </script>
 </body>
 </html>

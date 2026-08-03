@@ -63,7 +63,14 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 #sky{position:fixed;inset:0;overflow:hidden;touch-action:none;}
 .layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   transform-origin:50% 50%;will-change:transform,opacity;}
-.pane{width:min(94vw,1180px);height:min(88svh,860px);position:relative;}
+/* --dock is the room the console needs where it sits by default. Every
+   altitude shortens itself by that much, so the console has somewhere to be
+   that is not on top of the work. It drops to 0 the moment the console is
+   dragged somewhere else: at that point the position is a deliberate choice,
+   and the app should not keep reserving space for a place it no longer is. */
+.pane{width:min(94vw,1180px);height:min(calc(88svh - var(--dock,0px)),860px);position:relative;
+  margin-bottom:var(--dock,0px);
+  transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),height .28s cubic-bezier(.2,.7,.3,1);}
 
 /* A slow drifting field so the void reads as depth rather than as a dead
    background. Pure CSS, no canvas, no per-frame cost. */
@@ -92,11 +99,39 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 /* ---------- TRANSPORT -----------------------------------------------------
    Floats bottom-centre at every altitude, because "play" must never be more
    than one reach away no matter how deep you have flown. */
-#bar{position:fixed;left:50%;transform:translateX(-50%);
-  bottom:max(12px,env(safe-area-inset-bottom));z-index:40;
-  display:flex;align-items:center;gap:var(--sp);padding:8px 12px;
+/* ---------- THE CONSOLE ----------------------------------------------------
+   The transport pill and the wave monitor are ONE object, and it moves.
+
+   They belong together because they are the same thing from two directions —
+   what you told the app to do, and what the app is actually doing about it —
+   and because a monitor that floats loose across the deck reads as damage
+   rather than as a display. Bound to the pill it has an edge, a size and a
+   place, and it goes wherever you put the pill.
+
+   Movable because a fixed overlay is always in the wrong place for someone:
+   it lands on the bottom row of pads on a short screen, over the constellation
+   at CONSTELLATION altitude, and under your palm if you play left-handed.
+   Rather than guess, let it be dragged and remember where it was left. */
+/* An explicit width, so the monitor and the pill are the same object rather
+   than two things that happen to be near each other. Without it the console
+   was shrink-to-fit and the well came out wider than the pill it sits on. */
+#console{position:fixed;z-index:40;width:min(92vw,600px);
+  display:flex;flex-direction:column;align-items:stretch;gap:6px;touch-action:none;}
+#console.dragging{opacity:.9;}
+#console.dragging #bar{border-color:var(--acc);}
+#bar{display:flex;align-items:center;justify-content:center;gap:var(--sp);padding:8px 12px;
   background:var(--glass);border:1px solid var(--line);border-radius:999px;
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:var(--e2),var(--lip);}
+/* The grip is the only part of the pill that is not a control, so it is the
+   only part safe to drag from — dragging off a button would make every mistimed
+   press move the console instead of doing what you asked. */
+#grip{width:16px;height:var(--hit);flex:none;cursor:grab;display:grid;place-items:center;
+  border-radius:8px;touch-action:none;}
+#grip:active{cursor:grabbing;}
+#grip i{display:block;width:3px;height:3px;border-radius:50%;background:var(--dim);
+  box-shadow:0 -6px var(--dim),0 6px var(--dim),5px 0 var(--dim),5px -6px var(--dim),5px 6px var(--dim);}
+#grip:hover i{background:var(--acc);
+  box-shadow:0 -6px var(--acc),0 6px var(--acc),5px 0 var(--acc),5px -6px var(--acc),5px 6px var(--acc);}
 .tb{width:var(--hit);height:var(--hit);border-radius:50%;border:1px solid var(--line);
   background:transparent;display:grid;place-items:center;cursor:pointer;transition:all .15s;flex:none;}
 .tb:hover{border-color:var(--acc);}
@@ -190,14 +225,11 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 .snd .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .snd .d{font-size:var(--fs-xs);color:var(--dim);font-variant-numeric:tabular-nums;flex:none;}
 .snd.armed{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 0 20px rgba(75,227,200,.3);}
-#libbtn{position:fixed;right:max(10px,env(safe-area-inset-right));
-  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 62px);z-index:45;
-  width:var(--hit);height:var(--hit);border-radius:50%;border:1px solid var(--line);
-  background:var(--glass);color:var(--ink);cursor:pointer;display:grid;place-items:center;
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--e1);}
-#libbtn.on{border-color:var(--acc);color:var(--acc);}
-#libbtn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;
-  stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+/* The sounds button lives ON the console. It used to float on its own at the
+   bottom right, which meant two independent overlays that collided with each
+   other on a narrow phone and both collided with the deck. One floating object
+   that carries everything is easier to place, easier to move out of the way,
+   and impossible to trap the other one under. */
 /* A cell that owns a sample says so, quietly and permanently. */
 .cell.hassample::before{content:'';position:absolute;right:9px;top:10px;width:6px;height:6px;
   border-radius:50%;background:hsl(var(--h) 96% 76%);box-shadow:0 0 9px hsl(var(--h) 96% 76%);z-index:2;}
@@ -216,17 +248,23 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    never push anything around, and pointer-events are off so it is scenery you
    cannot get stuck on. It fades itself out when there is no signal — invisible
    until there is something to see, which is the whole brief. */
-#mon{position:fixed;left:0;right:0;z-index:41;pointer-events:none;
-  bottom:calc(max(12px,env(safe-area-inset-bottom)) + 58px);
-  height:clamp(34px,6vh,62px);opacity:0;transition:opacity .5s ease;
-  /* Clear the library button on the right — it lives at this exact height, and
-     without the reservation the trace runs underneath it. */
-  padding:0 calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px) 0 max(12px,env(safe-area-inset-left));}
+/* The monitor is a WELL now, not a strip. Before, it was a full-width trace
+   fixed across the bottom of the screen, so at DECK altitude it ran straight
+   through the bottom row of pads and read as a crack in the glass rather than
+   as a display. Sound belongs inside something. Giving it a border, a floor
+   and a fixed size makes it an instrument panel — and bounding it inside the
+   console means it can never overlap anything again, because it is no longer
+   free to be anywhere. */
+#mon{width:100%;height:clamp(30px,5.2vh,54px);border-radius:12px;overflow:hidden;
+  position:relative;opacity:0;transition:opacity .45s ease;
+  background:linear-gradient(180deg,rgba(3,5,9,.86),rgba(6,9,15,.78));
+  border:1px solid var(--line);box-shadow:var(--well),var(--e1);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
 #mon.live{opacity:1;}
-/* A whisper of shade under the trace so it reads as its own plane rather than
-   a line scribbled across whatever happens to be behind it. */
-#mon::before{content:'';position:absolute;inset:-14% 0;z-index:-1;
-  background:linear-gradient(180deg,transparent,rgba(4,6,10,.72) 45%,transparent);}
+/* A centre line, so a silent monitor still looks like an instrument at rest
+   rather than an empty box someone forgot to fill. */
+#mon::before{content:'';position:absolute;left:8px;right:8px;top:50%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.10),transparent);}
 /* flex-basis 0 AND min-width 0, both deliberately. A canvas carries an
    intrinsic size from its width attribute, and that size feeds back into flex
    layout: the box grows, we measure the bigger box, we set a bigger width
@@ -237,18 +275,24 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 /* The soft ends belong to the CANVAS, not to #mon. mask-clip defaults to
    border-box, so masking the container also clipped away the readout sitting
    just outside it — the text was present and correct and simply never painted. */
+/* min-width:0 is load-bearing. A canvas carries an intrinsic size from its
+   width attribute, that size feeds layout, we measure the bigger box and set a
+   bigger attribute — left alone it ran away to 37910px in a 1280px window. */
 #mon canvas{display:block;width:100%;min-width:0;height:100%;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
-  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);}
-/* The hands readout sits ABOVE the strip rather than beside it. In a row it
-   competed with the trace for width and won, which on a phone left the
-   waveform squeezed into a third of the screen — and the waveform is the
-   point. It only ever prints a control that is off its resting position, so an
-   untouched keyboard shows nothing here at all. */
-#hands{position:absolute;right:calc(var(--hit) + max(16px,env(safe-area-inset-right)) + 8px);
-  bottom:100%;margin-bottom:3px;font-size:var(--fs-xs);letter-spacing:.13em;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);}
+/* The readout gets its OWN LINE above the well rather than sitting on top of
+   the trace. Laid over the waveform it was legible but wrong: two things
+   competing for the same pixels, which is exactly the kind of conflict this
+   pass is meant to remove. It only ever prints a control that is off its
+   resting position, and :empty collapses the row entirely, so an untouched
+   keyboard costs no space at all. */
+#hands{align-self:flex-end;padding:0 4px;font-size:var(--fs-xs);letter-spacing:.11em;
   color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap;
-  text-shadow:0 1px 6px rgba(0,0,0,.9);}
+  pointer-events:none;text-shadow:0 1px 5px rgba(0,0,0,.95);
+  opacity:0;transition:opacity .25s;}
+#hands:not(:empty){opacity:1;}
+#hands:empty{display:none;}
 #hands b{color:var(--acc);font-weight:600;}
 
 /* ---------- STATUS --------------------------------------------------------- */
@@ -274,20 +318,24 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
 <nav id="rail"></nav>
 <div id="hint">PINCH OR SCROLL TO FLY</div>
 <div id="status">connecting…</div>
-<button id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
 <aside id="shelf">
   <header><span class="t">SOUNDS</span><button class="tb" id="shelfx" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
   <div id="drop">DROP AUDIO HERE<br>OR TAP TO BROWSE</div>
   <input id="file" type="file" accept="audio/*" multiple hidden>
   <div id="list"></div>
 </aside>
-<div id="mon"><canvas id="monwave"></canvas><span id="hands"></span></div>
+<div id="console">
+<span id="hands"></span>
+<div id="mon"><canvas id="monwave"></canvas></div>
 <div id="bar">
+  <div id="grip" title="Drag to move · double-tap to recentre"><i></i></div>
   <button class="tb" id="play" title="Play / stop"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></button>
   <button class="tb rec" id="rec" title="Arm recording"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg></button>
   <span class="blab">BPM</span><input id="bpm" type="number" min="20" max="300" value="100">
   <button class="tb" id="dice" title="Surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
+  <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+</div>
 </div>
 
 <script>
@@ -449,46 +497,176 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   var STEPS = 16;
   var CELLS = 16;
   var SCENES = 4;
+  var VOICE_DEFAULTS = {
+    kind: "synth",
+    drum: null,
+    // which drum, when kind is 'drum' — see engine playDrum
+    wave: "sawtooth",
+    note: 48,
+    cutoff: 0.62,
+    res: 0.18,
+    attack: 0.01,
+    decay: 0.28,
+    sustain: 0.25,
+    release: 0.22,
+    drive: 0.12,
+    space: 0.18,
+    pan: 0,
+    gain: 0.8,
+    tune: 0,
+    spread: 0,
+    // unison width — 0 is one oscillator, 1 is a supersaw
+    sampleId: null
+  };
+  var KIT = [
+    // ---- rhythm. Short, dry, and deliberately clear of each other's range ----
+    { name: "KICK", kind: "drum", drum: "kick", note: 36, gain: 1, decay: 0.34, cutoff: 0.52, res: 0.05, drive: 0.3, space: 0 },
+    { name: "SNARE", kind: "drum", drum: "snare", note: 38, gain: 0.7, decay: 0.19, cutoff: 0.8, res: 0.08, drive: 0.1, space: 0.16 },
+    { name: "HAT", kind: "drum", drum: "hat", note: 42, gain: 0.4, decay: 0.045, cutoff: 0.97, res: 0.04, drive: 0, space: 0.06 },
+    { name: "CLAP", kind: "drum", drum: "clap", note: 39, gain: 0.6, decay: 0.2, cutoff: 0.86, res: 0.06, drive: 0, space: 0.3 },
+    { name: "TOM", kind: "drum", drum: "tom", note: 45, gain: 0.62, decay: 0.3, cutoff: 0.64, res: 0.1, drive: 0.05, space: 0.22 },
+    { name: "RIM", kind: "drum", drum: "rim", note: 44, gain: 0.46, decay: 0.03, cutoff: 0.9, res: 0.06, drive: 0, space: 0.14 },
+    { name: "PERC", kind: "drum", drum: "perc", note: 53, gain: 0.48, decay: 0.11, cutoff: 0.88, res: 0.1, drive: 0, space: 0.34 },
+    { name: "RIDE", kind: "drum", drum: "cym", note: 51, gain: 0.34, decay: 0.85, cutoff: 0.94, res: 0.04, drive: 0, space: 0.38 },
+    // ---- low end. Two jobs, split, because one voice cannot do both -----------
+    // BASS is the offbeat: it has to stop dead before the next kick or the low
+    // end turns to soup, hence sustain 0 and a short release.
+    {
+      name: "BASS",
+      wave: "sawtooth",
+      note: 38,
+      gain: 0.6,
+      attack: 4e-3,
+      decay: 0.17,
+      sustain: 0,
+      release: 0.1,
+      cutoff: 0.34,
+      res: 0.38,
+      drive: 0.26,
+      space: 0.05,
+      spread: 0.14
+    },
+    // SUB is the sustained root underneath it. A pure sine, no drive, no reverb —
+    // anything you add down here just eats headroom you cannot hear.
+    {
+      name: "SUB",
+      wave: "sine",
+      note: 26,
+      gain: 0.82,
+      attack: 0.012,
+      decay: 0.3,
+      sustain: 0.88,
+      release: 0.18,
+      cutoff: 0.22,
+      res: 0.02,
+      drive: 0,
+      space: 0,
+      spread: 0
+    },
+    // ---- the front. Wide, bright, drenched --------------------------------
+    {
+      name: "LEAD",
+      wave: "sawtooth",
+      note: 62,
+      gain: 0.44,
+      attack: 0.02,
+      decay: 0.55,
+      sustain: 0.75,
+      release: 0.6,
+      cutoff: 0.8,
+      res: 0.2,
+      drive: 0.18,
+      space: 0.52,
+      spread: 0.8
+    },
+    {
+      name: "PLUCK",
+      wave: "sawtooth",
+      note: 57,
+      gain: 0.5,
+      attack: 2e-3,
+      decay: 0.2,
+      sustain: 0,
+      release: 0.34,
+      cutoff: 0.58,
+      res: 0.46,
+      drive: 0.1,
+      space: 0.62,
+      spread: 0.34
+    },
+    // ---- the air. Slow, and allowed to overlap itself ----------------------
+    {
+      name: "PAD",
+      wave: "sawtooth",
+      note: 50,
+      gain: 0.32,
+      attack: 0.9,
+      decay: 1.6,
+      sustain: 0.82,
+      release: 3.2,
+      cutoff: 0.46,
+      res: 0.1,
+      drive: 0.03,
+      space: 0.85,
+      spread: 0.92
+    },
+    {
+      name: "BELL",
+      wave: "sine",
+      note: 74,
+      gain: 0.34,
+      attack: 2e-3,
+      decay: 1.4,
+      sustain: 0,
+      release: 1.6,
+      cutoff: 0.9,
+      res: 0.05,
+      drive: 0,
+      space: 0.74,
+      spread: 0.1
+    },
+    {
+      name: "STAB",
+      wave: "square",
+      note: 54,
+      gain: 0.42,
+      attack: 4e-3,
+      decay: 0.26,
+      sustain: 0,
+      release: 0.36,
+      cutoff: 0.64,
+      res: 0.32,
+      drive: 0.16,
+      space: 0.46,
+      spread: 0.3
+    },
+    {
+      name: "ATMOS",
+      wave: "triangle",
+      note: 69,
+      gain: 0.28,
+      attack: 1.4,
+      decay: 2.2,
+      sustain: 0.72,
+      release: 4,
+      cutoff: 0.54,
+      res: 0.16,
+      drive: 0,
+      space: 0.95,
+      spread: 0.62
+    }
+  ];
   function makeVoice(seed = 0) {
-    return {
-      kind: ["drum", "synth", "sample"][seed % 3 === 0 ? 0 : 1],
-      wave: ["sine", "square", "sawtooth", "triangle"][seed % 4],
-      note: 36 + seed % 12,
-      cutoff: 0.62,
-      res: 0.18,
-      attack: 0.01,
-      decay: 0.28,
-      sustain: 0.25,
-      release: 0.22,
-      drive: 0.12,
-      space: 0.18,
-      pan: 0,
-      gain: 0.8,
-      tune: 0,
-      sampleId: null
-    };
+    const p = KIT[seed % KIT.length] || {};
+    const v = Object.assign({}, VOICE_DEFAULTS, p);
+    delete v.name;
+    return v;
   }
   function makeCell(i) {
+    const p = KIT[i % KIT.length];
     return {
       id: "c" + i,
-      name: [
-        "KICK",
-        "SNARE",
-        "HAT",
-        "CLAP",
-        "TOM",
-        "RIM",
-        "PERC",
-        "CYM",
-        "BASS",
-        "SUB",
-        "LEAD",
-        "PLUCK",
-        "PAD",
-        "BELL",
-        "STAB",
-        "FX"
-      ][i] || "CELL " + (i + 1),
+      name: p && p.name || "CELL " + (i + 1),
       hue: Math.round(i * 360 / CELLS),
       steps: new Array(STEPS).fill(0),
       // 0 = off, 1..127 = velocity
@@ -499,9 +677,10 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       // live meter, written by the engine
     };
   }
+  var MODEL_V = 2;
   function makeSong() {
     return {
-      v: 1,
+      v: MODEL_V,
       name: "UNTITLED",
       bpm: 100,
       swing: 0,
@@ -519,6 +698,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       if (!v || typeof v !== "object" || Array.isArray(v)) return makeSong();
       if (!Array.isArray(v.scenes) || !v.scenes.length) return makeSong();
       const fresh = makeSong();
+      const keepVoices = (+v.v || 1) >= 2;
       fresh.name = typeof v.name === "string" ? v.name : fresh.name;
       fresh.bpm = Number.isFinite(+v.bpm) ? Math.max(20, Math.min(300, +v.bpm)) : fresh.bpm;
       fresh.swing = Number.isFinite(+v.swing) ? Math.max(0, Math.min(0.6, +v.swing)) : 0;
@@ -529,10 +709,11 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         sc.cells.slice(0, CELLS).forEach((c, i) => {
           const dst = fresh.scenes[s].cells[i];
           if (!c || typeof c !== "object") return;
-          if (typeof c.name === "string") dst.name = c.name;
+          if (typeof c.name === "string" && keepVoices) dst.name = c.name;
           if (Number.isFinite(+c.hue)) dst.hue = +c.hue;
           if (Array.isArray(c.steps)) for (let k = 0; k < STEPS; k++) dst.steps[k] = +c.steps[k] || 0;
-          if (c.voice && typeof c.voice === "object") Object.assign(dst.voice, c.voice);
+          if (keepVoices && c.voice && typeof c.voice === "object") Object.assign(dst.voice, c.voice);
+          else if (c.voice && typeof c.voice.sampleId === "string") dst.voice.sampleId = c.voice.sampleId;
           dst.mute = !!c.mute;
         });
       });
@@ -586,24 +767,27 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   var liveCells = (song2) => liveScene(song2).cells;
 
   // ultimate/src/core/engine.js
-  function createEngine({ sampleFor } = {}) {
+  function createEngine({ sampleFor, context } = {}) {
     let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
     const meters = new Float32Array(64);
     let ready = false;
     function init() {
       if (ready) return ctx;
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC({ latencyHint: "interactive" });
+      if (context) ctx = typeof context === "function" ? context() : context;
+      else {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        ctx = new AC({ latencyHint: "interactive" });
+      }
       master = ctx.createGain();
-      master.gain.value = 0.85;
+      master.gain.value = 0.55;
       comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -10;
-      comp.knee.value = 6;
-      comp.ratio.value = 8;
+      comp.threshold.value = -6;
+      comp.knee.value = 8;
+      comp.ratio.value = 4;
       comp.attack.value = 4e-3;
-      comp.release.value = 0.18;
+      comp.release.value = 0.2;
       spaceIn = ctx.createGain();
-      spaceIn.gain.value = 0;
+      spaceIn.gain.value = 1;
       const dl = ctx.createDelay(1);
       dl.delayTime.value = 0.13;
       const fb = ctx.createGain();
@@ -616,24 +800,47 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       tone.connect(fb);
       fb.connect(dl);
       tone.connect(master);
+      const ceiling = ctx.createWaveShaper();
+      const K = 1.25;
+      ceiling.curve = makeCurve((x) => Math.tanh(x * K) / K);
+      ceiling.oversample = "4x";
       analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.7;
       master.connect(comp);
-      comp.connect(analyser);
+      comp.connect(ceiling);
+      ceiling.connect(analyser);
       analyser.connect(ctx.destination);
       ready = true;
       return ctx;
     }
     const resume = () => {
       init();
-      if (ctx.state !== "running") ctx.resume().catch(() => {
+      if (ctx.state !== "running" && ctx.resume) ctx.resume().catch(() => {
       });
     };
     const clamp = (v, lo, hi) => {
       const n = +v;
       return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : lo;
     };
+    const CURVE_N = 1025, CURVE_MID = (CURVE_N - 1) / 2;
+    function makeCurve(fn) {
+      const c = new Float32Array(CURVE_N);
+      for (let i = 0; i < CURVE_N; i++) c[i] = fn(i / CURVE_MID - 1);
+      c[CURVE_MID] = 0;
+      return c;
+    }
+    const driveCache = /* @__PURE__ */ new Map();
+    function driveCurve(amount) {
+      const q = Math.round(clamp(amount, 0, 1) * 40) / 40;
+      let c = driveCache.get(q);
+      if (!c) {
+        const k = q * 60;
+        c = makeCurve((x) => (1 + k) * x / (1 + k * Math.abs(x)));
+        driveCache.set(q, c);
+      }
+      return c;
+    }
     const hz = (n) => 440 * Math.pow(2, (clamp(n, 0, 127) - 69) / 12);
     let noiseBuf = null;
     function noise() {
@@ -642,6 +849,110 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       return noiseBuf;
+    }
+    function burst(t, dest, { freq, type = "bandpass", q = 1, dur = 0.05, level = 1, at = 1e-3 }) {
+      const s = ctx.createBufferSource();
+      s.buffer = noise();
+      const off = Math.random() * 1.5;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + at);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + at + dur);
+      s.connect(f);
+      f.connect(g);
+      g.connect(dest);
+      s.start(t, off);
+      s.stop(t + at + dur + 0.02);
+      return t + at + dur;
+    }
+    function body(t, dest, { from, to, type = "sine", dur = 0.2, level = 1, bend = 0.06 }) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(from, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + bend);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + 2e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+      o.connect(g);
+      g.connect(dest);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+      return t + dur;
+    }
+    function playDrum(voice, t, dest) {
+      const d = voice.drum || "perc";
+      const n = hz(clamp(voice.note, 0, 127));
+      const dec = clamp(voice.decay, 0.01, 3);
+      let end = t;
+      switch (d) {
+        case "kick":
+          end = Math.max(end, body(t, dest, { from: n * 3.4, to: n * 0.55, dur: dec, level: 1, bend: 0.045 }));
+          end = Math.max(end, burst(t, dest, { freq: 2600, type: "highpass", dur: 0.012, level: 0.32 }));
+          break;
+        case "snare":
+          end = Math.max(end, body(t, dest, { from: 210, to: 155, type: "triangle", dur: dec * 0.45, level: 0.5, bend: 0.05 }));
+          end = Math.max(end, burst(t, dest, { freq: 1900, q: 0.8, dur: dec, level: 0.7 }));
+          break;
+        case "hat":
+          end = Math.max(end, burst(t, dest, { freq: 8600, type: "highpass", dur: dec, level: 0.55 }));
+          break;
+        case "clap": {
+          const sp = [0, 0.011, 0.021];
+          sp.forEach((o) => {
+            end = Math.max(end, burst(t + o, dest, { freq: 1250, q: 1.5, dur: 0.022, level: 0.55 }));
+          });
+          end = Math.max(end, burst(t + 0.03, dest, { freq: 1150, q: 1.1, dur: dec, level: 0.42 }));
+          break;
+        }
+        case "tom":
+          end = Math.max(end, body(t, dest, { from: n * 1.5, to: n * 0.85, dur: dec, level: 0.9, bend: 0.1 }));
+          end = Math.max(end, burst(t, dest, { freq: 3e3, type: "highpass", dur: 0.02, level: 0.12 }));
+          break;
+        case "rim":
+          end = Math.max(end, burst(t, dest, { freq: 2400, q: 7, dur: 0.028, level: 0.7 }));
+          end = Math.max(end, body(t, dest, { from: 1700, to: 1500, type: "square", dur: 0.018, level: 0.16, bend: 0.01 }));
+          break;
+        case "cym":
+          end = Math.max(end, burst(t, dest, { freq: 7200, type: "highpass", dur: dec, level: 0.34 }));
+          end = Math.max(end, burst(t, dest, { freq: 4200, q: 0.6, dur: dec * 0.55, level: 0.2 }));
+          break;
+        default:
+          end = Math.max(end, burst(t, dest, { freq: Math.max(400, n * 6), q: 3, dur: dec, level: 0.6 }));
+          end = Math.max(end, body(t, dest, { from: n * 4, to: n * 3.2, dur: Math.min(dec, 0.06), level: 0.22, bend: 0.03 }));
+          break;
+      }
+      return end;
+    }
+    function makeUnison(voice, t, freq, dest) {
+      const spread = clamp(voice.spread, 0, 1);
+      const cents = spread * 26;
+      const wave = voice.wave || "sawtooth";
+      const parts = spread > 0.02 ? [-1, 0, 1] : [0];
+      const oscs = [];
+      for (const k of parts) {
+        const o = ctx.createOscillator();
+        o.type = wave;
+        o.frequency.setValueAtTime(freq, t);
+        o.detune.setValueAtTime(k * cents + clamp(voice.tune, -24, 24) * 100, t);
+        let node = o;
+        if (k !== 0 && ctx.createStereoPanner) {
+          const p = ctx.createStereoPanner();
+          p.pan.value = k * (0.25 + spread * 0.55);
+          o.connect(p);
+          node = p;
+        }
+        const trim = ctx.createGain();
+        trim.gain.value = parts.length > 1 ? k === 0 ? 0.62 : 0.44 : 1;
+        node.connect(trim);
+        trim.connect(dest);
+        oscs.push(o);
+      }
+      return oscs;
     }
     function play(voice, when, vel, cellIndex) {
       init();
@@ -653,55 +964,15 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       flt.type = "lowpass";
       flt.frequency.setValueAtTime(60 * Math.pow(233, clamp(voice.cutoff, 0, 1)), t);
       flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
-      let src;
-      if (voice.sampleId && sampleFor) {
-        const buf = sampleFor(voice.sampleId);
-        if (buf) {
-          src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
-        }
-      }
-      if (src) {
-      } else if (voice.kind === "drum") {
-        const low = voice.note < 45;
-        if (low) {
-          src = ctx.createOscillator();
-          src.type = "sine";
-          src.frequency.setValueAtTime(hz(voice.note) * 2.6, t);
-          src.frequency.exponentialRampToValueAtTime(Math.max(28, hz(voice.note) * 0.6), t + 0.09);
-        } else {
-          src = ctx.createBufferSource();
-          src.buffer = noise();
-          flt.type = voice.note > 60 ? "highpass" : "bandpass";
-          flt.frequency.setValueAtTime(voice.note > 60 ? 5200 : 1400, t);
-        }
-      } else {
-        src = ctx.createOscillator();
-        src.type = voice.wave || "sawtooth";
-        src.frequency.setValueAtTime(hz(voice.note + (voice.tune || 0)), t);
-      }
       const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
       const s = clamp(voice.sustain, 0, 1), r = clamp(voice.release, 0.01, 4);
       const peak = v * clamp(voice.gain, 0, 1.4);
-      g.gain.setValueAtTime(1e-4, t);
-      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
-      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak * (voice.kind === "drum" ? 0.02 : s)), t + a + d);
-      const stop = t + a + d + r;
-      g.gain.exponentialRampToValueAtTime(1e-4, stop);
-      let chain = src;
-      chain.connect(flt);
-      chain = flt;
+      let chain = flt;
       if (voice.drive > 0.02) {
         const ws = ctx.createWaveShaper();
-        const k = clamp(voice.drive, 0, 1) * 60, curve = new Float32Array(1024);
-        for (let i = 0; i < 1024; i++) {
-          const x = i / 512 - 1;
-          curve[i] = (1 + k) * x / (1 + k * Math.abs(x));
-        }
-        ws.curve = curve;
+        ws.curve = driveCurve(voice.drive);
         ws.oversample = "2x";
-        chain.connect(ws);
+        flt.connect(ws);
         chain = ws;
       }
       chain.connect(g);
@@ -716,11 +987,46 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         g.connect(sd);
         sd.connect(spaceIn);
       }
-      src.start(t);
-      const natural = src.buffer ? src.buffer.duration / (src.playbackRate ? src.playbackRate.value : 1) : 0;
-      src.stop(Math.max(stop, t + natural) + 0.02);
+      let sample = null;
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          sample = ctx.createBufferSource();
+          sample.buffer = buf;
+          sample.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
+          sample.connect(flt);
+        }
+      }
+      let stop;
+      if (sample) {
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        sample.start(t);
+        const natural = sample.buffer.duration / (sample.playbackRate.value || 1);
+        sample.stop(Math.max(stop, t + natural) + 0.02);
+      } else if (voice.kind === "drum") {
+        g.gain.setValueAtTime(Math.max(2e-4, peak), t);
+        const end = playDrum(voice, t, flt);
+        stop = end + 0.05;
+        g.gain.setValueAtTime(Math.max(2e-4, peak), stop - 0.01);
+        g.gain.exponentialRampToValueAtTime(1e-4, stop);
+      } else {
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        const oscs = makeUnison(voice, t, hz(voice.note), flt);
+        oscs.forEach((o) => {
+          o.start(t);
+          o.stop(stop + 0.02);
+        });
+      }
       if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
       return { stop };
+    }
+    function envelope(g, t, a, d, s, r, peak, stop) {
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak * Math.max(5e-4, s)), t + a + d);
+      g.gain.exponentialRampToValueAtTime(1e-4, stop);
     }
     let lfo = null, lfoOut = null;
     function vibrato() {
@@ -760,19 +1066,19 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
           src.playbackRate.value = Math.pow(2, (clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24)) / 12);
         }
       }
+      let unison = null;
       if (!src) {
-        src = ctx.createOscillator();
-        src.type = voice.wave || "sawtooth";
-        src.frequency.setValueAtTime(hz(note), t);
-        if (voice.tune) src.detune.setValueAtTime(clamp(voice.tune, -24, 24) * 100, t);
+        unison = makeUnison(voice, t, hz(note), flt);
+        src = unison[0];
       }
-      const bendable = src.detune || null;
+      const bendable = unison ? unison.map((o) => o.detune) : src.detune ? [src.detune] : [];
+      const baseDetune = unison ? unison.map((o) => o.detune.value) : [0];
       let vibDepth = null;
-      if (bendable) {
+      if (bendable.length) {
         vibDepth = ctx.createGain();
         vibDepth.gain.value = 0;
         vibrato().connect(vibDepth);
-        vibDepth.connect(bendable);
+        bendable.forEach((p) => vibDepth.connect(p));
       }
       const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
       const s = clamp(voice.sustain, 0, 1), peak = v * clamp(voice.gain, 0, 1.4);
@@ -781,19 +1087,13 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       env.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
       env.gain.exponentialRampToValueAtTime(held, t + a + d);
       exp.gain.setValueAtTime(1, t);
-      let chain = src;
-      chain.connect(flt);
-      chain = flt;
+      if (!unison) src.connect(flt);
+      let chain = flt;
       if (voice.drive > 0.02) {
         const ws = ctx.createWaveShaper();
-        const k = clamp(voice.drive, 0, 1) * 60, curve = new Float32Array(1024);
-        for (let i = 0; i < 1024; i++) {
-          const x = i / 512 - 1;
-          curve[i] = (1 + k) * x / (1 + k * Math.abs(x));
-        }
-        ws.curve = curve;
+        ws.curve = driveCurve(voice.drive);
         ws.oversample = "2x";
-        chain.connect(ws);
+        flt.connect(ws);
         chain = ws;
       }
       chain.connect(env);
@@ -809,7 +1109,8 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         exp.connect(sd);
         sd.connect(spaceIn);
       }
-      src.start(t);
+      const sources = unison || [src];
+      sources.forEach((o) => o.start(t));
       let dead = false, pressure = 0, timbre = 0, lev = 1;
       function reflt() {
         if (dead) return;
@@ -836,10 +1137,12 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
           env.gain.exponentialRampToValueAtTime(1e-4, now + secs);
         } catch (e) {
         }
-        try {
-          src.stop(now + secs + 0.03);
-        } catch (e) {
-        }
+        sources.forEach((o) => {
+          try {
+            o.stop(now + secs + 0.03);
+          } catch (e) {
+          }
+        });
       }
       return {
         note,
@@ -849,11 +1152,17 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
         },
         // Bend arrives in SEMITONES, because that is the unit a player thinks in.
         // Cents are an implementation detail of the audio graph.
+        // Each voice keeps its own unison offset and the bend is added ON TOP of
+        // it, so a chord bends as a chord instead of collapsing to one pitch.
         bend(semis) {
-          if (bendable && !dead) try {
-            bendable.setTargetAtTime(clamp(semis, -48, 48) * 100, ctx.currentTime, 6e-3);
-          } catch (e) {
-          }
+          if (dead) return;
+          const c = clamp(semis, -48, 48) * 100;
+          bendable.forEach((p, i) => {
+            try {
+              p.setTargetAtTime(baseDetune[i] + c, ctx.currentTime, 6e-3);
+            } catch (e) {
+            }
+          });
         },
         vib(cents) {
           if (vibDepth && !dead) try {
@@ -2155,24 +2464,24 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       out.textContent = Math.abs(v) >= 10 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(2);
       svg.setAttribute("aria-valuenow", String(v));
     }
-    let drag = null;
+    let drag2 = null;
     svg.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       svg.setPointerCapture(e.pointerId);
-      drag = { y: e.clientY, t: norm() };
+      drag2 = { y: e.clientY, t: norm() };
     });
     svg.addEventListener("pointermove", (e) => {
-      if (!drag) return;
+      if (!drag2) return;
       const span = e.shiftKey ? 900 : 190;
-      drag.t = Math.max(0, Math.min(1, drag.t + (drag.y - e.clientY) / span));
-      drag.y = e.clientY;
-      cell.voice[key] = lo + drag.t * (hi - lo);
+      drag2.t = Math.max(0, Math.min(1, drag2.t + (drag2.y - e.clientY) / span));
+      drag2.y = e.clientY;
+      cell.voice[key] = lo + drag2.t * (hi - lo);
       paint();
       saveSong(song);
     });
     const end = () => {
-      if (drag) {
-        drag = null;
+      if (drag2) {
+        drag2 = null;
         hist.push(song);
       }
     };
@@ -2426,6 +2735,74 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     const c = liveCells(song)[i];
     grainScope(cv, { hue: c ? c.hue : 168 });
   }
+  var cons = $("#console");
+  var grip = $("#grip");
+  var CONSOLE_POS = "skrimpad_ultimate_console";
+  var cpos = null;
+  function placeConsole() {
+    const r = cons.getBoundingClientRect();
+    const w = r.width || 320, h = r.height || 80;
+    document.documentElement.style.setProperty("--dock", cpos ? "0px" : Math.round(h + 16) + "px");
+    if (!cpos) {
+      cons.style.left = "50%";
+      cons.style.top = "auto";
+      cons.style.bottom = "max(12px, env(safe-area-inset-bottom))";
+      cons.style.transform = "translateX(-50%)";
+      return;
+    }
+    const x = Math.max(6, Math.min(window.innerWidth - w - 6, cpos.x));
+    const y = Math.max(6, Math.min(window.innerHeight - h - 6, cpos.y));
+    cons.style.left = x + "px";
+    cons.style.top = y + "px";
+    cons.style.bottom = "auto";
+    cons.style.transform = "none";
+  }
+  try {
+    const raw = JSON.parse(localStorage.getItem(CONSOLE_POS) || "null");
+    if (raw && typeof raw === "object" && Number.isFinite(+raw.x) && Number.isFinite(+raw.y)) {
+      cpos = { x: +raw.x, y: +raw.y };
+    }
+  } catch (e) {
+  }
+  placeConsole();
+  addEventListener("resize", placeConsole);
+  var drag = null;
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const r = cons.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+    grip.setPointerCapture(e.pointerId);
+    cons.classList.add("dragging");
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    drag.moved = true;
+    cpos = { x: e.clientX - drag.dx, y: e.clientY - drag.dy };
+    placeConsole();
+  });
+  function endDrag() {
+    if (!drag) return;
+    if (drag.moved && cpos) {
+      const r = cons.getBoundingClientRect();
+      cpos = { x: r.left, y: r.top };
+      try {
+        localStorage.setItem(CONSOLE_POS, JSON.stringify(cpos));
+      } catch (e) {
+      }
+    }
+    drag = null;
+    cons.classList.remove("dragging");
+  }
+  grip.addEventListener("pointerup", endDrag);
+  grip.addEventListener("pointercancel", endDrag);
+  grip.addEventListener("dblclick", () => {
+    cpos = null;
+    try {
+      localStorage.removeItem(CONSOLE_POS);
+    } catch (e) {
+    }
+    placeConsole();
+  });
   var playBtn = $("#play");
   playBtn.addEventListener("click", () => {
     eng.resume();
@@ -2683,6 +3060,7 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       lastCell = i;
     }
   };
+  window.__ultMakeEngine = createEngine;
 })();
 
 </script>
