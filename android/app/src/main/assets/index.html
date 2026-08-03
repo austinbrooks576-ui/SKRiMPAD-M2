@@ -86,8 +86,12 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
    The only persistent UI in the entire app. It is a depth gauge, not a menu:
    it tells you where you are and lets you jump, and it is five dots. */
 #rail{position:fixed;left:max(10px,env(safe-area-inset-left));top:50%;transform:translateY(-50%);
-  display:flex;flex-direction:column;gap:10px;z-index:40;}
-.rdot{width:var(--hit);height:16px;border:0;background:transparent;cursor:pointer;
+  display:flex;flex-direction:column;gap:4px;z-index:40;}
+/* The dot is 8px because that is how big it should LOOK. The button is 26px
+   because that is how big it has to be to hit — WCAG 2.2 asks for 24, and the
+   rail is how you move between altitudes, so missing it is not a cosmetic
+   failure. The gap shrinks to keep the visual rhythm of the original. */
+.rdot{width:var(--hit);min-height:26px;height:26px;border:0;background:transparent;cursor:pointer;
   display:flex;align-items:center;gap:7px;padding:0;opacity:.42;transition:opacity .18s;}
 .rdot i{width:8px;height:8px;box-shadow:0 0 0 1px rgba(255,255,255,.24);border-radius:50%;background:var(--ink);flex:none;transition:all .2s;}
 .rdot span{font-size:var(--fs-xs);white-space:nowrap;opacity:0;transform:translateX(-4px);
@@ -139,8 +143,10 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
 .tb.on{background:var(--acc);color:#04140F;border-color:var(--acc);box-shadow:0 0 18px rgba(75,227,200,.5);}
 .tb.rec.on{background:#FF3B5C;border-color:#FF3B5C;box-shadow:0 0 18px rgba(255,59,92,.5);color:#fff;}
-#bpm{width:56px;background:transparent;border:0;text-align:center;font-size:var(--fs-md);
-  font-variant-numeric:tabular-nums;outline:none;}
+/* min-height, not height: the field must clear the 24px touch floor without
+   the number jumping size when the fluid font scale moves. */
+#bpm{width:56px;min-height:26px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;}
 #bpm:focus{color:var(--acc);}
 .blab{font-size:var(--fs-xs);color:var(--dim);}
 
@@ -678,16 +684,30 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     };
   }
   var MODEL_V = 2;
+  var STARTER = {
+    KICK: [100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0],
+    CLAP: [0, 0, 0, 0, 96, 0, 0, 0, 0, 0, 0, 0, 96, 0, 0, 0],
+    HAT: [0, 0, 62, 0, 0, 0, 78, 0, 0, 0, 62, 0, 0, 0, 84, 0],
+    BASS: [0, 0, 104, 0, 0, 0, 104, 0, 0, 0, 104, 0, 0, 0, 104, 0],
+    SUB: [92, 0, 0, 0, 0, 0, 0, 0, 92, 0, 0, 0, 0, 0, 0, 0],
+    RIDE: [0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 0, 0, 0, 0],
+    PLUCK: [0, 0, 0, 88, 0, 0, 0, 0, 0, 0, 0, 84, 0, 0, 80, 0]
+  };
   function makeSong() {
     return {
       v: MODEL_V,
       name: "UNTITLED",
-      bpm: 100,
+      bpm: 138,
+      // where trance sits; 100 was a placeholder that suits nothing
       swing: 0,
       scene: 0,
       scenes: Array.from({ length: SCENES }, (_, s) => ({
         name: "SCENE " + (s + 1),
-        cells: Array.from({ length: CELLS }, (_2, i) => makeCell(i))
+        cells: Array.from({ length: CELLS }, (_2, i) => {
+          const c = makeCell(i);
+          if (s === 0 && STARTER[c.name]) c.steps = STARTER[c.name].slice();
+          return c;
+        })
       }))
     };
   }
@@ -2420,14 +2440,18 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
   var PARAMS = [
     ["cutoff", "CUTOFF", 0, 1],
     ["res", "RESO", 0, 1],
-    ["attack", "ATTACK", 1e-3, 1.2],
-    ["decay", "DECAY", 0.01, 2],
+    ["attack", "ATTACK", 1e-3, 2],
+    ["decay", "DECAY", 0.01, 3],
     ["sustain", "SUSTAIN", 0, 1],
-    ["release", "RELEASE", 0.01, 3],
+    ["release", "RELEASE", 0.01, 4],
     ["drive", "DRIVE", 0, 1],
     ["space", "SPACE", 0, 1],
+    // SPREAD earns a knob now that it does something: it is the whole difference
+    // between one sawtooth and a supersaw, which is most of the LEAD's character.
+    ["spread", "SPREAD", 0, 1],
+    ["tune", "TUNE", -24, 24],
     ["pan", "PAN", -1, 1],
-    ["gain", "LEVEL", 0, 1.2]
+    ["gain", "LEVEL", 0, 1.4]
   ];
   function drawVoiceSheet() {
     var _a;
@@ -3051,10 +3075,12 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     io,
     lib,
     keys,
+    params: PARAMS,
     assign: assignSample,
     densify,
     buildDeck,
     renderList,
+    pushHistory: () => hist.push(song),
     warmHas: (id) => warm.has(id),
     focusCell: (i) => {
       lastCell = i;

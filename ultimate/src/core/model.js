@@ -102,16 +102,42 @@ export function makeCell(i) {
 // whether a stored voice is worth keeping — see the migration there.
 export const MODEL_V = 2;
 
+// A STARTER PATTERN, in scene 1 only.
+//
+// An empty grid means a new user opens the app, presses the only obvious button
+// and hears nothing. They have done everything right and been told nothing, and
+// there is no way to tell "I pressed the wrong thing" apart from "this is
+// broken". So the app arrives already playing something: four-to-the-floor,
+// offbeat bass, a clap on the backbeat and a hat pattern — the smallest thing
+// that is recognisably music and is obviously a starting point rather than a
+// finished song.
+//
+// Scenes 2, 3 and 4 stay empty on purpose. The first thing you learn is that
+// this can be changed, and the second is that there is room to build.
+const STARTER = {
+  KICK:  [100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0],
+  CLAP:  [0, 0, 0, 0, 96, 0, 0, 0, 0, 0, 0, 0, 96, 0, 0, 0],
+  HAT:   [0, 0, 62, 0, 0, 0, 78, 0, 0, 0, 62, 0, 0, 0, 84, 0],
+  BASS:  [0, 0, 104, 0, 0, 0, 104, 0, 0, 0, 104, 0, 0, 0, 104, 0],
+  SUB:   [92, 0, 0, 0, 0, 0, 0, 0, 92, 0, 0, 0, 0, 0, 0, 0],
+  RIDE:  [0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 0, 0, 0, 0],
+  PLUCK: [0, 0, 0, 88, 0, 0, 0, 0, 0, 0, 0, 84, 0, 0, 80, 0],
+};
+
 export function makeSong() {
   return {
     v: MODEL_V,
     name: 'UNTITLED',
-    bpm: 100,
+    bpm: 138,          // where trance sits; 100 was a placeholder that suits nothing
     swing: 0,
     scene: 0,
     scenes: Array.from({ length: SCENES }, (_, s) => ({
       name: 'SCENE ' + (s + 1),
-      cells: Array.from({ length: CELLS }, (_, i) => makeCell(i)),
+      cells: Array.from({ length: CELLS }, (_, i) => {
+        const c = makeCell(i);
+        if (s === 0 && STARTER[c.name]) c.steps = STARTER[c.name].slice();
+        return c;
+      }),
     })),
   };
 }
