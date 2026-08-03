@@ -79,7 +79,7 @@ export function guessRole(name) {
   return null;                     // unknown — behaviour will settle it
 }
 
-export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = {}) {
+export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, poly = 16 } = {}) {
   const roles = readRoles();
   const held = new Map();          // "ch:note" -> live voice handle
   const sustained = new Set();     // keys whose note-off is waiting on the pedal
@@ -103,6 +103,15 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
   const live = { bend: 0, mod: 0, press: 0, timbre: 0, notes: 0, at: 0, name: '', role: null };
 
   function announce() { live.at = Date.now(); onActivity && onActivity(live); }
+
+  // Which notes are physically down, in the order they went down. The key
+  // display reads this so what lights on screen is what is held on the
+  // hardware — not a repaint of the messages that went past.
+  const down = new Set();
+  function sawNote(n, on, vel) {
+    on ? down.add(n) : down.delete(n);
+    onNote && onNote(n, on, vel);
+  }
 
   function decide(name, note) {
     // A remembered verdict always wins — a controller should never be
@@ -163,7 +172,7 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
     h.timbre(s.timbre);
     h.level(s.level);
 
-    live.notes = held.size; announce();
+    live.notes = held.size; sawNote(n, true, vel); announce();
   }
 
   function noteOff(c, n) {
@@ -172,6 +181,10 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
     if (!h) return;
     // Pedal down: the key is released but the note is not. Remember it so the
     // pedal can let go of it later.
+    // The KEY is up either way. Only the SOUND is still held by the pedal, so
+    // the display must let go of the key even while the note keeps ringing —
+    // otherwise a pedalled passage leaves the whole keyboard lit.
+    sawNote(n, false);
     if (ch[c].pedal) { sustained.add(k); return; }
     h.off(); held.delete(k);
     const i = order.indexOf(k); if (i >= 0) order.splice(i, 1);
@@ -187,8 +200,9 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
       if (c != null && +k.split(':')[0] !== c) continue;
       hard ? h.steal() : h.off();
       held.delete(k);
+      sawNote(+k.split(':')[1], false);
     }
-    order.length = 0; sustained.clear();
+    order.length = 0; sustained.clear(); down.clear();
     live.notes = 0; announce();
   }
 
@@ -260,9 +274,22 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
     get live() { return live; },
     get voices() { return held.size; },
     panic() { allOff(null, true); for (const s of ch) s.pedal = false; },
-    // Forget what we learned about a controller. Not surfaced anywhere yet, but
-    // the decision must be reversible or a single bad guess is permanent.
+    // Which notes are down right now. A snapshot, not the live Set — a display
+    // that could mutate the instrument's state by accident is a bug waiting.
+    notesDown() { return [...down]; },
+    // Forget what we learned about a controller, so the next few notes decide
+    // again. Surfaced in the MIDI window: a single bad guess must be reversible
+    // or a controller read wrong once is read wrong forever.
     forget(name) { delete roles[name]; writeRoles(roles); },
+    // Overrule the guess outright. The port sniffing is right almost always,
+    // and "almost" is the whole reason this exists — a controller that is
+    // physically a keyboard but sends only pad notes has no tell, and the
+    // person holding it can see what it is in a second.
+    setRole(name, r) {
+      if (r !== 'keys' && r !== 'pads') return;
+      roles[name] = r; writeRoles(roles);
+      if (name === port) role = r;
+    },
     // What this port WILL do, never null. Pads is the standing assumption for a
     // controller nothing is known about yet, so that is the honest answer to
     // give — an undecided port still behaves like something.
@@ -302,6 +329,11 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = 
       live.name = port; live.role = role;
 
       if (role === 'pads') {
+        // A pad hit is still a note arriving, and the MIDI window is where you
+        // go to find out whether the app is hearing the hardware at all. It has
+        // to show pad traffic too, or a pad controller looks dead in the one
+        // place built to prove it is not.
+        sawNote(data[1], on, data[2]);
         if (on && onPad) onPad(data[1], data[2]);
         return;
       }

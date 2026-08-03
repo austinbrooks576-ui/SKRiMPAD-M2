@@ -204,14 +204,21 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 
 /* ---------- CONSTELLATION -------------------------------------------------- */
 #nebula{position:absolute;inset:0;width:100%;height:100%;}
-.scenepick{position:absolute;left:50%;bottom:11%;transform:translateX(-50%);display:flex;gap:8px;}
+/* The scene pills and the song actions used to be two independently positioned
+   rows at 11% and 4.5% from the bottom. That holds until the pills wrap — which
+   they do at 390px, where four of them become two rows — and then the second
+   row of pills lands exactly on top of the buttons. Two absolutely positioned
+   things whose heights depend on the viewport cannot be kept apart by choosing
+   percentages; they have to be in one flow that lays itself out. */
+.consbot{position:absolute;left:50%;bottom:3.5%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:9px;max-width:96%;}
+.scenepick{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
 /* Song-level actions live at the song-level altitude. Clearing a scene, copying
    one, and exporting are all things you do to the WHOLE arrangement, and
    CONSTELLATION is the only place the whole arrangement is on screen. Putting
    them in the transport pill would have meant a ninth control in a row that is
    already tight on a 390px phone. */
-.sceneops{position:absolute;left:50%;bottom:4.5%;transform:translateX(-50%);
-  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:92vw;}
+.sceneops{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
 .sop{padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:var(--glass);
   color:var(--dim);font-size:var(--fs-xs);letter-spacing:.12em;cursor:pointer;min-height:26px;
   transition:color .15s,border-color .15s;}
@@ -374,10 +381,137 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 #hands:empty{display:none;}
 #hands b{color:var(--acc);font-weight:600;}
 
-/* ---------- STATUS --------------------------------------------------------- */
+/* ---------- STATUS ---------------------------------------------------------
+   The MIDI readout is also the way IN to the MIDI window. It already says what
+   the app thinks is plugged in, so it is where anyone would go to argue with
+   that — and reusing it costs no new chrome on a phone where the transport row
+   is already tight. */
 #status{position:fixed;right:max(10px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));
-  z-index:40;font-size:var(--fs-xs);color:var(--dim);text-align:right;max-width:44vw;line-height:1.5;}
+  z-index:40;font-size:var(--fs-xs);color:var(--dim);text-align:right;max-width:44vw;line-height:1.5;
+  border:0;background:transparent;cursor:pointer;padding:4px 2px;min-height:26px;
+  font-family:inherit;letter-spacing:inherit;transition:color .16s;}
+#status:hover{color:var(--ink);}
 #status b{color:var(--acc);font-weight:600;}
+/* The one piece of chrome in the app that is not touching the music. It is here
+   because a catalogue of what everything does is worthless if you cannot find
+   it, and there is nowhere else in a chrome-less app to put it. Top LEFT, where
+   the rail is vertically centred and nothing else lives. */
+#gear{position:fixed;left:max(10px,env(safe-area-inset-left));top:max(10px,env(safe-area-inset-top));
+  z-index:40;width:var(--hit);height:var(--hit);min-width:26px;min-height:26px;border:0;
+  background:transparent;color:var(--dim);cursor:pointer;display:grid;place-items:center;
+  opacity:.5;transition:opacity .18s,color .18s;}
+#gear:hover,#gear:focus-visible{opacity:1;color:var(--acc);}
+#gear svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+
+/* ---------- WINDOWS --------------------------------------------------------
+   Two things in this app genuinely are windows rather than altitudes: the MIDI
+   connection and the manual. Both are ABOUT the app rather than part of the
+   music, both are things you open, read and close, and neither belongs at a
+   depth in the song. They are the only modal surfaces here, and they say so —
+   a scrim, a border lit on its top edge, and one way out.
+
+   The scrim is a plain colour, not a backdrop-filter. Blurring a full-screen
+   region every frame cost about twenty frames a second when the shelf did it,
+   and the panel behind is opaque enough that nobody would have seen the blur. */
+.scrim{position:fixed;inset:0;z-index:60;background:rgba(4,5,8,.62);
+  opacity:0;pointer-events:none;transition:opacity .2s;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.win{position:fixed;z-index:61;left:50%;top:50%;transform:translate(-50%,-46%) scale(.98);
+  width:min(620px,94vw);max-height:min(86svh,760px);display:flex;flex-direction:column;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:16px;
+  box-shadow:var(--e2),var(--lip);opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s cubic-bezier(.2,.7,.3,1);}
+.win.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+.win header{display:flex;align-items:center;gap:10px;padding:14px 14px 10px;flex:none;}
+.win header .t{font-size:var(--fs-lg);flex:1;letter-spacing:.12em;}
+.win .body{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 14px 16px;
+  display:flex;flex-direction:column;gap:var(--sp);}
+.wsec{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding-top:6px;}
+.wbtn{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.035);
+  color:var(--ink);font-size:var(--fs-sm);letter-spacing:.1em;cursor:pointer;min-height:var(--hit);
+  transition:border-color .15s,color .15s,background .15s;}
+.wbtn:hover{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.08);}
+.wbtn.danger:hover{border-color:#FF6B84;color:#FF6B84;background:rgba(255,107,132,.08);}
+
+/* ---------- MIDI WINDOW ----------------------------------------------------
+   Everything here is a READOUT, not a mapping page. There is still nothing to
+   configure — see core/keys.js for why — with exactly one exception: which of
+   the two things a controller IS. That is the only question the app can get
+   wrong in a way you cannot play around, so it is the only one you can answer.
+
+   The rest of the window exists to answer "is it actually hearing me?", which
+   is the question every MIDI problem really is. */
+.port{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 11px;border-radius:10px;
+  border:1px solid var(--line);background:rgba(255,255,255,.03);}
+.port .pn{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--fs-sm);}
+.port .pr{font-size:var(--fs-xs);letter-spacing:.14em;padding:3px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--dim);flex:none;}
+.port .pr.keys{color:var(--acc);border-color:rgba(75,227,200,.5);}
+.port .pr.pads{color:#FFC06B;border-color:rgba(255,192,107,.5);}
+.port .pr.live{box-shadow:0 0 12px rgba(75,227,200,.35);}
+.port .pb{font-size:var(--fs-xs);letter-spacing:.1em;padding:5px 9px;border-radius:8px;
+  border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer;
+  min-height:26px;flex:none;transition:color .15s,border-color .15s;}
+.port .pb:hover{color:var(--acc);border-color:var(--acc);}
+.none{font-size:var(--fs-sm);color:var(--dim);line-height:1.8;padding:4px 2px;}
+
+/* THE KEY DISPLAY.
+   Same light model as the rest of the app: every key is lit on its top edge and
+   casts downward, so the bed reads as a row of physical objects rather than a
+   diagram. A pressed key loses its highlight and gains the cell's hue, because
+   colour means identity here — the keyboard is playing whichever cell you are
+   looking at, and it says so in that cell's colour. */
+#keybed{position:relative;height:clamp(74px,13vh,104px);margin-top:2px;
+  border-radius:10px;background:#05060A;border:1px solid var(--line);
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.75);padding:6px 6px 7px;
+  overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;}
+#keybed .kw,#keybed .kk{position:absolute;top:6px;border-radius:0 0 4px 4px;cursor:pointer;}
+#keybed .kw{bottom:7px;background:linear-gradient(180deg,#DDE4EE,#98A2B4 62%,#7D879A);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 1px 2px rgba(0,0,0,.5);}
+#keybed .kk{height:60%;background:linear-gradient(180deg,#2B3240,#12161E 58%,#080B10);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 2px 4px rgba(0,0,0,.7);z-index:2;
+  border-radius:0 0 3px 3px;}
+#keybed .kw.on{background:linear-gradient(180deg,hsl(var(--h) 92% 78%),hsl(var(--h) 90% 56%));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 16px hsl(var(--h) 90% 56% / .65);}
+#keybed .kk.on{background:linear-gradient(180deg,hsl(var(--h) 92% 62%),hsl(var(--h) 88% 38%));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 14px hsl(var(--h) 90% 52% / .6);}
+/* Only the Cs are named. Naming all 49 turns an instrument into a chart. */
+#keybed .kw b{position:absolute;left:0;right:0;bottom:2px;text-align:center;font-size:8px;
+  font-weight:400;color:rgba(10,12,18,.5);letter-spacing:0;pointer-events:none;}
+/* The hardware's own controls, as levels. This is the part that proves the
+   wheels and the pressure sensor are getting through — the thing a MIDI monitor
+   is actually for, minus the hex. */
+.exprs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;}
+/* Each meter is a bordered cell of its own. Laid out as bare rows in a grid
+   they ran together — the value of one sat right beside the label of the next,
+   and "+0.00st MOD" reads as one field rather than the end of one and the start
+   of another. */
+.ex{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);color:var(--dim);
+  letter-spacing:.12em;padding:6px 9px;border-radius:9px;
+  border:1px solid var(--line);background:rgba(255,255,255,.025);}
+.ex .exl{flex:none;min-width:46px;}
+.ex .exb{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.07);
+  position:relative;overflow:hidden;}
+.ex .exb i{position:absolute;top:0;bottom:0;background:var(--acc);border-radius:3px;
+  box-shadow:0 0 8px rgba(75,227,200,.55);left:0;width:0;}
+.ex .exv{flex:none;min-width:38px;text-align:right;font-variant-numeric:tabular-nums;}
+#lastmsg{font-size:var(--fs-xs);color:var(--dim);font-variant-numeric:tabular-nums;
+  letter-spacing:.1em;min-height:1.4em;}
+#lastmsg b{color:var(--acc);font-weight:600;}
+
+/* ---------- HELP -----------------------------------------------------------
+   Rendered from the same table the app checks itself against, so a control that
+   is not written down here fails a test rather than quietly going undocumented. */
+.hgrp{border-top:1px solid var(--line);padding-top:9px;}
+.hgrp h4{font-size:var(--fs-sm);letter-spacing:.2em;color:var(--acc);font-weight:400;margin-bottom:5px;}
+.hrow{display:flex;gap:10px;padding:3px 0;font-size:var(--fs-sm);line-height:1.55;}
+.hrow .hd{flex:none;width:min(38%,190px);color:var(--ink);}
+.hrow .hw{flex:1;color:var(--dim);}
+.hnew{border:1px solid rgba(75,227,200,.4);background:rgba(75,227,200,.06);border-radius:10px;
+  padding:9px 11px;}
+.hnew .hgrp{border:0;padding:0;}
 #hint{position:fixed;left:50%;top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);
   z-index:40;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.16em;pointer-events:none;
   transition:opacity .3s;}
@@ -398,11 +532,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 <body>
 <div id="sky">
   <div class="layer" data-alt="0"><div class="pane"><canvas id="nebula"></canvas>
-    <div class="scenepick" id="scenepick"></div>
-    <div class="sceneops" id="sceneops">
-      <button class="sop" id="sclear">CLEAR</button>
-      <button class="sop" id="scopy">COPY TO NEXT</button>
-      <button class="sop" id="sbounce">EXPORT WAV</button>
+    <div class="consbot" id="consbot">
+      <div class="scenepick" id="scenepick"></div>
+      <div class="sceneops" id="sceneops">
+        <button class="sop" id="sview" aria-pressed="false">COLUMN</button>
+        <button class="sop" id="sclear">CLEAR</button>
+        <button class="sop" id="scopy">COPY TO NEXT</button>
+        <button class="sop" id="sbounce">EXPORT WAV</button>
+      </div>
     </div></div></div>
   <div class="layer" data-alt="1"><div class="pane"><div class="grid" id="deck"></div></div></div>
   <div class="layer" data-alt="2"><div class="pane"><div class="sheet" id="cellsheet"></div></div></div>
@@ -411,13 +548,39 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 </div>
 <nav id="rail"></nav>
 <div id="hint">PRESS PLAY</div>
-<div id="status">connecting…</div>
+<button id="status" aria-label="MIDI — open the connection window">connecting…</button>
+<button id="gear" aria-label="Settings and help" title="Settings · help"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.2v2.1M12 18.7v2.1M20.8 12h-2.1M5.3 12H3.2M18.2 5.8l-1.5 1.5M7.3 16.7l-1.5 1.5M18.2 18.2l-1.5-1.5M7.3 7.3L5.8 5.8"/></svg></button>
 <aside id="shelf">
   <header><span class="t">SOUNDS</span><button class="tb" id="shelfx" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
   <div id="drop">DROP AUDIO HERE<br>OR TAP TO BROWSE</div>
   <input id="file" type="file" accept="audio/*" multiple hidden>
   <div id="list"></div>
 </aside>
+<div class="scrim" id="scrim"></div>
+
+<!-- THE MIDI WINDOW. Not a routing page: a place to see that the wire works,
+     and to overrule the one guess the app makes that you cannot play around. -->
+<section class="win" id="midiwin" role="dialog" aria-modal="true" aria-labelledby="midititle">
+  <header><span class="t" id="midititle">MIDI</span>
+    <button class="tb" id="midix" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div class="body">
+    <div class="wsec">CONNECTED</div>
+    <div id="ports"></div>
+    <button class="wbtn" id="bleconnect">CONNECT BLUETOOTH</button>
+    <div class="wsec">VOICE — <span id="midicell">—</span></div>
+    <div id="keybed" role="img" aria-label="Live key display"></div>
+    <div class="exprs" id="exprs"></div>
+    <div id="lastmsg">no MIDI yet</div>
+  </div>
+</section>
+
+<!-- SETTINGS + THE MANUAL. Every control in this app is listed in here, and a
+     test fails the build if one is added without being written down. -->
+<section class="win" id="helpwin" role="dialog" aria-modal="true" aria-labelledby="helptitle">
+  <header><span class="t" id="helptitle">SETTINGS · HELP</span>
+    <button class="tb" id="helpx" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div class="body" id="helpbody"></div>
+</section>
 <div id="console">
 <span id="hands"></span>
 <div id="mon"><canvas id="monwave"></canvas></div>
@@ -1412,6 +1575,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       },
       get step() {
         return step;
+      },
+      // Jump to a step. The queue is scheduled up to about 120ms ahead, so the
+      // steps already handed to the audio clock still sound — this changes where
+      // the loop goes NEXT, not what is already on its way out. Trying to unpick
+      // the queue would mean cancelling sources mid-note, which is a click.
+      seek(s) {
+        step = ((s | 0) % 16 + 16) % 16;
+        return step;
       }
     };
   }
@@ -2068,11 +2239,20 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       pinned.delete(id);
       onChange && onChange(items);
     }
+    async function clear() {
+      await txWrite(db, (s) => s.clear());
+      items.length = 0;
+      cache.clear();
+      pinned.clear();
+      bytes = 0;
+      onChange && onChange(items);
+    }
     return {
       boot,
       add,
       addFiles,
       remove,
+      clear,
       bufferFor,
       get items() {
         return items.slice();
@@ -2122,7 +2302,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     if (KEYISH.test(n)) return "keys";
     return null;
   }
-  function createKeys({ engine, voiceFor, onPad, onActivity, poly = 16 } = {}) {
+  function createKeys({ engine, voiceFor, onPad, onActivity, onNote, poly = 16 } = {}) {
     const roles = readRoles();
     const held = /* @__PURE__ */ new Map();
     const sustained = /* @__PURE__ */ new Set();
@@ -2147,6 +2327,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     function announce() {
       live.at = Date.now();
       onActivity && onActivity(live);
+    }
+    const down = /* @__PURE__ */ new Set();
+    function sawNote(n, on, vel) {
+      on ? down.add(n) : down.delete(n);
+      onNote && onNote(n, on, vel);
     }
     function decide(name, note) {
       if (roles[name]) return roles[name];
@@ -2205,12 +2390,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       h.timbre(s.timbre);
       h.level(s.level);
       live.notes = held.size;
+      sawNote(n, true, vel);
       announce();
     }
     function noteOff(c, n) {
       const k = key(c, n);
       const h = held.get(k);
       if (!h) return;
+      sawNote(n, false);
       if (ch[c].pedal) {
         sustained.add(k);
         return;
@@ -2230,9 +2417,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         if (c != null && +k.split(":")[0] !== c) continue;
         hard ? h.steal() : h.off();
         held.delete(k);
+        sawNote(+k.split(":")[1], false);
       }
       order.length = 0;
       sustained.clear();
+      down.clear();
       live.notes = 0;
       announce();
     }
@@ -2257,11 +2446,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           eachOn(c, (h) => h.level(v));
           break;
         case 64: {
-          const down = val >= 64;
-          if (down === s.pedal) break;
-          s.pedal = down;
+          const down2 = val >= 64;
+          if (down2 === s.pedal) break;
+          s.pedal = down2;
           sawExpressive(port);
-          if (!down) {
+          if (!down2) {
             for (const k of Array.from(sustained)) {
               if (+k.split(":")[0] !== c) continue;
               const h = held.get(k);
@@ -2356,11 +2545,27 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         allOff(null, true);
         for (const s of ch) s.pedal = false;
       },
-      // Forget what we learned about a controller. Not surfaced anywhere yet, but
-      // the decision must be reversible or a single bad guess is permanent.
+      // Which notes are down right now. A snapshot, not the live Set — a display
+      // that could mutate the instrument's state by accident is a bug waiting.
+      notesDown() {
+        return [...down];
+      },
+      // Forget what we learned about a controller, so the next few notes decide
+      // again. Surfaced in the MIDI window: a single bad guess must be reversible
+      // or a controller read wrong once is read wrong forever.
       forget(name) {
         delete roles[name];
         writeRoles(roles);
+      },
+      // Overrule the guess outright. The port sniffing is right almost always,
+      // and "almost" is the whole reason this exists — a controller that is
+      // physically a keyboard but sends only pad notes has no tell, and the
+      // person holding it can see what it is in a second.
+      setRole(name, r) {
+        if (r !== "keys" && r !== "pads") return;
+        roles[name] = r;
+        writeRoles(roles);
+        if (name === port) role = r;
       },
       // What this port WILL do, never null. Pads is the standing assumption for a
       // controller nothing is known about yet, so that is the honest answer to
@@ -2409,6 +2614,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         live.name = port;
         live.role = role;
         if (role === "pads") {
+          sawNote(data[1], on, data[2]);
           if (on && onPad) onPad(data[1], data[2]);
           return;
         }
@@ -2560,6 +2766,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
+  function capture(el, id) {
+    try {
+      el.setPointerCapture(id);
+    } catch (e) {
+    }
+  }
   var FIRST_RUN = !localStorage.getItem("skrimpad_ultimate_song");
   var song = loadSong();
   var warm = /* @__PURE__ */ new Map();
@@ -2890,7 +3102,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     let drag2 = null;
     svg.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      svg.setPointerCapture(e.pointerId);
+      capture(svg, e.pointerId);
       drag2 = { y: e.clientY, t: norm() };
     });
     svg.addEventListener("pointermove", (e) => {
@@ -3012,9 +3224,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         el.style.setProperty("--e", eng.meters[i].toFixed(3));
       }
     }
-    if (lvl === 0) drawNebula(cells);
+    if (lvl === 0) (NEB.mode === "column" ? drawColumn : drawNebula)(cells);
     if (lvl === 4) drawScope();
     drawMonitor(cells);
+    if (midiOpen) {
+      paintExprs();
+      syncMidiCell();
+    }
   }
   var monScope = null;
   var monQuiet = 0;
@@ -3045,7 +3261,26 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       $("#hands").innerHTML = txt;
     }
   }
-  var NEB = { hit: null, drag: null };
+  var NEB = { hit: null, drag: null, col: null, mode: "field" };
+  var COL_MODE = "skrimpad_ultimate_view";
+  try {
+    if (localStorage.getItem(COL_MODE) === "column") NEB.mode = "column";
+  } catch (e) {
+  }
+  function setView(mode) {
+    NEB.mode = mode;
+    NEB.drag = null;
+    try {
+      localStorage.setItem(COL_MODE, mode);
+    } catch (e) {
+    }
+    const b = $("#sview");
+    b.textContent = mode === "column" ? "FIELD" : "COLUMN";
+    b.setAttribute("aria-pressed", mode === "column" ? "true" : "false");
+    b.title = mode === "column" ? "Back to the plan view \u2014 compose by density" : "Side elevation \u2014 the bar on end, one step per shell";
+  }
+  $("#sview").addEventListener("click", () => setView(NEB.mode === "column" ? "field" : "column"));
+  setView(NEB.mode);
   function nebLayout(cells, W, H) {
     const cx = W / 2, cy = H / 2;
     const t = performance.now() / 1e3;
@@ -3128,6 +3363,172 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       }
     });
   }
+  var consBot = 90;
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => {
+      consBot = $("#consbot").offsetHeight || 90;
+    }).observe($("#consbot"));
+  }
+  function colLayout(cells, W, H) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cx = W / 2;
+    const padTop = 34 * dpr, padBot = (consBot + 26) * dpr;
+    const rowH = (H - padTop - padBot) / STEPS;
+    const Rmax = Math.min(W * 0.36, rowH * 3.4);
+    const load = [];
+    let peak = 1;
+    for (let s = 0; s < STEPS; s++) {
+      let k = 0;
+      for (let i = 0; i < cells.length; i++) if (cells[i].steps[s] > 0) k++;
+      load.push(k);
+      if (k > peak) peak = k;
+    }
+    const nodes = [];
+    const rows = [];
+    for (let s = 0; s < STEPS; s++) {
+      const scale = 0.72 + 0.28 * (load[s] / peak);
+      const y0 = padTop + (s + 0.5) * rowH;
+      rows.push({ s, y: y0, scale, R: Rmax * scale, load: load[s] });
+      for (let i = 0; i < cells.length; i++) {
+        const ang = i / cells.length * Math.PI * 2;
+        const shell = 0.34 + 0.66 * (i % 4 + 1) / 4;
+        const R = Rmax * scale * shell;
+        const vel = cells[i].steps[s];
+        nodes.push({
+          i,
+          s,
+          c: cells[i],
+          vel,
+          ang,
+          x: cx + Math.cos(ang) * R,
+          y: y0 + Math.sin(ang) * R * 0.26,
+          // Depth: the far half of each orbit is drawn first and dimmer, which is
+          // the only cue that says "ring" rather than "row of dots".
+          depth: Math.sin(ang),
+          r: (4.4 + vel / 127 * 4.6) * dpr
+        });
+      }
+    }
+    return { nodes, rows, cx, rowH, Rmax, dpr, padTop };
+  }
+  function drawColumn(cells) {
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (neb.width !== (rect.width * dpr | 0)) {
+      neb.width = rect.width * dpr;
+      neb.height = rect.height * dpr;
+    }
+    const W = neb.width, H = neb.height;
+    nctx.clearRect(0, 0, W, H);
+    const L = colLayout(cells, W, H);
+    NEB.col = L;
+    const spineEnd = L.rows[L.rows.length - 1].y + L.rowH * 0.5;
+    const spine = nctx.createLinearGradient(0, L.padTop, 0, spineEnd);
+    spine.addColorStop(0, "rgba(75,227,200,.02)");
+    spine.addColorStop(0.5, "rgba(75,227,200,.16)");
+    spine.addColorStop(1, "rgba(75,227,200,.02)");
+    nctx.strokeStyle = spine;
+    nctx.lineWidth = 1.2 * dpr;
+    nctx.beginPath();
+    nctx.moveTo(L.cx, L.padTop);
+    nctx.lineTo(L.cx, spineEnd);
+    nctx.stroke();
+    const at = (eng.step % STEPS + STEPS) % STEPS;
+    L.rows.forEach((row) => {
+      const beat = row.s % 4 === 0;
+      const lit = row.s === at;
+      nctx.beginPath();
+      nctx.ellipse(L.cx, row.y, row.R, row.R * 0.26, 0, 0, 7);
+      nctx.strokeStyle = lit ? "rgba(75,227,200,.55)" : "rgba(255,255,255," + (0.03 + (row.load ? 0.05 : 0) + (beat ? 0.035 : 0)).toFixed(3) + ")";
+      nctx.lineWidth = (lit ? 1.8 : 1) * dpr;
+      nctx.stroke();
+      if (beat) {
+        nctx.font = 9 * dpr + "px Oswald, sans-serif";
+        nctx.fillStyle = lit ? "rgba(75,227,200,.9)" : "rgba(255,255,255,.26)";
+        nctx.textAlign = "right";
+        nctx.fillText(
+          String(row.s / 4 + 1),
+          Math.max(14 * dpr, L.cx - L.Rmax - 12 * dpr),
+          row.y + 3 * dpr
+        );
+      }
+    });
+    const byCell = /* @__PURE__ */ new Map();
+    L.nodes.forEach((n) => {
+      if (n.vel <= 0 || n.c.mute) return;
+      if (!byCell.has(n.i)) byCell.set(n.i, []);
+      byCell.get(n.i).push(n);
+    });
+    byCell.forEach((list, i) => {
+      if (list.length < 2) return;
+      nctx.beginPath();
+      nctx.moveTo(list[0].x, list[0].y);
+      for (let k = 1; k < list.length; k++) nctx.lineTo(list[k].x, list[k].y);
+      nctx.strokeStyle = "hsl(" + cells[i].hue + " 85% 60% / .22)";
+      nctx.lineWidth = 1.1 * dpr;
+      nctx.stroke();
+    });
+    const live = L.nodes.filter((n) => n.vel > 0).sort((a, b) => a.depth - b.depth);
+    live.forEach((n) => {
+      const front = 0.55 + 0.45 * ((n.depth + 1) / 2);
+      const energy = n.s === at ? eng.meters[n.i] || 0 : 0;
+      const size = n.r * (1 + energy * 0.9);
+      const l = 50 + energy * 26;
+      const a = (n.c.mute ? 0.22 : 1) * front;
+      const col = "hsl(" + n.c.hue + " 92% " + l + "%";
+      const g = nctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, size * 3);
+      g.addColorStop(0, col + " / " + (a * 0.55).toFixed(3) + ")");
+      g.addColorStop(1, col + " / 0)");
+      nctx.fillStyle = g;
+      nctx.beginPath();
+      nctx.arc(n.x, n.y, size * 3, 0, 7);
+      nctx.fill();
+      nctx.fillStyle = col + " / " + a.toFixed(3) + ")";
+      nctx.beginPath();
+      nctx.arc(n.x, n.y, size, 0, 7);
+      nctx.fill();
+    });
+    if (at >= 0) {
+      const names = live.filter((n) => n.s === at && !n.c.mute).map((n) => n.c.name);
+      if (names.length) {
+        nctx.font = 10 * dpr + "px Oswald, sans-serif";
+        nctx.fillStyle = "rgba(75,227,200,.85)";
+        nctx.textAlign = "center";
+        nctx.fillText(names.join(" \xB7 ").slice(0, 46), L.cx, L.padTop - 12 * dpr);
+      }
+    }
+  }
+  function colPick(ev) {
+    if (!NEB.col) return null;
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const x = (ev.clientX - rect.left) * dpr, y = (ev.clientY - rect.top) * dpr;
+    let best = null, bd = 1e9;
+    for (const n of NEB.col.nodes) {
+      if (n.vel <= 0 || n.c.mute) continue;
+      const d = Math.hypot(n.x - x, n.y - y);
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }
+    return bd < 22 * dpr ? best : null;
+  }
+  function colRow(ev) {
+    if (!NEB.col) return -1;
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const y = (ev.clientY - rect.top) * dpr;
+    let best = -1, bd = 1e9;
+    for (const r of NEB.col.rows) {
+      const d = Math.abs(r.y - y);
+      if (d < bd) {
+        bd = d;
+        best = r.s;
+      }
+    }
+    return bd < NEB.col.rowH ? best : -1;
+  }
   function nebPick(ev) {
     if (!NEB.hit) return null;
     const rect = neb.getBoundingClientRect();
@@ -3145,11 +3546,39 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   }
   var nebTap = 0;
   var nebLast = 0;
+  function colSeek(s) {
+    if (s < 0 || s === NEB.seek) return;
+    NEB.seek = s;
+    eng.seek(s);
+  }
   neb.addEventListener("pointerdown", (ev) => {
+    if (NEB.mode === "column") {
+      ev.preventDefault();
+      capture(neb, ev.pointerId);
+      const n = colPick(ev);
+      if (n) {
+        lastCell = n.i;
+        eng.resume();
+        eng.play(n.c.voice, 0, n.vel || 100, n.i);
+        NEB.drag = {
+          col: 1,
+          node: n,
+          hold: setTimeout(() => {
+            NEB.drag && (NEB.drag.flew = 1);
+            atlas.setFocus(2, n.i);
+            atlas.goTo(2, n.i);
+          }, 380)
+        };
+        return;
+      }
+      NEB.drag = { col: 1, scrub: 1 };
+      colSeek(colRow(ev));
+      return;
+    }
     const b = nebPick(ev);
     if (!b) return;
     ev.preventDefault();
-    neb.setPointerCapture(ev.pointerId);
+    capture(neb, ev.pointerId);
     const rect = neb.getBoundingClientRect();
     NEB.drag = { i: b.i, r0: Math.hypot(
       ev.clientX - rect.left - rect.width / 2,
@@ -3159,6 +3588,15 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   });
   neb.addEventListener("pointermove", (ev) => {
     if (!NEB.drag) return;
+    if (NEB.drag.col) {
+      if (NEB.drag.hold) {
+        clearTimeout(NEB.drag.hold);
+        NEB.drag.hold = 0;
+        NEB.drag.scrub = 1;
+      }
+      if (NEB.drag.scrub) colSeek(colRow(ev));
+      return;
+    }
     const rect = neb.getBoundingClientRect();
     const r = Math.hypot(ev.clientX - rect.left - rect.width / 2, ev.clientY - rect.top - rect.height / 2);
     const d = NEB.drag.r0 - r;
@@ -3172,6 +3610,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   });
   neb.addEventListener("pointerup", (ev) => {
     const held = performance.now() - nebTap;
+    if (NEB.drag && NEB.drag.col) {
+      if (NEB.drag.hold) clearTimeout(NEB.drag.hold);
+      NEB.drag = null;
+      return;
+    }
     if (NEB.drag && !NEB.drag.moved && held < 400) {
       const i = NEB.drag.i;
       const dbl = performance.now() - nebLast < 320;
@@ -3253,7 +3696,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     e.preventDefault();
     const r = cons.getBoundingClientRect();
     drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-    grip.setPointerCapture(e.pointerId);
+    capture(grip, e.pointerId);
     cons.classList.add("dragging");
   });
   grip.addEventListener("pointermove", (e) => {
@@ -3311,7 +3754,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   });
   $("#panic").addEventListener("click", () => {
     eng.stop();
+    keys.panic();
+    touched.forEach((t) => t.h.off());
+    touched.clear();
     playBtn.classList.remove("on");
+    if (midiOpen) paintKeys();
   });
   $("#swing").addEventListener("input", (e) => {
     song.swing = Math.max(0, Math.min(60, +e.target.value || 0)) / 100;
@@ -3358,6 +3805,9 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     saveSong(song);
     if (atlas.level === 2) drawCellSheet();
   });
+  var midiOpen = false;
+  var lastPorts = [];
+  var lastMsg = "";
   var keys = createKeys({
     engine: eng,
     // Keys sound the cell you are looking at. There is no separate "instrument"
@@ -3375,6 +3825,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       eng.play(liveCells(song)[idx].voice, 0, vel, idx);
       recordHit(idx, vel);
       flash(idx);
+    },
+    // The key display lights from the instrument's own note events rather than
+    // from a poll, so a key is lit within the same frame the hardware sent it.
+    onNote: (n, on) => {
+      if (midiOpen) lightKey(n, on);
     }
   });
   var io = createMidiIO({
@@ -3389,10 +3844,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         else if (e.transport === "rec") $("#rec").click();
         return;
       }
+      noteLastMessage(e);
       keys.handle(e.raw, e.port && e.port.name || "");
     },
     onPorts: (ports) => {
       const s = $("#status");
+      lastPorts = ports || [];
+      if (midiOpen) renderPorts();
       if (!ports || !ports.length) {
         s.innerHTML = "no controller yet<br>usb: plug in \xB7 bluetooth: pair in settings";
         return;
@@ -3410,6 +3868,201 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) keys.panic();
   });
+  var openWin = null;
+  var winOpener = null;
+  function showWin(el) {
+    if (openWin === el) return;
+    if (openWin) openWin.classList.remove("open");
+    winOpener = document.activeElement;
+    openWin = el;
+    midiOpen = el === $("#midiwin");
+    el.classList.add("open");
+    $("#scrim").classList.add("open");
+    const first = el.querySelector("button, [href], input, select");
+    if (first) first.focus();
+  }
+  function closeWin() {
+    if (!openWin) return;
+    openWin.classList.remove("open");
+    if (openWin === $("#midiwin")) midiOpen = false;
+    openWin = null;
+    $("#scrim").classList.remove("open");
+    if (winOpener && winOpener.isConnected) winOpener.focus();
+    winOpener = null;
+  }
+  $("#scrim").addEventListener("click", closeWin);
+  $("#midix").addEventListener("click", closeWin);
+  $("#helpx").addEventListener("click", closeWin);
+  var KEY_LO = 36;
+  var KEY_HI = 84;
+  var BLACK = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
+  var keybed = $("#keybed");
+  var keyEls = /* @__PURE__ */ new Map();
+  var touched = /* @__PURE__ */ new Map();
+  function buildKeybed() {
+    if (keyEls.size) return;
+    let whites = 0;
+    for (let n = KEY_LO; n <= KEY_HI; n++) if (!BLACK.has(n % 12)) whites++;
+    const ww = 100 / whites, bw = ww * 0.62;
+    let w = 0, html = "";
+    for (let n = KEY_LO; n <= KEY_HI; n++) {
+      const black = BLACK.has(n % 12);
+      if (black) {
+        html += '<div class="kk" data-n="' + n + '" style="left:' + (w * ww - bw / 2) + "%;width:" + bw + '%"></div>';
+      } else {
+        html += '<div class="kw" data-n="' + n + '" style="left:' + w * ww + "%;width:" + ww + '%">' + (n % 12 === 0 ? "<b>C" + (Math.floor(n / 12) - 1) + "</b>" : "") + "</div>";
+        w++;
+      }
+    }
+    keybed.innerHTML = html;
+    keybed.querySelectorAll("[data-n]").forEach((e) => keyEls.set(+e.dataset.n, e));
+  }
+  function lightKey(note, on) {
+    const e = keyEls.get(note);
+    if (e) e.classList.toggle("on", !!on);
+  }
+  function paintKeys() {
+    const down = new Set(keys.notesDown());
+    keyEls.forEach((e, n) => e.classList.toggle("on", down.has(n)));
+  }
+  function syncMidiCell() {
+    var _a;
+    const c = liveCells(song)[(_a = atlas.focusAt(1)) != null ? _a : lastCell] || liveCells(song)[0];
+    if (!c) return;
+    keybed.style.setProperty("--h", c.hue);
+    $("#midicell").textContent = c.name;
+  }
+  var EXPR = [
+    ["BEND", (l) => Math.min(1, Math.abs(l.bend) / 12), (l) => (l.bend >= 0 ? "+" : "") + l.bend.toFixed(2) + "st"],
+    ["MOD", (l) => l.mod, (l) => Math.round(l.mod * 127)],
+    ["PRESS", (l) => l.press, (l) => Math.round(l.press * 127)],
+    ["TIMBRE", (l) => l.timbre, (l) => Math.round(l.timbre * 127)]
+  ];
+  function buildExprs() {
+    if ($("#exprs").children.length) return;
+    $("#exprs").innerHTML = EXPR.map(([name]) => '<div class="ex" data-x="' + name + '"><span class="exl">' + name + '</span><span class="exb"><i></i></span><span class="exv">0</span></div>').join("");
+  }
+  function paintExprs() {
+    const l = keys.live;
+    EXPR.forEach(([name, frac, text]) => {
+      const row = $('#exprs [data-x="' + name + '"]');
+      if (!row) return;
+      row.querySelector("i").style.width = Math.max(0, Math.min(1, frac(l))) * 100 + "%";
+      row.querySelector(".exv").textContent = text(l);
+    });
+  }
+  var CC_NAMES = {
+    1: "MOD WHEEL",
+    2: "BREATH",
+    7: "VOLUME",
+    11: "EXPRESSION",
+    64: "SUSTAIN",
+    74: "TIMBRE",
+    120: "ALL SOUND OFF",
+    121: "RESET",
+    123: "ALL NOTES OFF"
+  };
+  var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  function noteName(n) {
+    return NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+  }
+  function noteLastMessage(e) {
+    const cmd = e.cmd, d1 = e.d1, d2 = e.d2;
+    let txt;
+    if (e.transport) txt = "TRANSPORT " + e.transport.toUpperCase();
+    else if (cmd === 144 && d2 > 0) txt = "NOTE ON " + noteName(d1) + " vel " + d2;
+    else if (cmd === 128 || cmd === 144) txt = "NOTE OFF " + noteName(d1);
+    else if (cmd === 176) txt = (CC_NAMES[d1] || "CC " + d1) + " " + d2;
+    else if (cmd === 224) txt = "PITCH BEND " + ((d2 << 7 | d1) - 8192);
+    else if (cmd === 208) txt = "PRESSURE " + d1;
+    else if (cmd === 160) txt = "PRESSURE " + noteName(d1) + " " + d2;
+    else txt = "CH " + ((e.chan || 0) + 1) + " " + cmd.toString(16);
+    lastMsg = "<b>" + esc(txt) + "</b> \xB7 ch " + ((e.chan || 0) + 1) + (e.port && e.port.name ? " \xB7 " + esc(String(e.port.name).slice(0, 22)) : "");
+    if (midiOpen) $("#lastmsg").innerHTML = lastMsg;
+  }
+  function renderPorts() {
+    const box = $("#ports");
+    if (!lastPorts.length) {
+      box.innerHTML = '<div class="none">Nothing connected yet.<br>USB: plug the controller in \u2014 it is picked up on its own.<br>Bluetooth: pair it in your system settings first, then use the button below.</div>';
+      return;
+    }
+    box.innerHTML = lastPorts.map((p, i) => {
+      const name = String(p.name || "MIDI");
+      const role = keys.roleOf(name);
+      const sure = keys.decided(name);
+      const other = role === "keys" ? "pads" : "keys";
+      return '<div class="port"><span class="pn" title="' + esc(name) + '">' + esc(name) + '</span><span class="pr ' + role + (sure ? "" : " guess") + '">' + (sure ? role.toUpperCase() : "LISTENING") + '</span><button class="pb" data-role="' + other + '" data-port="' + i + '">USE AS ' + other.toUpperCase() + '</button><button class="pb" data-relearn="' + i + '">RELEARN</button></div>';
+    }).join("");
+  }
+  $("#ports").addEventListener("click", (ev) => {
+    var _a;
+    const b = ev.target.closest("button");
+    if (!b) return;
+    const idx = +((_a = b.dataset.port) != null ? _a : b.dataset.relearn);
+    const p = lastPorts[idx];
+    if (!p) return;
+    const name = String(p.name || "MIDI");
+    if (b.dataset.role) {
+      keys.setRole(name, b.dataset.role);
+      toast(name.slice(0, 16) + " \u2192 " + b.dataset.role);
+    } else {
+      keys.forget(name);
+      toast("relearning " + name.slice(0, 16));
+    }
+    renderPorts();
+    io.rescan();
+  });
+  $("#bleconnect").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    b.textContent = "LOOKING\u2026";
+    try {
+      await io.connectBluetooth({ onStatus: (s) => {
+        if (s && s.hint) toast(s.hint.slice(0, 70));
+      } });
+    } catch (err) {
+      if (!/cancel|NotFound/i.test(String(err && err.message))) toast("bluetooth: " + String(err && err.message || err).slice(0, 60));
+    } finally {
+      b.disabled = false;
+      b.textContent = "CONNECT BLUETOOTH";
+      renderPorts();
+    }
+  });
+  keybed.addEventListener("pointerdown", (ev) => {
+    var _a;
+    const el = ev.target.closest("[data-n]");
+    if (!el) return;
+    ev.preventDefault();
+    capture(keybed, ev.pointerId);
+    const n = +el.dataset.n;
+    const c = liveCells(song)[(_a = atlas.focusAt(1)) != null ? _a : lastCell] || liveCells(song)[0];
+    if (!c) return;
+    eng.resume();
+    touched.set(ev.pointerId, { n, h: eng.hold(c.voice, n, 100, 0) });
+    lightKey(n, true);
+  });
+  function releaseTouch(ev) {
+    const t = touched.get(ev.pointerId);
+    if (!t) return;
+    touched.delete(ev.pointerId);
+    t.h.off();
+    paintKeys();
+  }
+  keybed.addEventListener("pointerup", releaseTouch);
+  keybed.addEventListener("pointercancel", releaseTouch);
+  function openMidi() {
+    buildKeybed();
+    buildExprs();
+    midiOpen = true;
+    lastPorts = io.listInputs() || [];
+    renderPorts();
+    syncMidiCell();
+    paintKeys();
+    paintExprs();
+    $("#lastmsg").innerHTML = lastMsg || "no MIDI yet";
+    showWin($("#midiwin"));
+  }
+  $("#status").addEventListener("click", openMidi);
   var armed = null;
   function renderList(items) {
     const host = $("#list");
@@ -3566,6 +4219,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add("ready")));
   ["pointerdown", "keydown"].forEach((e) => window.addEventListener(e, () => eng.resume(), { once: true }));
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (openWin) {
+        e.preventDefault();
+        closeWin();
+        return;
+      }
+      if ($("#shelf").classList.contains("open")) {
+        e.preventDefault();
+        $("#shelfx").click();
+        return;
+      }
+    }
+    if (openWin && !(e.ctrlKey || e.metaKey)) return;
     if (e.key === " " && !/input/i.test(e.target.tagName)) {
       e.preventDefault();
       playBtn.click();
@@ -3590,6 +4256,136 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     $("#swing").value = Math.round(song.swing * 100);
     saveSong(song);
   }
+  var HELP = [
+    ["WHERE YOU ARE", [
+      ["The five dots", "Depth, not a menu. The app is one thing seen from five distances: the whole song, the pads, one pad's pattern, its sound, and its waveform. The dots say how deep you are and jump you there.", ["#rail", ".rdot"]],
+      ["Pinch \xB7 scroll \xB7 arrow keys", "Fly between those distances. Everything keeps its colour the whole way down, so the red thing in the constellation is the red pad and the red waveform.", []],
+      ["Hold a pad", "Dives straight to that pad's pattern instead of walking down a level at a time.", []]
+    ]],
+    ["THE TRANSPORT", [
+      ["PLAY", "Starts and stops. Also bound to the space bar, and to the play button on a controller that sends transport.", ["#play"]],
+      ["REC", "Arms recording. With it armed, anything you play \u2014 pads, keys, a controller \u2014 is written into the pattern at the step it landed on, quantised to the grid.", ["#rec"]],
+      ["BPM", "Tempo, 20 to 300. The whole app follows it, including the export.", ["#bpm"]],
+      ["SWING", "Delays the offbeats only, 0 to 60%. Applying it to every step would just be a slower tempo.", ["#swing"]],
+      ["DICE", "Surprise me. Rewrites the current scene into something playable rather than something random.", ["#dice"]],
+      ["SOUNDS", "Opens the sound shelf over whatever you are looking at.", ["#libbtn"]],
+      ["PANIC", "Silences everything immediately, including notes a controller is still holding.", ["#panic"]],
+      ["The grip", "Drag the whole console anywhere \u2014 it lands under your palm otherwise if you play left-handed. Double-tap it to put it back.", ["#grip"]],
+      ["The wave strip", "What is actually leaving the speaker, right now. It appears when there is something to show and fades when there is not.", ["#mon", "#monwave", "#hands"]]
+    ]],
+    ["THE PADS", [
+      ["Tap", "Plays it. If REC is armed it also writes the hit into the pattern.", [".cell", "#deck"]],
+      ["Right-click \xB7 M", "Mute. The pad keeps its place and is struck through, so silence is a decision you can see.", []],
+      ["Shift+right-click \xB7 S", "Solo \u2014 everything else drops away. Soloing a muted pad unmutes it rather than leaving you with silence.", []],
+      ["Drag a sound onto it", "Assigns that sound. Works in both directions: arm a sound and tap a pad, or tap a pad and pick a sound.", []],
+      ["The ribbon", "The bar under each pad is its pattern \u2014 sixteen steps at a glance without leaving the deck.", []]
+    ]],
+    ["ONE PAD'S PATTERN", [
+      ["The sixteen steps", "Tap to toggle, drag across to paint. The mode is set by the first step you touch, so a stroke either fills or clears rather than flickering.", [".steps", "#cellsheet"]],
+      ["Beats", "Steps 1, 5, 9 and 13 are edged brighter \u2014 that is where the beat is.", []]
+    ]],
+    ["THE SOUND", [
+      ["CUTOFF \xB7 RESO", "The filter. Cutoff is brightness, reso is the peak at the cutoff point.", ["#voicesheet", ".knobs"]],
+      ["ATTACK \xB7 DECAY \xB7 SUSTAIN \xB7 RELEASE", "The shape of the note over time: how fast it arrives, how fast it falls, where it settles while held, how long it takes to disappear.", []],
+      ["DRIVE", "Saturation. Adds harmonics and thickness before the filter.", []],
+      ["SPACE", "Reverb send. The room the sound is in.", []],
+      ["SPREAD", "Detune between three stacked oscillators \u2014 the difference between one sawtooth and a supersaw, and most of the LEAD's character.", []],
+      ["TUNE \xB7 PAN \xB7 LEVEL", "Pitch in semitones, position across the stereo field, and loudness.", []],
+      ["Turning them", "Drag up and down, or focus one and use the arrow keys \u2014 shift for fine, page up/down for coarse, home and end for the limits.", []]
+    ]],
+    ["THE WAVEFORM", [
+      ["The scope", "One cycle of the voice, trigger-locked so it holds still. Turn a knob and watch what it does to the shape.", ["#grainsheet", "#scope"]]
+    ]],
+    ["THE CONSTELLATION", [
+      ["The field", "The whole song at once. Each body is a pad; its angle never moves, its distance from the centre is how busy it is. A tight bright core is a full section, a wide sparse ring is a breakdown.", ["#nebula"]],
+      ["Drag a body in or out", "Fills or thins that pad's pattern, landing on beats before offbeats so it stays playable at every density.", []],
+      ["Tap \xB7 double-tap", "Audition it, or mute it.", []],
+      ["The scene rings", "All four scenes are drawn at once. Tap a pill to switch.", [".spill", "#scenepick"]],
+      ["COLUMN / FIELD", "Switches between the plan view and the side elevation. Same song, two readings of it.", ["#sview"]],
+      ["CLEAR", "Empties the scene. It goes through undo, so an hour of work is one ctrl+Z away.", ["#sclear"]],
+      ["COPY TO NEXT", "Duplicates this scene's pattern into the next one, which keeps its own name.", ["#scopy"]],
+      ["EXPORT WAV", "Renders four bars of the scene to a stereo 44.1k WAV and saves it. It goes through the same engine as playback, so the file sounds like what you heard, and it leaves a tail on the end so ambient voices are not chopped off.", ["#sbounce"]]
+    ]],
+    ["THE COLUMN", [
+      ["What it is", "The bar stood on end and seen from the side. Time runs top to bottom, one shell per step, and the cells sit on four nested orbits like an atom.", []],
+      ["The shape", "A shell is as wide as the step is busy, so the silhouette of the column is the density of the bar. A funnel that swells at the bottom is a fill; a straight pipe is a loop; a waist in the middle is where it breathes.", []],
+      ["The strands", "A cell keeps the same orbit and angle in every shell, so its hits join into one line down the column. Following that line is reading its rhythm.", []],
+      ["Tap a nucleus", "Hears it and selects it. Hold to fly into that pad's pattern, the same as holding a pad on the deck.", []],
+      ["Tap or drag a shell", "Puts the playhead on that step \u2014 anywhere in the row, not just on a dot. Stopped, that is where PLAY will start from.", []],
+      ["Why it does not edit", "Sixteen cells across sixteen steps is 256 targets in one pane. Even packed perfectly that is a 43-pixel square each, and an edge-on ring is not packed perfectly \u2014 the closest pair measured eleven pixels. Editing stays on the step grid, where there is room for it.", []]
+    ]],
+    ["SOUNDS", [
+      ["Drop or browse", "Anything the device can decode. Files are stored inside the app, so they survive a restart and work offline.", ["#drop", "#file"]],
+      ["A sound row", "Tap to arm it \u2014 every pad lights up as a target \u2014 then tap the pad you want it on. Or drag the row straight onto a pad.", [".snd", "#list"]],
+      ["The cross", "Removes it from the library. Any pad using it lets go rather than pointing at nothing.", [".snd .sx"]],
+      ["Space", "The library keeps itself under 96MB, dropping the least recently used sounds first. Nothing you have put on a pad is ever dropped.", ["#shelf", "#shelfx"]]
+    ]],
+    ["MIDI", [
+      ["The readout", "Top right: what is plugged in and what the app decided it is. Tap it to open this window.", ["#status", "#midiwin", "#midix"]],
+      ["Plugging in", "Nothing to set up. Plug a controller in and play it \u2014 notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.", ["#ports"]],
+      ["KEYS or PADS", "The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here \u2014 or RELEARN to make it work it out again.", []],
+      ["CONNECT BLUETOOTH", "Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly.", ["#bleconnect"]],
+      ["The keyboard", "A display: it lights where the hardware is playing, so you can see the app hearing you. Touch it to audition the pad you are looking at across its range.", ["#keybed", "#midicell"]],
+      ["BEND \xB7 MOD \xB7 PRESS \xB7 TIMBRE", "What the wheels and the pressure sensor are doing right now. This is the part that proves your controller's expression is getting through.", ["#exprs"]],
+      ["The last message", "The most recent thing that arrived, in words. If this is not moving, the app is not hearing the controller.", ["#lastmsg"]],
+      ["Which sound it plays", "Whichever pad you are looking at. There is no instrument to select because flying to a pad already selected one.", []]
+    ]],
+    ["KEYS ON THE COMPUTER", [
+      ["Space", "Play / stop.", []],
+      ["Ctrl+Z \xB7 Ctrl+Shift+Z \xB7 Ctrl+Y", "Undo, and both spellings of redo.", []],
+      ["Escape", "Closes whatever is open \u2014 this window, or the sound shelf.", []],
+      ["Tab", "Reaches every control in order. Focus is always visible.", []],
+      ["M \xB7 S on a focused pad", "Mute, solo.", []]
+    ]],
+    ["THIS WINDOW", [
+      ["Settings \xB7 help", "Everything the app can do is listed here. Every new feature is added to this list in the same release that adds it \u2014 a control that is not written up here fails the build.", ["#gear", "#helpwin", "#helpx"]],
+      ["START OVER", "Throws away the song, the sounds and every remembered setting. There is no undo for it, so it asks twice.", ["#resetall"]]
+    ]]
+  ];
+  var WHATS_NEW = ["1.0.12", [
+    ["The column", "A second reading of the constellation \u2014 the bar on end, one shell per step, cells on nested orbits. Shows where the bar is busy and lets you drop the playhead anywhere in it."],
+    ["The MIDI window", "A live key display, the wheels and pressure as meters, the last message in words, and the one override the app needs: whether a controller is keys or pads."],
+    ["Export", "Four bars of any scene out to a WAV, through the same engine as playback."],
+    ["Scene actions", "CLEAR and COPY TO NEXT, both undoable."],
+    ["This page", "Everything the app does, in one place, checked by a test."]
+  ]];
+  function renderHelp() {
+    const body = $("#helpbody");
+    if (body.dataset.built) return;
+    body.dataset.built = "1";
+    const rows = (list) => list.map(([d, w]) => '<div class="hrow"><span class="hd">' + esc(d) + '</span><span class="hw">' + esc(w) + "</span></div>").join("");
+    body.innerHTML = '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + "</h4>" + rows(WHATS_NEW[1]) + "</div></div>" + HELP.map(([title, list]) => '<div class="hgrp"><h4>' + esc(title) + "</h4>" + rows(list) + "</div>").join("") + '<div class="hgrp"><h4>DATA</h4><button class="wbtn danger" id="resetall">START OVER</button></div>';
+    let armed2 = 0;
+    $("#resetall").addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      if (!armed2) {
+        armed2 = 1;
+        b.textContent = "TAP AGAIN TO ERASE EVERYTHING";
+        setTimeout(() => {
+          if (armed2) {
+            armed2 = 0;
+            b.textContent = "START OVER";
+          }
+        }, 4e3);
+        return;
+      }
+      b.disabled = true;
+      b.textContent = "ERASING\u2026";
+      try {
+        await lib.clear();
+      } catch (err) {
+      }
+      try {
+        localStorage.clear();
+      } catch (err) {
+      }
+      location.reload();
+    });
+  }
+  $("#gear").addEventListener("click", () => {
+    renderHelp();
+    showWin($("#helpwin"));
+  });
   window.__ult = {
     atlas,
     song,
@@ -3610,7 +4406,21 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     warmHas: (id) => warm.has(id),
     focusCell: (i) => {
       lastCell = i;
-    }
+    },
+    // The column's node list, same shape and same purpose as nebBodies: a test
+    // can prove that the thing it taps is the thing that was drawn.
+    colNodes: () => NEB.col ? NEB.col.nodes.map((n) => ({ i: n.i, s: n.s, x: n.x, y: n.y, vel: n.vel })) : [],
+    setView,
+    colPick,
+    // Every selector the manual claims to document. The coverage test reads this
+    // and compares it against the controls that actually exist — in both
+    // directions, so an undocumented button and a documented ghost both fail.
+    helpSelectors: () => HELP.reduce((a, [, list]) => a.concat(list.flatMap((e) => e[2] || [])), []),
+    openHelp: () => {
+      renderHelp();
+      showWin($("#helpwin"));
+    },
+    openMidi
   };
   window.__ultMakeEngine = createEngine;
   window.__ultBounce = bounceScene;

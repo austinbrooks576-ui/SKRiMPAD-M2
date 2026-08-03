@@ -52,3 +52,15 @@ interface, only choosing how close to stand.
   foreground (i.e. right after you pair something in Settings).
 
 Build: `node ultimate/tools/bundle.js` → `ultimate/dist/index.html`
+
+## The documentation rule
+
+Every control in the app is listed in the `HELP` table in `src/index.html`, and
+each entry names what it documents with a CSS selector. `ultwin.cjs` walks every
+`button[id]`, `input[id]` and `[role="slider"][id]` in the document — at every
+altitude, with the library populated — and fails if one of them is not in that
+table. It fails the other way too: a selector in the table that no longer
+matches anything is a stale entry and also fails.
+
+So a new feature is not finished when it works. It is finished when it is
+written up in `HELP`, and the build says so.

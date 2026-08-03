@@ -607,5 +607,13 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     },
     stop() { playing = false; clearTimeout(timer); step = 0; },
     get step() { return step; },
+    // Jump to a step. The queue is scheduled up to about 120ms ahead, so the
+    // steps already handed to the audio clock still sound — this changes where
+    // the loop goes NEXT, not what is already on its way out. Trying to unpick
+    // the queue would mean cancelling sources mid-note, which is a click.
+    seek(s) {
+      step = ((s | 0) % 16 + 16) % 16;
+      return step;
+    },
   };
 }

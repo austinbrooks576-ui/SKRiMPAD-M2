@@ -235,8 +235,18 @@ export function createLibrary({ ctx, onChange, onError } = {}) {
     onChange && onChange(items);
   }
 
+  // Throw the whole library away. Only START OVER calls this, and it has to
+  // empty the in-memory mirrors as well — a cleared store behind a populated
+  // `items` array would leave the shelf listing sounds that are gone, and the
+  // next eviction pass would happily write those ghosts back out.
+  async function clear() {
+    await txWrite(db, (s) => s.clear());
+    items.length = 0; cache.clear(); pinned.clear(); bytes = 0;
+    onChange && onChange(items);
+  }
+
   return {
-    boot, add, addFiles, remove, bufferFor,
+    boot, add, addFiles, remove, clear, bufferFor,
     get items() { return items.slice(); },
     find: (id) => items.find((x) => x.id === id) || null,
     pin(id) { if (id) pinned.add(id); },
