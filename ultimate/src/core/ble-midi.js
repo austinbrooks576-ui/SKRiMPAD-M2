@@ -35,9 +35,16 @@ const dataLenFor = (status) => {
 // Create a decoder with its own state. One per device — running status and a
 // half-finished SysEx belong to that device alone, and sharing them between two
 // controllers corrupts both streams.
+// A real patch dump is tens of kilobytes; nothing legitimate is anywhere near
+// this. The cap exists for the stream that never ends — a controller yanked
+// mid-dump, or a corrupt packet that swallows an F7 — where the accumulator
+// otherwise grows until the tab dies.
+const SYSEX_MAX = 65536;
+
 export function createBleDecoder(onMessage) {
   let runningStatus = 0;
   let sysex = null;                                  // accumulating F0 … F7
+  let sysexLost = false;                             // over the cap: swallow to F7
 
   return function decode(bytes) {
     if (!bytes || bytes.length < 1) return;
@@ -51,9 +58,32 @@ export function createBleDecoder(onMessage) {
       // Inside a SysEx, everything that is not a status byte is payload. A byte
       // with bit7 set is either the timestamp preceding F7, or F7 itself.
       if (sysex) {
-        if (b === 0xf7) { sysex.push(0xf7); onMessage(sysex); sysex = null; i++; continue; }
-        if (b & 0x80) { i++; continue; }              // interleaved timestamp
-        sysex.push(b); i++; continue;
+        if (b & 0x80) {
+          // A high byte inside a dump is a TIMESTAMP, and what follows it says
+          // what it was for. This has to mirror the main branch below, because
+          // a timestamp and a real-time status occupy the same 0x80-0xFF range
+          // and cannot be told apart by value alone.
+          i++;
+          if (i >= bytes.length) break;
+          const s = bytes[i];
+          if (s === 0xf7) {                            // end of dump
+            i++;
+            // A dump that blew the cap is dropped rather than delivered short.
+            // Handing a truncated patch bank to a synth as though it were whole
+            // is worse than losing it.
+            if (!sysexLost) { sysex.push(0xf7); onMessage(sysex); }
+            sysex = null; sysexLost = false;
+            continue;
+          }
+          // Real-time is legal ANYWHERE, including mid-dump, and used to be
+          // swallowed here — so a clock tick, or the transport button someone
+          // pressed while a dump was in flight, simply vanished.
+          if (s >= 0xf8) { onMessage([s]); i++; continue; }
+          continue;                                    // plain timestamp before payload
+        }
+        if (sysex.length >= SYSEX_MAX) { sysexLost = true; sysex.length = 0; }
+        else sysex.push(b);
+        i++; continue;
       }
 
       if (b & 0x80) {
