@@ -552,6 +552,7 @@ function buildDeck() {
       // follows your attention without anything having to be selected.
       lastCell = i;
       eng.resume(); eng.play(c.voice, 0, 112, i);
+      recordHit(i, 112);
       flash(i);
       held = setTimeout(() => { held = 0; atlas.setFocus(2, i); atlas.goTo(2, i); }, 380);
     });
@@ -563,7 +564,7 @@ function buildDeck() {
         // Space as play/stop, so without this a pad would fire AND the
         // transport would toggle from the same press.
         ev.preventDefault(); ev.stopPropagation();
-        lastCell = i; eng.resume(); eng.play(c.voice, 0, 112, i); flash(i);
+        lastCell = i; eng.resume(); eng.play(c.voice, 0, 112, i); recordHit(i, 112); flash(i);
       } else if (ev.key === 'm' || ev.key === 'M') {
         ev.preventDefault(); ev.stopPropagation(); toggleMute(i);
       }
@@ -1115,7 +1116,8 @@ playBtn.addEventListener('click', () => {
   eng.resume();
   if (eng.playing) { eng.stop(); playBtn.classList.remove('on'); }
   else {
-    eng.start(song, (s) => {
+    eng.start(song, (s, at) => {
+      recStep = s; recAt = at;
       // Paint the playhead on the DECK ribbons and the CELL steps.
       requestAnimationFrame(() => {
         deck.querySelectorAll('.ribbon b.at').forEach((b) => b.classList.remove('at'));
@@ -1134,7 +1136,53 @@ $('#bpm').addEventListener('input', (e) => {
   const v = Math.max(20, Math.min(300, +e.target.value || 100));
   song.bpm = v; saveSong(song);
 });
-$('#rec').addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+// ---- RECORD ----------------------------------------------------------------
+// This button used to toggle a CSS class and nothing else: it lit up, felt like
+// it had done something, and had done nothing at all. A control that lies about
+// having worked is worse than no control, because there is no way to tell it
+// apart from a feature that is simply broken.
+//
+// What it does now is the missing half of the sequencer. Until this, the only
+// way to build a pattern was to fly down to CELL and tap sixteen little boxes.
+// With RECORD armed you play the pads while it runs and the hits land in the
+// grid — which is how every drum machine ever made works, and is the version a
+// person with no experience will reach for first.
+let recording = false;
+let recStep = 0, recAt = 0;                 // the last step the engine committed
+$('#rec').addEventListener('click', (e) => {
+  recording = !recording;
+  e.currentTarget.classList.toggle('on', recording);
+  e.currentTarget.setAttribute('aria-pressed', recording ? 'true' : 'false');
+  toast(recording
+    ? (eng.playing ? 'recording — play the pads' : 'armed — press play')
+    : 'recording off');
+});
+
+// Which step is a hit happening RIGHT NOW closest to?
+//
+// onStep hands over the exact audio time each step will sound, and the scheduler
+// runs up to 120ms ahead — so recAt is usually in the future, not the past.
+// Rounding the offset rather than flooring it is what makes this quantise to the
+// NEAREST sixteenth: a hit a hair early belongs to the beat it was aiming at,
+// not to the one before it, and every drummer plays a hair early.
+function stepNow() {
+  const ctx = eng.ctx;
+  if (!ctx) return recStep;
+  const spb = 60 / Math.max(20, song.bpm) / 4;
+  const off = Math.round((ctx.currentTime - recAt) / spb);
+  return (((recStep + off) % STEPS) + STEPS) % STEPS;
+}
+
+// Write a hit into the pattern. Velocity is kept, so playing softly records
+// softly — the grid stores 1..127, and it always did; nothing else was using it.
+function recordHit(i, vel) {
+  if (!recording || !eng.playing) return;
+  const c = liveCells(song)[i]; if (!c) return;
+  c.steps[stepNow()] = Math.max(1, Math.min(127, vel | 0));
+  syncRibbon(i);
+  saveSong(song);
+  if (atlas.level === 2 && atlas.focusAt(2) === i) invalidateSheets();
+}
 // One button that always gives you something to react to. A blank grid is the
 // hardest thing to start from; this guarantees you never face one.
 $('#dice').addEventListener('click', () => {
@@ -1171,7 +1219,9 @@ const keys = createKeys({
   // A pad controller keeps doing exactly what it did before.
   onPad: (note, vel) => {
     const idx = (((note - 36) % CELLS) + CELLS) % CELLS;
-    eng.resume(); eng.play(liveCells(song)[idx].voice, 0, vel, idx); flash(idx);
+    eng.resume(); eng.play(liveCells(song)[idx].voice, 0, vel, idx);
+    recordHit(idx, vel);
+    flash(idx);
   },
 });
 
@@ -1187,7 +1237,7 @@ const io = createMidiIO({
     if (e.transport) {
       if (e.transport === 'play' && !eng.playing) playBtn.click();
       else if (e.transport === 'stop' && eng.playing) playBtn.click();
-      else if (e.transport === 'rec') $('#rec').classList.toggle('on');
+      else if (e.transport === 'rec') $('#rec').click();
       return;
     }
     keys.handle(e.raw, (e.port && e.port.name) || '');

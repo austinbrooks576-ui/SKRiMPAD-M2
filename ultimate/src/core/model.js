@@ -224,7 +224,9 @@ export function createHistory(limit = 40) {
   };
 }
 
-export const scenes = (song) => song.scenes;
+// Two accessors, both used. `scenes` and `cellAt` were also exported and never
+// called by anything — dead helpers written in anticipation of a caller that
+// never arrived. Every one of them is a thing a reader has to hold in their
+// head while working out how the model is reached.
 export const liveScene = (song) => song.scenes[song.scene];
 export const liveCells = (song) => liveScene(song).cells;
-export const cellAt = (song, i) => liveCells(song)[i];

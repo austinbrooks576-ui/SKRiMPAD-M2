@@ -2568,6 +2568,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         lastCell = i;
         eng.resume();
         eng.play(c.voice, 0, 112, i);
+        recordHit(i, 112);
         flash(i);
         held = setTimeout(() => {
           held = 0;
@@ -2590,6 +2591,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           lastCell = i;
           eng.resume();
           eng.play(c.voice, 0, 112, i);
+          recordHit(i, 112);
           flash(i);
         } else if (ev.key === "m" || ev.key === "M") {
           ev.preventDefault();
@@ -3101,7 +3103,9 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       eng.stop();
       playBtn.classList.remove("on");
     } else {
-      eng.start(song, (s) => {
+      eng.start(song, (s, at) => {
+        recStep = s;
+        recAt = at;
         requestAnimationFrame(() => {
           deck.querySelectorAll(".ribbon b.at").forEach((b) => b.classList.remove("at"));
           deck.querySelectorAll(".ribbon").forEach((rb) => {
@@ -3125,7 +3129,31 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     song.bpm = v;
     saveSong(song);
   });
-  $("#rec").addEventListener("click", (e) => e.currentTarget.classList.toggle("on"));
+  var recording = false;
+  var recStep = 0;
+  var recAt = 0;
+  $("#rec").addEventListener("click", (e) => {
+    recording = !recording;
+    e.currentTarget.classList.toggle("on", recording);
+    e.currentTarget.setAttribute("aria-pressed", recording ? "true" : "false");
+    toast(recording ? eng.playing ? "recording \u2014 play the pads" : "armed \u2014 press play" : "recording off");
+  });
+  function stepNow() {
+    const ctx = eng.ctx;
+    if (!ctx) return recStep;
+    const spb = 60 / Math.max(20, song.bpm) / 4;
+    const off = Math.round((ctx.currentTime - recAt) / spb);
+    return ((recStep + off) % STEPS + STEPS) % STEPS;
+  }
+  function recordHit(i, vel) {
+    if (!recording || !eng.playing) return;
+    const c = liveCells(song)[i];
+    if (!c) return;
+    c.steps[stepNow()] = Math.max(1, Math.min(127, vel | 0));
+    syncRibbon(i);
+    saveSong(song);
+    if (atlas.level === 2 && atlas.focusAt(2) === i) invalidateSheets();
+  }
   $("#dice").addEventListener("click", () => {
     const cells = liveCells(song);
     cells.forEach((c, i) => {
@@ -3152,6 +3180,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       const idx = ((note - 36) % CELLS + CELLS) % CELLS;
       eng.resume();
       eng.play(liveCells(song)[idx].voice, 0, vel, idx);
+      recordHit(idx, vel);
       flash(idx);
     }
   });
@@ -3164,7 +3193,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       if (e.transport) {
         if (e.transport === "play" && !eng.playing) playBtn.click();
         else if (e.transport === "stop" && eng.playing) playBtn.click();
-        else if (e.transport === "rec") $("#rec").classList.toggle("on");
+        else if (e.transport === "rec") $("#rec").click();
         return;
       }
       keys.handle(e.raw, e.port && e.port.name || "");
