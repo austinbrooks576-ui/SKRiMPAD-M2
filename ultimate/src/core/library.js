@@ -101,7 +101,21 @@ function tx(db, mode, fn) {
   });
 }
 
-export function createLibrary({ ctx, onChange } = {}) {
+// A write, with a real yes-or-no answer. The read helper below cannot give one:
+// it resolves null for a missing row and for a transaction that blew up, which
+// is fine when you are reading and disastrous when you are saving.
+function txWrite(db, fn) {
+  return new Promise((resolve) => {
+    if (!db) return resolve(false);
+    let t;
+    try { t = db.transaction(STORE, 'readwrite'); } catch (e) { return resolve(false); }
+    try { fn(t.objectStore(STORE)); } catch (e) { return resolve(false); }
+    t.oncomplete = () => resolve(true);
+    t.onerror = t.onabort = () => resolve(false);
+  });
+}
+
+export function createLibrary({ ctx, onChange, onError } = {}) {
   const items = [];                 // { id, name, kind, dur, size }
   const cache = new Map();          // id -> AudioBuffer   (Map keeps insertion order = LRU)
   const pinned = new Set();
@@ -162,7 +176,20 @@ export function createLibrary({ ctx, onChange } = {}) {
       id, name: name.replace(/\.[^.]+$/, ''), kind: classify(name, buf),
       dur: +buf.duration.toFixed(3), size: raw.byteLength, bytes: raw,
     };
-    await tx(db, 'readwrite', (s) => s.put(rec));
+    // A write that failed must not produce a listed sound. tx() resolves null
+    // for both "no result" and "the transaction blew up", so a quota error read
+    // exactly like a successful put: the sound appeared in the library, played
+    // fine all session because it was already in the cache, and was simply gone
+    // after a restart with nothing said. Silent loss of something the user
+    // deliberately imported is about the worst outcome available here.
+    //
+    // No IndexedDB at all is different and is NOT a failure — the library is
+    // session-only then, which the module has always allowed.
+    const stored = await txWrite(db, (s) => s.put(rec));
+    if (db && !stored) {
+      onError && onError('storage', name);
+      return null;
+    }
     const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
     items.push(meta);
     cache.set(id, buf); bytes += sizeOf(buf); evict();
@@ -200,7 +227,7 @@ export function createLibrary({ ctx, onChange } = {}) {
   }
 
   async function remove(id) {
-    await tx(db, 'readwrite', (s) => s.delete(id));
+    await txWrite(db, (s) => s.delete(id));
     const i = items.findIndex((x) => x.id === id);
     if (i >= 0) items.splice(i, 1);
     if (cache.has(id)) { bytes -= sizeOf(cache.get(id)); cache.delete(id); }
