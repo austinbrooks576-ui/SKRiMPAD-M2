@@ -165,17 +165,36 @@ export function createLibrary({ ctx, onChange } = {}) {
     await tx(db, 'readwrite', (s) => s.put(rec));
     const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
     items.push(meta);
-    items.sort((a, b) => a.name.localeCompare(b.name));
     cache.set(id, buf); bytes += sizeOf(buf); evict();
-    onChange && onChange(items);
+    if (!batching) settle();
     return meta;
+  }
+
+  // Sort the array and redraw the list ONCE per batch, not once per file.
+  // Importing 120 sounds used to re-sort the whole array and rebuild the whole
+  // DOM list 120 times — quadratic work for intermediate states nobody sees,
+  // since each is replaced within milliseconds. A 500-sound pack is a normal
+  // thing to own, and that is where quadratic stops being merely wasteful.
+  let batching = false;
+  function settle() {
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    onChange && onChange(items);
   }
 
   async function addFiles(list) {
     const out = [];
-    for (const f of Array.from(list || [])) {
-      const m = await add(f);
-      if (m) out.push(m);
+    const files = Array.from(list || []);
+    batching = true;
+    try {
+      for (const f of files) {
+        const m = await add(f);
+        if (m) out.push(m);
+      }
+    } finally {
+      // finally, not after the loop: one file throwing must not leave the
+      // library permanently in batch mode with a list that never redraws again.
+      batching = false;
+      settle();
     }
     return out;
   }

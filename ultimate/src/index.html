@@ -1219,6 +1219,10 @@ window.__ult = {
   atlas, song, eng, io, lib, keys, params: PARAMS,
   assign: assignSample, densify, buildDeck, renderList,
   pushHistory: () => hist.push(song),
+  // The constellation's hit list and its picker, so a test can prove that what
+  // you touch is what you saw rather than assuming it.
+  nebBodies: () => (NEB.hit || []).map((x) => ({ i: x.i, x: x.x, y: x.y, r: x.r })),
+  nebPick,
   warmHas: (id) => warm.has(id),
   focusCell: (i) => { lastCell = i; },
 };

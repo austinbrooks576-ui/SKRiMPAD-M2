@@ -1866,18 +1866,29 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
       await tx(db, "readwrite", (s) => s.put(rec));
       const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
       items.push(meta);
-      items.sort((a, b) => a.name.localeCompare(b.name));
       cache.set(id, buf);
       bytes += sizeOf(buf);
       evict();
-      onChange && onChange(items);
+      if (!batching) settle();
       return meta;
+    }
+    let batching = false;
+    function settle() {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
     }
     async function addFiles(list) {
       const out = [];
-      for (const f of Array.from(list || [])) {
-        const m = await add(f);
-        if (m) out.push(m);
+      const files = Array.from(list || []);
+      batching = true;
+      try {
+        for (const f of files) {
+          const m = await add(f);
+          if (m) out.push(m);
+        }
+      } finally {
+        batching = false;
+        settle();
       }
       return out;
     }
@@ -3128,6 +3139,10 @@ button,input,select{font:inherit;color:inherit;letter-spacing:inherit;}
     buildDeck,
     renderList,
     pushHistory: () => hist.push(song),
+    // The constellation's hit list and its picker, so a test can prove that what
+    // you touch is what you saw rather than assuming it.
+    nebBodies: () => (NEB.hit || []).map((x) => ({ i: x.i, x: x.x, y: x.y, r: x.r })),
+    nebPick,
     warmHas: (id) => warm.has(id),
     focusCell: (i) => {
       lastCell = i;
