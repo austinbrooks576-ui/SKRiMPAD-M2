@@ -2764,6 +2764,191 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     setTimeout(() => URL.revokeObjectURL(url), 1e4);
   }
 
+  // ultimate/src/core/fog.js
+  function mulberry32(a) {
+    return function() {
+      a |= 0;
+      a = a + 1831565813 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  var N = 128;
+  var MASK = N - 1;
+  function makeLattice(seed) {
+    const rnd = mulberry32(seed >>> 0);
+    const d = new Float32Array(N * N);
+    for (let i = 0; i < d.length; i++) d[i] = rnd();
+    return d;
+  }
+  function value(d, x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    let fx = x - xi, fy = y - yi;
+    fx = fx * fx * (3 - 2 * fx);
+    fy = fy * fy * (3 - 2 * fy);
+    const x0 = xi & MASK, y0 = yi & MASK;
+    const x1 = xi + 1 & MASK, y1 = yi + 1 & MASK;
+    const a = d[y0 * N + x0], b = d[y0 * N + x1];
+    const c = d[y1 * N + x0], e = d[y1 * N + x1];
+    return a + (b - a) * fx + (c + (e - c) * fx - (a + (b - a) * fx)) * fy;
+  }
+  var FBM_NORM = 1 / 0.875;
+  function fbm(d, x, y) {
+    return (value(d, x, y) * 0.5 + value(d, x * 2.03, y * 2.03) * 0.25 + value(d, x * 4.07, y * 4.07) * 0.125) * FBM_NORM;
+  }
+  function hsl(h, s, l) {
+    h = (h % 360 + 360) % 360 / 360;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const f = (t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+  }
+  var LUT = 64;
+  function createFog(seed) {
+    const lattice = makeLattice(seed);
+    let cv = null, cx = null, img = null, buf = null;
+    let LW = 0, LH = 0;
+    let lut = new Uint8Array(LUT * 3);
+    let lutKey = "";
+    let last = -1e9;
+    function palette(hues, drift) {
+      const key = hues.join(",") + "|" + (drift | 0);
+      if (key === lutKey) return;
+      lutKey = key;
+      const stops = [];
+      for (let i = 0; i < 3; i++) {
+        const h = (hues[i % hues.length] || 190) + drift;
+        stops.push(hsl(h, 0.85, i === 1 ? 0.62 : 0.34));
+      }
+      for (let k = 0; k < LUT; k++) {
+        const t = k / (LUT - 1) * 2;
+        const i = Math.min(1, Math.floor(t)), f = t - i;
+        const a = stops[i], b = stops[i + 1];
+        lut[k * 3] = a[0] + (b[0] - a[0]) * f;
+        lut[k * 3 + 1] = a[1] + (b[1] - a[1]) * f;
+        lut[k * 3 + 2] = a[2] + (b[2] - a[2]) * f;
+      }
+    }
+    function fit(W, H) {
+      const w = Math.max(48, Math.min(168, Math.round(W / 7)));
+      const h = Math.max(32, Math.round(w * H / W));
+      if (w === LW && h === LH && cv) return;
+      LW = w;
+      LH = h;
+      cv = document.createElement("canvas");
+      cv.width = LW;
+      cv.height = LH;
+      cx = cv.getContext("2d");
+      img = cx.createImageData(LW, LH);
+      buf = img.data;
+      last = -1e9;
+    }
+    function paint(t, hues, energy) {
+      palette(hues, Math.round(t * 2.2));
+      const s = 1 / LW;
+      const asp = LH / LW;
+      const dx = t * 0.017, dy = t * 0.011;
+      const lift = 0.06 + energy * 0.3;
+      let p = 0;
+      for (let y = 0; y < LH; y++) {
+        const v = y * s;
+        const vy = (v / asp - 0.5) * 2;
+        for (let x = 0; x < LW; x++) {
+          const u = x * s;
+          const vx = (u - 0.5) * 2;
+          let edge = 1 - (vx * vx * 0.5 + vy * vy * 0.66);
+          if (edge <= 0) {
+            buf[p + 3] = 0;
+            p += 4;
+            continue;
+          }
+          if (edge > 1) edge = 1;
+          edge *= edge;
+          const q1 = fbm(lattice, (u + dx) * 3, (v + dy) * 3);
+          const q2 = fbm(lattice, (u + 5.2) * 3, (v + 1.3 - dy) * 3);
+          let r = fbm(lattice, u * 5.2 + q1 * 3, v * 5.2 + q2 * 3);
+          r = (r - 0.37) * 2.3 + lift;
+          if (r <= 0) {
+            buf[p + 3] = 0;
+            p += 4;
+            continue;
+          }
+          if (r > 1) r = 1;
+          let kk = (q1 - q2) * 1.9 + 0.5;
+          if (kk < 0) kk = 0;
+          else if (kk > 1) kk = 1;
+          const k3 = (kk * (LUT - 1) | 0) * 3;
+          const a = r * r * (0.45 + 0.55 * r) * edge * 1.15;
+          const aa = a > 1 ? 1 : a;
+          buf[p] = lut[k3] * aa;
+          buf[p + 1] = lut[k3 + 1] * aa;
+          buf[p + 2] = lut[k3 + 2] * aa;
+          buf[p + 3] = 255 * aa;
+          p += 4;
+        }
+      }
+      cx.putImageData(img, 0, 0);
+    }
+    let full = null, fctx = null, fw = 0, fh = 0;
+    function resample(W, H) {
+      if (fw !== W || fh !== H || !full) {
+        fw = W;
+        fh = H;
+        full = document.createElement("canvas");
+        full.width = W;
+        full.height = H;
+        fctx = full.getContext("2d");
+      }
+      fctx.clearRect(0, 0, W, H);
+      fctx.imageSmoothingEnabled = true;
+      fctx.imageSmoothingQuality = "high";
+      fctx.drawImage(cv, 0, 0, W, H);
+    }
+    return {
+      // Composite the cloud onto a destination context.
+      draw(ctx, W, H, { t = 0, hues = [190], energy = 0, alpha = 1, now = 0 } = {}) {
+        fit(W, H);
+        if (now - last > 110 || fw !== W || fh !== H) {
+          paint(t, hues, energy);
+          resample(W, H);
+          last = now;
+        }
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(full, 0, 0);
+        ctx.restore();
+      },
+      get size() {
+        return [LW, LH];
+      }
+    };
+  }
+  function makeStars(seed, count) {
+    const rnd = mulberry32(seed >>> 0 ^ 2654435769);
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      out.push({
+        x: rnd(),
+        y: rnd(),
+        r: 0.35 + rnd() * rnd() * 1.5,
+        // squared, so most are faint specks
+        a: 0.18 + rnd() * 0.55,
+        p: rnd() * 6.283
+        // phase, for a very slow breath
+      });
+    }
+    return out;
+  }
+
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   function capture(el, id) {
@@ -3139,6 +3324,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   }
   var neb = $("#nebula");
   var nctx = neb.getContext("2d");
+  function setScene(s) {
+    if (s === song.scene || s < 0 || s >= SCENES) return;
+    song.scene = s;
+    buildScenePick();
+    buildDeck();
+    invalidateSheets();
+    saveSong(song);
+  }
   function buildScenePick() {
     const host = $("#scenepick");
     host.innerHTML = "";
@@ -3146,13 +3339,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       const b = document.createElement("button");
       b.className = "spill" + (s === song.scene ? " on" : "");
       b.textContent = song.scenes[s].name;
-      b.addEventListener("click", () => {
-        song.scene = s;
-        buildScenePick();
-        buildDeck();
-        invalidateSheets();
-        saveSong(song);
-      });
+      b.addEventListener("click", () => setScene(s));
       host.appendChild(b);
     }
   }
@@ -3224,7 +3411,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         el.style.setProperty("--e", eng.meters[i].toFixed(3));
       }
     }
-    if (lvl === 0) (NEB.mode === "column" ? drawColumn : drawNebula)(cells);
+    if (lvl === 0) VIEW_DRAW[NEB.mode](cells);
     if (lvl === 4) drawScope();
     drawMonitor(cells);
     if (midiOpen) {
@@ -3261,13 +3448,31 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       $("#hands").innerHTML = txt;
     }
   }
-  var NEB = { hit: null, drag: null, col: null, mode: "field" };
+  var NEB = {
+    hit: null,
+    drag: null,
+    col: null,
+    mode: "field",
+    seek: -1,
+    yaw: 0.55,
+    pitch: 0.32,
+    oort: null
+  };
+  var VIEWS = ["field", "column", "oort", "nebula"];
+  var VIEW_TIP = {
+    field: "The plan view \u2014 compose by density",
+    column: "The bar on end, one shell per step",
+    oort: "All four scenes at once \u2014 drag to turn it",
+    nebula: "The field seen through the gas \u2014 colour is what is carrying the mix"
+  };
   var COL_MODE = "skrimpad_ultimate_view";
   try {
-    if (localStorage.getItem(COL_MODE) === "column") NEB.mode = "column";
+    const saved = localStorage.getItem(COL_MODE);
+    if (VIEWS.indexOf(saved) >= 0) NEB.mode = saved;
   } catch (e) {
   }
   function setView(mode) {
+    if (VIEWS.indexOf(mode) < 0) mode = "field";
     NEB.mode = mode;
     NEB.drag = null;
     try {
@@ -3275,11 +3480,15 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     } catch (e) {
     }
     const b = $("#sview");
-    b.textContent = mode === "column" ? "FIELD" : "COLUMN";
-    b.setAttribute("aria-pressed", mode === "column" ? "true" : "false");
-    b.title = mode === "column" ? "Back to the plan view \u2014 compose by density" : "Side elevation \u2014 the bar on end, one step per shell";
+    const next = VIEWS[(VIEWS.indexOf(mode) + 1) % VIEWS.length];
+    b.textContent = mode.toUpperCase();
+    b.title = VIEW_TIP[mode] + " \xB7 tap for " + next.toUpperCase();
+    b.removeAttribute("aria-pressed");
+    b.setAttribute("aria-label", "View: " + mode + ". Tap for " + next + ".");
   }
-  $("#sview").addEventListener("click", () => setView(NEB.mode === "column" ? "field" : "column"));
+  $("#sview").addEventListener("click", () => {
+    setView(VIEWS[(VIEWS.indexOf(NEB.mode) + 1) % VIEWS.length]);
+  });
   setView(NEB.mode);
   function nebLayout(cells, W, H) {
     const cx = W / 2, cy = H / 2;
@@ -3299,15 +3508,17 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       };
     });
   }
-  function drawNebula(cells) {
+  function drawNebula(cells, overlay) {
     const rect = neb.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (neb.width !== (rect.width * dpr | 0)) {
-      neb.width = rect.width * dpr;
-      neb.height = rect.height * dpr;
+    if (!overlay) {
+      if (neb.width !== (rect.width * dpr | 0)) {
+        neb.width = rect.width * dpr;
+        neb.height = rect.height * dpr;
+      }
     }
     const W = neb.width, H = neb.height, cx = W / 2, cy = H / 2;
-    nctx.clearRect(0, 0, W, H);
+    if (!overlay) nctx.clearRect(0, 0, W, H);
     for (let sc = SCENES - 1; sc >= 0; sc--) {
       const rr = (0.17 + sc * 0.085) * Math.min(W, H);
       const live = sc === song.scene;
@@ -3498,6 +3709,263 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       }
     }
   }
+  var OORT_N = 26;
+  var OORT_DIR = (() => {
+    const out = [], g = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < CELLS; i++) {
+      const y = 1 - i / (CELLS - 1) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const th = g * i;
+      out.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+    }
+    return out;
+  })();
+  var OORT_JIT = (() => {
+    let s = 49734321;
+    const out = [];
+    for (let i = 0; i < CELLS * OORT_N; i++) {
+      s = s * 1664525 + 1013904223 >>> 0;
+      const a = (s >>> 8) / 16777216;
+      s = s * 1664525 + 1013904223 >>> 0;
+      const b = (s >>> 8) / 16777216;
+      s = s * 1664525 + 1013904223 >>> 0;
+      const c = (s >>> 8) / 16777216;
+      out.push([a - 0.5, b - 0.5, c - 0.5]);
+    }
+    return out;
+  })();
+  function oortLayout(W, H) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cx = W / 2, cy = (H - consBot * dpr) / 2 + 8 * dpr;
+    const R0 = Math.min(cx, cy) * 0.92;
+    const cy_ = Math.cos(NEB.yaw), sy_ = Math.sin(NEB.yaw);
+    const cp = Math.cos(NEB.pitch), sp = Math.sin(NEB.pitch);
+    const rot = (v) => {
+      const x = v[0] * cy_ + v[2] * sy_;
+      const z = -v[0] * sy_ + v[2] * cy_;
+      const y = v[1] * cp - z * sp;
+      const z2 = v[1] * sp + z * cp;
+      return [x, y, z2];
+    };
+    const shells = [];
+    for (let sc = 0; sc < SCENES; sc++) {
+      const cells = song.scenes[sc].cells;
+      const live = sc === song.scene;
+      const R = R0 * (0.46 + sc * 0.175);
+      const nodes = [];
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
+        const hits = c.steps.reduce((a, v) => a + (v ? 1 : 0), 0);
+        const d = OORT_DIR[i];
+        const p = rot(d);
+        nodes.push({
+          sc,
+          i,
+          c,
+          hits,
+          live,
+          x: cx + p[0] * R,
+          y: cy + p[1] * R * 0.94,
+          z: p[2],
+          dir: d,
+          R
+        });
+      }
+      shells.push({
+        sc,
+        R,
+        live,
+        nodes,
+        total: cells.reduce((a, c) => a + c.steps.reduce((b, v) => b + (v ? 1 : 0), 0), 0)
+      });
+    }
+    return { shells, cx, cy, R0, dpr, rot };
+  }
+  function drawOort() {
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (neb.width !== (rect.width * dpr | 0)) {
+      neb.width = rect.width * dpr;
+      neb.height = rect.height * dpr;
+    }
+    const W = neb.width, H = neb.height;
+    nctx.clearRect(0, 0, W, H);
+    const L = oortLayout(W, H);
+    NEB.oort = L;
+    drawStars(W, H, 0.5);
+    let heat = 0;
+    for (let i = 0; i < CELLS; i++) heat = Math.max(heat, eng.meters[i] || 0);
+    const core = (5 + heat * 16) * dpr;
+    const cg = nctx.createRadialGradient(L.cx, L.cy, 0, L.cx, L.cy, core * 6);
+    cg.addColorStop(0, "rgba(220,255,250," + (0.5 + heat * 0.5).toFixed(2) + ")");
+    cg.addColorStop(0.35, "rgba(75,227,200," + (0.22 + heat * 0.3).toFixed(2) + ")");
+    cg.addColorStop(1, "rgba(75,227,200,0)");
+    nctx.fillStyle = cg;
+    nctx.beginPath();
+    nctx.arc(L.cx, L.cy, core * 6, 0, 7);
+    nctx.fill();
+    for (let s = L.shells.length - 1; s >= 0; s--) {
+      const sh = L.shells[s];
+      if (sh.live) continue;
+      nctx.beginPath();
+      nctx.ellipse(L.cx, L.cy, sh.R, sh.R * 0.94, 0, 0, 7);
+      nctx.strokeStyle = "rgba(255,255,255,.05)";
+      nctx.lineWidth = dpr;
+      nctx.stroke();
+    }
+    const liveShell = L.shells.find((s) => s.live);
+    if (liveShell) {
+      const rings = [
+        (a) => [Math.cos(a), 0, Math.sin(a)],
+        (a) => [Math.cos(a), Math.sin(a), 0],
+        (a) => [0, Math.cos(a), Math.sin(a)]
+      ];
+      rings.forEach((f, ri) => {
+        for (let k = 0; k < 48; k++) {
+          const a0 = k / 48 * Math.PI * 2, a1 = (k + 1) / 48 * Math.PI * 2;
+          const p0 = L.rot(f(a0)), p1 = L.rot(f(a1));
+          const near = (p0[2] + p1[2]) / 2;
+          nctx.beginPath();
+          nctx.moveTo(L.cx + p0[0] * liveShell.R, L.cy + p0[1] * liveShell.R * 0.94);
+          nctx.lineTo(L.cx + p1[0] * liveShell.R, L.cy + p1[1] * liveShell.R * 0.94);
+          nctx.strokeStyle = "rgba(75,227,200," + (0.05 + 0.19 * ((near + 1) / 2)).toFixed(3) + ")";
+          nctx.lineWidth = (ri === 0 ? 1.5 : 1) * dpr;
+          nctx.stroke();
+        }
+      });
+    }
+    const all = [];
+    L.shells.forEach((sh) => sh.nodes.forEach((n) => {
+      if (n.hits > 0 || n.live) all.push(n);
+    }));
+    all.sort((a, b) => a.z - b.z);
+    const t = performance.now() / 1e3;
+    all.forEach((n) => {
+      const front = 0.35 + 0.65 * ((n.z + 1) / 2);
+      const energy = n.live ? eng.meters[n.i] || 0 : 0;
+      const count = n.hits ? Math.max(2, Math.round(OORT_N * (n.hits / STEPS))) : 1;
+      const spread = (7 + n.hits * 1.5) * dpr * (n.live ? 1.15 : 0.8);
+      const base = "hsl(" + n.c.hue + " 90% " + (52 + energy * 28) + "%";
+      const dim = n.live ? 1 : 0.68;
+      const a = (n.c.mute ? 0.18 : 1) * front * dim;
+      if (n.hits) {
+        const g = nctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, spread * 2.6);
+        g.addColorStop(0, base + " / " + (a * 0.46 * (0.35 + n.hits / STEPS)).toFixed(3) + ")");
+        g.addColorStop(1, base + " / 0)");
+        nctx.fillStyle = g;
+        nctx.beginPath();
+        nctx.arc(n.x, n.y, spread * 2.6, 0, 7);
+        nctx.fill();
+      }
+      nctx.fillStyle = base + " / " + a.toFixed(3) + ")";
+      for (let k = 0; k < count; k++) {
+        const j = OORT_JIT[(n.i * OORT_N + k) % OORT_JIT.length];
+        const w = t * 0.12 + k;
+        const bx = n.x + (j[0] + Math.sin(w) * 0.06) * spread * 2;
+        const by = n.y + (j[1] + Math.cos(w * 0.9) * 0.06) * spread * 2 * 0.8;
+        const r = (1.25 + Math.abs(j[2]) * 2.4) * dpr * (0.7 + front * 0.6);
+        nctx.beginPath();
+        nctx.arc(bx, by, r, 0, 7);
+        nctx.fill();
+      }
+      if (n.live && (n.hits > 2 || energy > 0.15) && n.z > -0.2) {
+        nctx.font = 9.5 * dpr + "px Oswald, sans-serif";
+        nctx.fillStyle = "hsl(" + n.c.hue + " 90% 84% / " + (front * (n.c.mute ? 0.3 : 0.85)).toFixed(2) + ")";
+        nctx.textAlign = "center";
+        nctx.fillText(n.c.name, n.x, n.y + spread * 2 + 11 * dpr);
+      }
+    });
+    nctx.font = 9.5 * dpr + "px Oswald, sans-serif";
+    nctx.textAlign = "left";
+    L.shells.forEach((sh, k) => {
+      nctx.fillStyle = sh.live ? "rgba(75,227,200,.9)" : "rgba(255,255,255,.30)";
+      nctx.fillText(
+        song.scenes[sh.sc].name + (sh.total ? " \xB7 " + sh.total : " \xB7 empty"),
+        12 * dpr,
+        (18 + k * 13) * dpr
+      );
+    });
+  }
+  function oortPick(ev) {
+    if (!NEB.oort) return null;
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const x = (ev.clientX - rect.left) * dpr, y = (ev.clientY - rect.top) * dpr;
+    let best = null, bd = 1e9;
+    NEB.oort.shells.forEach((sh) => sh.nodes.forEach((n) => {
+      if (n.z < -0.15) return;
+      const d = Math.hypot(n.x - x, n.y - y);
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }));
+    return bd < 30 * dpr ? best : null;
+  }
+  var fogs = null;
+  var stars = null;
+  var starSeed = -1;
+  function fogFor(seed) {
+    if (!fogs) fogs = /* @__PURE__ */ new Map();
+    if (!fogs.has(seed)) fogs.set(seed, createFog(seed));
+    return fogs.get(seed);
+  }
+  function drawStars(W, H, alpha) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const seed = song.scene * 977 + 41;
+    if (seed !== starSeed) {
+      starSeed = seed;
+      stars = makeStars(seed, 190);
+    }
+    const t = performance.now() / 1e3;
+    nctx.save();
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const a = s.a * (0.75 + 0.25 * Math.sin(t * 0.35 + s.p)) * alpha;
+      nctx.fillStyle = "rgba(226,239,255," + a.toFixed(3) + ")";
+      nctx.beginPath();
+      nctx.arc(s.x * W, s.y * H, s.r * dpr, 0, 7);
+      nctx.fill();
+    }
+    nctx.restore();
+  }
+  function loudHues(cells) {
+    const w = cells.map((c, i) => ({
+      hue: c.hue,
+      w: (c.mute ? 0 : 1) * (c.steps.reduce((a, v) => a + (v ? 1 : 0), 0) / STEPS + (eng.meters[i] || 0) * 2.2)
+    })).sort((a, b) => b.w - a.w);
+    const top = w.filter((x) => x.w > 0).slice(0, 3).map((x) => x.hue);
+    return top.length ? top : [168, 262, 330];
+  }
+  function drawNebulaView(cells) {
+    const rect = neb.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (neb.width !== (rect.width * dpr | 0)) {
+      neb.width = rect.width * dpr;
+      neb.height = rect.height * dpr;
+    }
+    const W = neb.width, H = neb.height;
+    nctx.clearRect(0, 0, W, H);
+    let heat = 0;
+    for (let i = 0; i < cells.length; i++) heat = Math.max(heat, eng.meters[i] || 0);
+    drawStars(W, H, 1);
+    fogFor(song.scene * 7919 + 13).draw(nctx, W, H, {
+      t: performance.now() / 1e3,
+      hues: loudHues(cells),
+      energy: heat,
+      now: performance.now(),
+      // Held back from full, because the bodies have to stay the brightest thing
+      // on screen. The gas is the room, not the subject.
+      alpha: 1
+    });
+    drawNebula(cells, true);
+  }
+  var VIEW_DRAW = {
+    field: (cells) => drawNebula(cells),
+    column: drawColumn,
+    oort: () => drawOort(),
+    nebula: drawNebulaView
+  };
   function colPick(ev) {
     if (!NEB.col) return null;
     const rect = neb.getBoundingClientRect();
@@ -3552,6 +4020,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     eng.seek(s);
   }
   neb.addEventListener("pointerdown", (ev) => {
+    if (NEB.mode === "oort") {
+      ev.preventDefault();
+      capture(neb, ev.pointerId);
+      NEB.drag = { oort: 1, x: ev.clientX, y: ev.clientY, moved: 0, node: oortPick(ev) };
+      return;
+    }
     if (NEB.mode === "column") {
       ev.preventDefault();
       capture(neb, ev.pointerId);
@@ -3588,6 +4062,15 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   });
   neb.addEventListener("pointermove", (ev) => {
     if (!NEB.drag) return;
+    if (NEB.drag.oort) {
+      const dx = ev.clientX - NEB.drag.x, dy = ev.clientY - NEB.drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) NEB.drag.moved = 1;
+      NEB.yaw += dx * 8e-3;
+      NEB.pitch = Math.max(-1.35, Math.min(1.35, NEB.pitch + dy * 8e-3));
+      NEB.drag.x = ev.clientX;
+      NEB.drag.y = ev.clientY;
+      return;
+    }
     if (NEB.drag.col) {
       if (NEB.drag.hold) {
         clearTimeout(NEB.drag.hold);
@@ -3610,6 +4093,20 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   });
   neb.addEventListener("pointerup", (ev) => {
     const held = performance.now() - nebTap;
+    if (NEB.drag && NEB.drag.oort) {
+      const n = NEB.drag.moved ? null : NEB.drag.node;
+      NEB.drag = null;
+      if (n) {
+        if (n.sc !== song.scene) {
+          setScene(n.sc);
+        }
+        lastCell = n.i;
+        eng.resume();
+        eng.play(liveCells(song)[n.i].voice, 0, 112, n.i);
+        flash(n.i);
+      }
+      return;
+    }
     if (NEB.drag && NEB.drag.col) {
       if (NEB.drag.hold) clearTimeout(NEB.drag.hold);
       NEB.drag = null;
@@ -4301,7 +4798,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Drag a body in or out", "Fills or thins that pad's pattern, landing on beats before offbeats so it stays playable at every density.", []],
       ["Tap \xB7 double-tap", "Audition it, or mute it.", []],
       ["The scene rings", "All four scenes are drawn at once. Tap a pill to switch.", [".spill", "#scenepick"]],
-      ["COLUMN / FIELD", "Switches between the plan view and the side elevation. Same song, two readings of it.", ["#sview"]],
+      ["The view button", "Cycles FIELD \u2192 COLUMN \u2192 OORT \u2192 NEBULA. It always shows the view you are in, and its tooltip names the one it will take you to next. Same song every time \u2014 what changes is which question the picture answers.", ["#sview"]],
       ["CLEAR", "Empties the scene. It goes through undo, so an hour of work is one ctrl+Z away.", ["#sclear"]],
       ["COPY TO NEXT", "Duplicates this scene's pattern into the next one, which keeps its own name.", ["#scopy"]],
       ["EXPORT WAV", "Renders four bars of the scene to a stereo 44.1k WAV and saves it. It goes through the same engine as playback, so the file sounds like what you heard, and it leaves a tail on the end so ambient voices are not chopped off.", ["#sbounce"]]
@@ -4313,6 +4810,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Tap a nucleus", "Hears it and selects it. Hold to fly into that pad's pattern, the same as holding a pad on the deck.", []],
       ["Tap or drag a shell", "Puts the playhead on that step \u2014 anywhere in the row, not just on a dot. Stopped, that is where PLAY will start from.", []],
       ["Why it does not edit", "Sixteen cells across sixteen steps is 256 targets in one pane. Even packed perfectly that is a 43-pixel square each, and an edge-on ring is not packed perfectly \u2014 the closest pair measured eleven pixels. Editing stays on the step grid, where there is room for it.", []]
+    ]],
+    ["THE OORT CLOUD", [
+      ["What it is", "The whole song as a sphere. Every scene is a shell at its own distance, every pad a cluster of bodies out on that shell, and the number of bodies in a cluster is the number of hits in that pad.", []],
+      ["What it tells you", "How much song there actually is. The field view draws the other scenes as rings, which says they exist and nothing more; here you can see at a glance that the fourth one is empty. The count beside each scene name says it in numbers too.", []],
+      ["The live scene", "The inner shell, lit. The others are further out and dimmer \u2014 what you are playing is the thing you are standing in.", []],
+      ["Drag", "Turns it. A sphere drawn flat is a disc, and turning it is also how you separate two clusters that happen to line up from where you are looking.", []],
+      ["Tap a cluster", "Goes to that scene and selects that pad. That is the point of seeing all four at once.", []]
+    ]],
+    ["THE NEBULA", [
+      ["What it is", "The field view with the gas it always implied. Every body means exactly what it meant \u2014 this is the same picture with atmosphere, not a different one.", []],
+      ["The colour", "The cloud is tinted by whatever is actually carrying the mix: the three pads with the most pattern and the most output right now. Mute the lead and watch its colour drain out of the sky.", []],
+      ["One sky per scene", "The cloud is generated from the scene, so each of the four has its own and is always its own. You can tell which scene you are in without reading the label.", []],
+      ["Everything still works", "Drag a body in or out, tap to audition, double-tap to mute \u2014 all exactly as in FIELD.", []]
     ]],
     ["SOUNDS", [
       ["Drop or browse", "Anything the device can decode. Files are stored inside the app, so they survive a restart and work offline.", ["#drop", "#file"]],
@@ -4342,7 +4852,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["START OVER", "Throws away the song, the sounds and every remembered setting. There is no undo for it, so it asks twice.", ["#resetall"]]
     ]]
   ];
-  var WHATS_NEW = ["1.0.12", [
+  var WHATS_NEW = ["1.0.13", [
+    ["The Oort cloud", "A fourth view: the whole song as a sphere you can turn. Every scene is a shell, every pad a cluster, and the size of a cluster is how many hits are in it \u2014 so how much song exists is finally something you can see rather than infer."],
+    ["The nebula", "The field view through drifting gas, tinted by whichever pads are actually carrying the mix. One cloud per scene, generated from the scene, so it is always the same sky for the same scene."],
+    ["The view button", "Now cycles four ways and names where you are."]
+  ]];
+  var WHATS_NEW_PREV = ["1.0.12", [
     ["The column", "A second reading of the constellation \u2014 the bar on end, one shell per step, cells on nested orbits. Shows where the bar is busy and lets you drop the playhead anywhere in it."],
     ["The MIDI window", "A live key display, the wheels and pressure as meters, the last message in words, and the one override the app needs: whether a controller is keys or pads."],
     ["Export", "Four bars of any scene out to a WAV, through the same engine as playback."],
@@ -4354,7 +4869,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     if (body.dataset.built) return;
     body.dataset.built = "1";
     const rows = (list) => list.map(([d, w]) => '<div class="hrow"><span class="hd">' + esc(d) + '</span><span class="hw">' + esc(w) + "</span></div>").join("");
-    body.innerHTML = '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + "</h4>" + rows(WHATS_NEW[1]) + "</div></div>" + HELP.map(([title, list]) => '<div class="hgrp"><h4>' + esc(title) + "</h4>" + rows(list) + "</div>").join("") + '<div class="hgrp"><h4>DATA</h4><button class="wbtn danger" id="resetall">START OVER</button></div>';
+    body.innerHTML = '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + "</h4>" + rows(WHATS_NEW[1]) + '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_PREV[0]) + "</h4>" + rows(WHATS_NEW_PREV[1]) + "</div></div>" + HELP.map(([title, list]) => '<div class="hgrp"><h4>' + esc(title) + "</h4>" + rows(list) + "</div>").join("") + '<div class="hgrp"><h4>DATA</h4><button class="wbtn danger" id="resetall">START OVER</button></div>';
     let armed2 = 0;
     $("#resetall").addEventListener("click", async (e) => {
       const b = e.currentTarget;
@@ -4412,6 +4927,18 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     colNodes: () => NEB.col ? NEB.col.nodes.map((n) => ({ i: n.i, s: n.s, x: n.x, y: n.y, vel: n.vel })) : [],
     setView,
     colPick,
+    setScene,
+    // The Oort layout, same purpose as nebBodies and colNodes: what a test taps
+    // must be what the renderer drew.
+    oortNodes: () => NEB.oort ? NEB.oort.shells.flatMap((sh) => sh.nodes.map((n) => ({
+      sc: n.sc,
+      i: n.i,
+      hits: n.hits,
+      live: n.live,
+      x: n.x,
+      y: n.y,
+      z: n.z
+    }))) : [],
     // Every selector the manual claims to document. The coverage test reads this
     // and compares it against the controls that actually exist — in both
     // directions, so an undocumented button and a documented ghost both fail.

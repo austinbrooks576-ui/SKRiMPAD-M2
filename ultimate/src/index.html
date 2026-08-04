@@ -607,6 +607,7 @@ import { createLibrary } from './core/library.js';
 import { createKeys } from './core/keys.js';
 import { createScope } from './core/wave.js';
 import { bounceScene, saveBlob } from './core/bounce.js';
+import { createFog, makeStars } from './core/fog.js';
 
 const $ = (s) => document.querySelector(s);
 // setPointerCapture throws whenever the pointer it names is not currently
@@ -1017,15 +1018,22 @@ function drawGrainSheet() {
 // how bright and how far out it orbits, so the SHAPE of the field is the shape
 // of your arrangement. You can read a song you have never seen in one glance.
 const neb = $('#nebula'); const nctx = neb.getContext('2d');
+// Switching scenes, in one place. It used to live inside the pill's click
+// handler, which was fine while a pill was the only way to do it — and the
+// moment the Oort view could also switch scenes, that inline copy became the
+// first half of a divergence.
+function setScene(s) {
+  if (s === song.scene || s < 0 || s >= SCENES) return;
+  song.scene = s;
+  buildScenePick(); buildDeck(); invalidateSheets(); saveSong(song);
+}
 function buildScenePick() {
   const host = $('#scenepick'); host.innerHTML = '';
   for (let s = 0; s < SCENES; s++) {
     const b = document.createElement('button');
     b.className = 'spill' + (s === song.scene ? ' on' : '');
     b.textContent = song.scenes[s].name;
-    b.addEventListener('click', () => {
-      song.scene = s; buildScenePick(); buildDeck(); invalidateSheets(); saveSong(song);
-    });
+    b.addEventListener('click', () => setScene(s));
     host.appendChild(b);
   }
 }
@@ -1095,7 +1103,7 @@ function frame() {
       el.style.setProperty('--e', eng.meters[i].toFixed(3));
     }
   }
-  if (lvl === 0) (NEB.mode === 'column' ? drawColumn : drawNebula)(cells);
+  if (lvl === 0) VIEW_DRAW[NEB.mode](cells);
   if (lvl === 4) drawScope();
   drawMonitor(cells);
   // The MIDI window's meters follow the wheels continuously, so they belong on
@@ -1181,27 +1189,54 @@ function drawMonitor(cells) {
 //   tap a nucleus       -> remove that hit
 //   tap an empty orbit  -> put one there
 //   drag                -> keep doing whichever of those you started with
-const NEB = { hit: null, drag: null, col: null, mode: 'field' };
+// FOUR READINGS OF ONE THING.
+// Nothing about the song changes between them. What changes is which question
+// the picture is good at answering:
+//
+//   FIELD    this scene's cells, arranged by how busy each one is
+//   COLUMN   this scene's time, step by step down a shaft
+//   OORT     ALL FOUR SCENES at once, as a sphere you can turn in your hand
+//   NEBULA   the field, seen through the gas — which colours carry the mix
+//
+// One button that cycles and NAMES WHERE YOU ARE. Four chips would be clearer
+// on a desktop and would put eight buttons into a row that already wraps to two
+// on a 390px phone. The price of cycling is that the control must say what it
+// is currently showing, or it is a mystery button; so it does.
+const NEB = { hit: null, drag: null, col: null, mode: 'field', seek: -1,
+              yaw: 0.55, pitch: 0.32, oort: null };
+const VIEWS = ['field', 'column', 'oort', 'nebula'];
+const VIEW_TIP = {
+  field: 'The plan view — compose by density',
+  column: 'The bar on end, one shell per step',
+  oort: 'All four scenes at once — drag to turn it',
+  nebula: 'The field seen through the gas — colour is what is carrying the mix',
+};
 const COL_MODE = 'skrimpad_ultimate_view';
-try { if (localStorage.getItem(COL_MODE) === 'column') NEB.mode = 'column'; } catch (e) {}
+try {
+  const saved = localStorage.getItem(COL_MODE);
+  if (VIEWS.indexOf(saved) >= 0) NEB.mode = saved;
+} catch (e) {}
 
-// The two views are two readings of one thing, so this is a toggle and not a
-// mode: nothing about the song changes, and the button always names where it
-// will take you rather than where you are. It lives here, next to the state it
-// owns, rather than up with the other scene buttons — wired from there it ran
-// before NEB existed and took the whole app out at boot.
+// It lives here, next to the state it owns, rather than up with the other
+// scene buttons — wired from there it ran before NEB existed and took the
+// whole app out at boot.
 function setView(mode) {
+  if (VIEWS.indexOf(mode) < 0) mode = 'field';
   NEB.mode = mode;
   NEB.drag = null;
   try { localStorage.setItem(COL_MODE, mode); } catch (e) {}
   const b = $('#sview');
-  b.textContent = mode === 'column' ? 'FIELD' : 'COLUMN';
-  b.setAttribute('aria-pressed', mode === 'column' ? 'true' : 'false');
-  b.title = mode === 'column'
-    ? 'Back to the plan view — compose by density'
-    : 'Side elevation — the bar on end, one step per shell';
+  const next = VIEWS[(VIEWS.indexOf(mode) + 1) % VIEWS.length];
+  b.textContent = mode.toUpperCase();
+  b.title = VIEW_TIP[mode] + ' · tap for ' + next.toUpperCase();
+  // Not aria-pressed: this is a four-way cycle, and a two-state attribute on it
+  // would announce something false. The name of the view IS the state.
+  b.removeAttribute('aria-pressed');
+  b.setAttribute('aria-label', 'View: ' + mode + '. Tap for ' + next + '.');
 }
-$('#sview').addEventListener('click', () => setView(NEB.mode === 'column' ? 'field' : 'column'));
+$('#sview').addEventListener('click', () => {
+  setView(VIEWS[(VIEWS.indexOf(NEB.mode) + 1) % VIEWS.length]);
+});
 setView(NEB.mode);
 function nebLayout(cells, W, H) {
   const cx = W / 2, cy = H / 2;
@@ -1220,12 +1255,18 @@ function nebLayout(cells, W, H) {
     };
   });
 }
-function drawNebula(cells) {
+// `overlay` means someone has already sized and painted the canvas and wants
+// the field drawn on top of it. One function either way, because the NEBULA
+// view is not a picture that resembles the field — it IS the field, and two
+// implementations of it would be two things to keep in step.
+function drawNebula(cells, overlay) {
   const rect = neb.getBoundingClientRect();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  if (neb.width !== (rect.width * dpr | 0)) { neb.width = rect.width * dpr; neb.height = rect.height * dpr; }
+  if (!overlay) {
+    if (neb.width !== (rect.width * dpr | 0)) { neb.width = rect.width * dpr; neb.height = rect.height * dpr; }
+  }
   const W = neb.width, H = neb.height, cx = W / 2, cy = H / 2;
-  nctx.clearRect(0, 0, W, H);
+  if (!overlay) nctx.clearRect(0, 0, W, H);
 
   // Scene rings — the whole song at once. The live one is lit; the others are
   // there so you always know how much song exists beyond what you are playing.
@@ -1448,6 +1489,316 @@ function drawColumn(cells) {
   }
 }
 
+// ---- THE OORT CLOUD -------------------------------------------------------
+// The field view draws the other three scenes as rings you can tap, which tells
+// you they exist and nothing else. That is the one thing missing from an app
+// whose whole argument is that the song should be visible at once: you can see
+// how full THIS scene is, and not how full the song is.
+//
+// So: the song as a sphere. Every scene is a shell, every cell a cluster of
+// bodies out on that shell, and the number of bodies in a cluster is the number
+// of hits in that cell. The live scene is lit; the others are out there in the
+// dark at their own distances, exactly as much material as they actually have.
+// One look tells you the second half of the song is empty, which is the single
+// most useful thing an arrangement view can tell you.
+//
+// It turns, because a sphere drawn flat is a disc. Dragging it is also what
+// separates clusters that happen to line up from your angle — the same reason
+// you turn a physical model in your hand.
+const OORT_N = 26;                    // bodies in a full cluster
+// Spherical Fibonacci: sixteen directions spaced as evenly as sixteen points on
+// a sphere can be. Rings of latitude would bunch at the poles and leave the
+// cells there permanently overlapping.
+const OORT_DIR = (() => {
+  const out = [], g = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < CELLS; i++) {
+    const y = 1 - (i / (CELLS - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = g * i;
+    out.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+  }
+  return out;
+})();
+// Deterministic jitter, so a cluster is the same cloud every time you look at
+// it. Bodies that reshuffle each frame are static, not a swarm.
+const OORT_JIT = (() => {
+  let s = 0x2F6E2B1;
+  const out = [];
+  for (let i = 0; i < CELLS * OORT_N; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const a = (s >>> 8) / 16777216;
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const b = (s >>> 8) / 16777216;
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const c = (s >>> 8) / 16777216;
+    out.push([a - 0.5, b - 0.5, c - 0.5]);
+  }
+  return out;
+})();
+
+function oortLayout(W, H) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const cx = W / 2, cy = (H - consBot * dpr) / 2 + 8 * dpr;
+  const R0 = Math.min(cx, cy) * 0.92;
+  const cy_ = Math.cos(NEB.yaw), sy_ = Math.sin(NEB.yaw);
+  const cp = Math.cos(NEB.pitch), sp = Math.sin(NEB.pitch);
+  // Yaw about the vertical, then pitch about the horizontal. Two rotations is
+  // all a hand-turned object needs; a third (roll) has no meaning here and only
+  // makes the thing feel like it is tumbling.
+  const rot = (v) => {
+    const x = v[0] * cy_ + v[2] * sy_;
+    const z = -v[0] * sy_ + v[2] * cy_;
+    const y = v[1] * cp - z * sp;
+    const z2 = v[1] * sp + z * cp;
+    return [x, y, z2];
+  };
+  const shells = [];
+  for (let sc = 0; sc < SCENES; sc++) {
+    const cells = song.scenes[sc].cells;
+    const live = sc === song.scene;
+    // The live scene is the inner shell. Distance reads as "further away", and
+    // what you are playing is the thing you are standing in.
+    const R = R0 * (0.46 + sc * 0.175);
+    const nodes = [];
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      const hits = c.steps.reduce((a, v) => a + (v ? 1 : 0), 0);
+      const d = OORT_DIR[i];
+      const p = rot(d);
+      nodes.push({
+        sc, i, c, hits, live,
+        x: cx + p[0] * R, y: cy + p[1] * R * 0.94, z: p[2],
+        dir: d, R,
+      });
+    }
+    shells.push({ sc, R, live, nodes,
+      total: cells.reduce((a, c) => a + c.steps.reduce((b, v) => b + (v ? 1 : 0), 0), 0) });
+  }
+  return { shells, cx, cy, R0, dpr, rot };
+}
+
+function drawOort() {
+  const rect = neb.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (neb.width !== (rect.width * dpr | 0)) { neb.width = rect.width * dpr; neb.height = rect.height * dpr; }
+  const W = neb.width, H = neb.height;
+  nctx.clearRect(0, 0, W, H);
+  const L = oortLayout(W, H);
+  NEB.oort = L;
+
+  // The star field first, so everything else is in front of it.
+  drawStars(W, H, 0.5);
+
+  // The core: what is actually sounding, right now, at the centre of it all.
+  let heat = 0;
+  for (let i = 0; i < CELLS; i++) heat = Math.max(heat, eng.meters[i] || 0);
+  const core = (5 + heat * 16) * dpr;
+  const cg = nctx.createRadialGradient(L.cx, L.cy, 0, L.cx, L.cy, core * 6);
+  cg.addColorStop(0, 'rgba(220,255,250,' + (0.5 + heat * 0.5).toFixed(2) + ')');
+  cg.addColorStop(0.35, 'rgba(75,227,200,' + (0.22 + heat * 0.3).toFixed(2) + ')');
+  cg.addColorStop(1, 'rgba(75,227,200,0)');
+  nctx.fillStyle = cg;
+  nctx.beginPath(); nctx.arc(L.cx, L.cy, core * 6, 0, 7); nctx.fill();
+
+  // Shell outlines, faintest first. They are what makes the distances read as
+  // distances rather than as scattered dots.
+  for (let s = L.shells.length - 1; s >= 0; s--) {
+    const sh = L.shells[s];
+    if (sh.live) continue;
+    nctx.beginPath();
+    nctx.ellipse(L.cx, L.cy, sh.R, sh.R * 0.94, 0, 0, 7);
+    nctx.strokeStyle = 'rgba(255,255,255,.05)';
+    nctx.lineWidth = dpr;
+    nctx.stroke();
+  }
+  // The live shell gets a WIREFRAME instead of a circle: an equator and two
+  // meridians, projected through the same rotation as everything else. A single
+  // outline stays a disc no matter how the bodies inside it move, and with
+  // nothing on screen that visibly turns, dragging feels like it is sliding
+  // dots around rather than rotating an object.
+  const liveShell = L.shells.find((s) => s.live);
+  if (liveShell) {
+    const rings = [
+      (a) => [Math.cos(a), 0, Math.sin(a)],
+      (a) => [Math.cos(a), Math.sin(a), 0],
+      (a) => [0, Math.cos(a), Math.sin(a)],
+    ];
+    rings.forEach((f, ri) => {
+      // Segment by segment, not one path, so the far half can be drawn dimmer
+      // than the near half — which is the whole depth cue a wireframe has.
+      for (let k = 0; k < 48; k++) {
+        const a0 = k / 48 * Math.PI * 2, a1 = (k + 1) / 48 * Math.PI * 2;
+        const p0 = L.rot(f(a0)), p1 = L.rot(f(a1));
+        const near = (p0[2] + p1[2]) / 2;
+        nctx.beginPath();
+        nctx.moveTo(L.cx + p0[0] * liveShell.R, L.cy + p0[1] * liveShell.R * 0.94);
+        nctx.lineTo(L.cx + p1[0] * liveShell.R, L.cy + p1[1] * liveShell.R * 0.94);
+        nctx.strokeStyle = 'rgba(75,227,200,' + (0.05 + 0.19 * ((near + 1) / 2)).toFixed(3) + ')';
+        nctx.lineWidth = (ri === 0 ? 1.5 : 1) * dpr;
+        nctx.stroke();
+      }
+    });
+  }
+
+  // Every body from every shell, sorted back to front so the near hemisphere
+  // occludes the far one. Depth is the only thing making this a sphere.
+  const all = [];
+  L.shells.forEach((sh) => sh.nodes.forEach((n) => { if (n.hits > 0 || n.live) all.push(n); }));
+  all.sort((a, b) => a.z - b.z);
+
+  const t = performance.now() / 1000;
+  all.forEach((n) => {
+    const front = 0.35 + 0.65 * ((n.z + 1) / 2);
+    const energy = n.live ? (eng.meters[n.i] || 0) : 0;
+    // A cluster's SIZE is its hit count. Empty cells in the live scene still
+    // show a single faint body, so the shape of the shell stays readable and
+    // an empty slot is visibly empty rather than absent.
+    const count = n.hits ? Math.max(2, Math.round(OORT_N * (n.hits / STEPS))) : 1;
+    const spread = (7 + n.hits * 1.5) * dpr * (n.live ? 1.15 : 0.8);
+    const base = 'hsl(' + n.c.hue + ' 90% ' + (52 + energy * 28) + '%';
+    // The other scenes are DIMMER, not invisible. At 0.42 they disappeared
+    // entirely against the void, which defeats the only reason this view
+    // exists — you looked at it and saw one scene, the same as everywhere else.
+    const dim = n.live ? 1 : 0.68;
+    const a = (n.c.mute ? 0.18 : 1) * front * dim;
+
+    // The halo first: one soft glow for the whole cluster, so a busy cell reads
+    // as a bright patch of sky from across the room.
+    if (n.hits) {
+      const g = nctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, spread * 2.6);
+      g.addColorStop(0, base + ' / ' + (a * 0.46 * (0.35 + n.hits / STEPS)).toFixed(3) + ')');
+      g.addColorStop(1, base + ' / 0)');
+      nctx.fillStyle = g;
+      nctx.beginPath(); nctx.arc(n.x, n.y, spread * 2.6, 0, 7); nctx.fill();
+    }
+
+    nctx.fillStyle = base + ' / ' + a.toFixed(3) + ')';
+    for (let k = 0; k < count; k++) {
+      const j = OORT_JIT[(n.i * OORT_N + k) % OORT_JIT.length];
+      // A very slow drift, per body, so the swarm breathes without anything
+      // moving far enough to walk out from under a finger.
+      const w = t * 0.12 + k;
+      const bx = n.x + (j[0] + Math.sin(w) * 0.06) * spread * 2;
+      const by = n.y + (j[1] + Math.cos(w * 0.9) * 0.06) * spread * 2 * 0.8;
+      const r = (1.25 + Math.abs(j[2]) * 2.4) * dpr * (0.7 + front * 0.6);
+      nctx.beginPath(); nctx.arc(bx, by, r, 0, 7); nctx.fill();
+    }
+
+    // Name only the live shell's busy clusters. Sixteen names times four
+    // scenes is not a picture of a song, it is a directory listing.
+    if (n.live && (n.hits > 2 || energy > 0.15) && n.z > -0.2) {
+      nctx.font = (9.5 * dpr) + 'px Oswald, sans-serif';
+      nctx.fillStyle = 'hsl(' + n.c.hue + ' 90% 84% / ' + (front * (n.c.mute ? 0.3 : 0.85)).toFixed(2) + ')';
+      nctx.textAlign = 'center';
+      nctx.fillText(n.c.name, n.x, n.y + spread * 2 + 11 * dpr);
+    }
+  });
+
+  // How much song is out there, in words, because "the fourth shell looks
+  // sparse" is a guess and "SCENE 4 · empty" is not.
+  nctx.font = (9.5 * dpr) + 'px Oswald, sans-serif';
+  nctx.textAlign = 'left';
+  L.shells.forEach((sh, k) => {
+    nctx.fillStyle = sh.live ? 'rgba(75,227,200,.9)' : 'rgba(255,255,255,.30)';
+    nctx.fillText(song.scenes[sh.sc].name + (sh.total ? ' · ' + sh.total : ' · empty'),
+      12 * dpr, (18 + k * 13) * dpr);
+  });
+}
+
+// Nearest cluster on the front hemisphere. The back half is behind the sphere,
+// and letting it win a tap means grabbing something you cannot see.
+function oortPick(ev) {
+  if (!NEB.oort) return null;
+  const rect = neb.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const x = (ev.clientX - rect.left) * dpr, y = (ev.clientY - rect.top) * dpr;
+  let best = null, bd = 1e9;
+  NEB.oort.shells.forEach((sh) => sh.nodes.forEach((n) => {
+    if (n.z < -0.15) return;
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < bd) { bd = d; best = n; }
+  }));
+  return bd < 30 * dpr ? best : null;
+}
+
+// ---- THE NEBULA -----------------------------------------------------------
+// The field view, with the gas it has always implied. Every property still
+// means what it meant — this is not a skin over a different picture, it is the
+// same picture with atmosphere — and the atmosphere carries one thing of its
+// own: its COLOUR is the colour of what is actually loud.
+//
+// The cloud is seeded from the scene, so each scene has its own and you can
+// tell them apart at a glance without reading a label. Same scene, same sky.
+let fogs = null, stars = null, starSeed = -1;
+function fogFor(seed) {
+  if (!fogs) fogs = new Map();
+  if (!fogs.has(seed)) fogs.set(seed, createFog(seed));
+  return fogs.get(seed);
+}
+function drawStars(W, H, alpha) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const seed = song.scene * 977 + 41;
+  if (seed !== starSeed) { starSeed = seed; stars = makeStars(seed, 190); }
+  const t = performance.now() / 1000;
+  nctx.save();
+  for (let i = 0; i < stars.length; i++) {
+    const s = stars[i];
+    // A slow breath rather than a twinkle. Anything faster reads as a fault.
+    const a = s.a * (0.75 + 0.25 * Math.sin(t * 0.35 + s.p)) * alpha;
+    nctx.fillStyle = 'rgba(226,239,255,' + a.toFixed(3) + ')';
+    nctx.beginPath();
+    nctx.arc(s.x * W, s.y * H, s.r * dpr, 0, 7);
+    nctx.fill();
+  }
+  nctx.restore();
+}
+// The three hues carrying the most weight right now: how much of the pattern a
+// cell owns, plus what it is doing this instant. So the gas turns toward
+// whatever is actually playing instead of sitting on a fixed palette.
+function loudHues(cells) {
+  const w = cells.map((c, i) => ({
+    hue: c.hue,
+    w: (c.mute ? 0 : 1) * (c.steps.reduce((a, v) => a + (v ? 1 : 0), 0) / STEPS + (eng.meters[i] || 0) * 2.2),
+  })).sort((a, b) => b.w - a.w);
+  const top = w.filter((x) => x.w > 0).slice(0, 3).map((x) => x.hue);
+  // A silent, empty scene still needs a sky. These are the app's own accent
+  // and its two neighbours round the wheel — recognisably this app, at rest.
+  return top.length ? top : [168, 262, 330];
+}
+
+function drawNebulaView(cells) {
+  const rect = neb.getBoundingClientRect();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (neb.width !== (rect.width * dpr | 0)) { neb.width = rect.width * dpr; neb.height = rect.height * dpr; }
+  const W = neb.width, H = neb.height;
+  nctx.clearRect(0, 0, W, H);
+
+  let heat = 0;
+  for (let i = 0; i < cells.length; i++) heat = Math.max(heat, eng.meters[i] || 0);
+  drawStars(W, H, 1);
+  fogFor(song.scene * 7919 + 13).draw(nctx, W, H, {
+    t: performance.now() / 1000,
+    hues: loudHues(cells),
+    energy: heat,
+    now: performance.now(),
+    // Held back from full, because the bodies have to stay the brightest thing
+    // on screen. The gas is the room, not the subject.
+    alpha: 1,
+  });
+  // Everything the field view draws, on top and unchanged — this view is the
+  // field, so it has to BE the field, not a lookalike with its own hit list.
+  drawNebula(cells, true);
+}
+
+// One table, so adding a view is adding a row rather than another branch in the
+// render loop.
+const VIEW_DRAW = {
+  field: (cells) => drawNebula(cells),
+  column: drawColumn,
+  oort: () => drawOort(),
+  nebula: drawNebulaView,
+};
+
 // WHAT THE COLUMN IS FOR, AND WHY IT IS NOT A STEP EDITOR.
 // The first version made every cell at every step a tap target. That is 256
 // targets in one pane — about 1800 square pixels each on a laptop, which even
@@ -1518,6 +1869,14 @@ function colSeek(s) {
   eng.seek(s);
 }
 neb.addEventListener('pointerdown', (ev) => {
+  if (NEB.mode === 'oort') {
+    ev.preventDefault(); capture(neb, ev.pointerId);
+    // Every press starts a turn. Whether it was ALSO a tap is decided on
+    // release, by whether the sphere actually moved — deciding up front means
+    // guessing, and guessing wrong either eats taps or eats drags.
+    NEB.drag = { oort: 1, x: ev.clientX, y: ev.clientY, moved: 0, node: oortPick(ev) };
+    return;
+  }
   if (NEB.mode === 'column') {
     ev.preventDefault(); capture(neb, ev.pointerId);
     const n = colPick(ev);
@@ -1547,6 +1906,17 @@ neb.addEventListener('pointerdown', (ev) => {
 });
 neb.addEventListener('pointermove', (ev) => {
   if (!NEB.drag) return;
+  if (NEB.drag.oort) {
+    const dx = ev.clientX - NEB.drag.x, dy = ev.clientY - NEB.drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) NEB.drag.moved = 1;
+    NEB.yaw += dx * 0.008;
+    // Pitch stops just short of the poles. Past ninety degrees the sphere
+    // turns inside out and the near hemisphere becomes the far one under your
+    // finger, which feels like the model broke.
+    NEB.pitch = Math.max(-1.35, Math.min(1.35, NEB.pitch + dy * 0.008));
+    NEB.drag.x = ev.clientX; NEB.drag.y = ev.clientY;
+    return;
+  }
   if (NEB.drag.col) {
     // Dragging down the column scrubs. Moving at all also cancels the fly-in,
     // because a hold that wandered was not a hold.
@@ -1567,6 +1937,19 @@ neb.addEventListener('pointermove', (ev) => {
 });
 neb.addEventListener('pointerup', (ev) => {
   const held = performance.now() - nebTap;
+  if (NEB.drag && NEB.drag.oort) {
+    const n = NEB.drag.moved ? null : NEB.drag.node;
+    NEB.drag = null;
+    if (n) {
+      // A cluster out on another shell is another scene. Tapping it goes
+      // there — which is the point of being able to see all four at once.
+      if (n.sc !== song.scene) { setScene(n.sc); }
+      lastCell = n.i;
+      eng.resume(); eng.play(liveCells(song)[n.i].voice, 0, 112, n.i);
+      flash(n.i);
+    }
+    return;
+  }
   if (NEB.drag && NEB.drag.col) {
     if (NEB.drag.hold) clearTimeout(NEB.drag.hold);
     NEB.drag = null;
@@ -2369,7 +2752,7 @@ const HELP = [
     ['Drag a body in or out', 'Fills or thins that pad\'s pattern, landing on beats before offbeats so it stays playable at every density.', []],
     ['Tap · double-tap', 'Audition it, or mute it.', []],
     ['The scene rings', 'All four scenes are drawn at once. Tap a pill to switch.', ['.spill', '#scenepick']],
-    ['COLUMN / FIELD', 'Switches between the plan view and the side elevation. Same song, two readings of it.', ['#sview']],
+    ['The view button', 'Cycles FIELD → COLUMN → OORT → NEBULA. It always shows the view you are in, and its tooltip names the one it will take you to next. Same song every time — what changes is which question the picture answers.', ['#sview']],
     ['CLEAR', 'Empties the scene. It goes through undo, so an hour of work is one ctrl+Z away.', ['#sclear']],
     ['COPY TO NEXT', 'Duplicates this scene\'s pattern into the next one, which keeps its own name.', ['#scopy']],
     ['EXPORT WAV', 'Renders four bars of the scene to a stereo 44.1k WAV and saves it. It goes through the same engine as playback, so the file sounds like what you heard, and it leaves a tail on the end so ambient voices are not chopped off.', ['#sbounce']],
@@ -2381,6 +2764,19 @@ const HELP = [
     ['Tap a nucleus', 'Hears it and selects it. Hold to fly into that pad\'s pattern, the same as holding a pad on the deck.', []],
     ['Tap or drag a shell', 'Puts the playhead on that step — anywhere in the row, not just on a dot. Stopped, that is where PLAY will start from.', []],
     ['Why it does not edit', 'Sixteen cells across sixteen steps is 256 targets in one pane. Even packed perfectly that is a 43-pixel square each, and an edge-on ring is not packed perfectly — the closest pair measured eleven pixels. Editing stays on the step grid, where there is room for it.', []],
+  ]],
+  ['THE OORT CLOUD', [
+    ['What it is', 'The whole song as a sphere. Every scene is a shell at its own distance, every pad a cluster of bodies out on that shell, and the number of bodies in a cluster is the number of hits in that pad.', []],
+    ['What it tells you', 'How much song there actually is. The field view draws the other scenes as rings, which says they exist and nothing more; here you can see at a glance that the fourth one is empty. The count beside each scene name says it in numbers too.', []],
+    ['The live scene', 'The inner shell, lit. The others are further out and dimmer — what you are playing is the thing you are standing in.', []],
+    ['Drag', 'Turns it. A sphere drawn flat is a disc, and turning it is also how you separate two clusters that happen to line up from where you are looking.', []],
+    ['Tap a cluster', 'Goes to that scene and selects that pad. That is the point of seeing all four at once.', []],
+  ]],
+  ['THE NEBULA', [
+    ['What it is', 'The field view with the gas it always implied. Every body means exactly what it meant — this is the same picture with atmosphere, not a different one.', []],
+    ['The colour', 'The cloud is tinted by whatever is actually carrying the mix: the three pads with the most pattern and the most output right now. Mute the lead and watch its colour drain out of the sky.', []],
+    ['One sky per scene', 'The cloud is generated from the scene, so each of the four has its own and is always its own. You can tell which scene you are in without reading the label.', []],
+    ['Everything still works', 'Drag a body in or out, tap to audition, double-tap to mute — all exactly as in FIELD.', []],
   ]],
   ['SOUNDS', [
     ['Drop or browse', 'Anything the device can decode. Files are stored inside the app, so they survive a restart and work offline.', ['#drop', '#file']],
@@ -2412,7 +2808,12 @@ const HELP = [
 ];
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
-const WHATS_NEW = ['1.0.12', [
+const WHATS_NEW = ['1.0.13', [
+  ['The Oort cloud', 'A fourth view: the whole song as a sphere you can turn. Every scene is a shell, every pad a cluster, and the size of a cluster is how many hits are in it — so how much song exists is finally something you can see rather than infer.'],
+  ['The nebula', 'The field view through drifting gas, tinted by whichever pads are actually carrying the mix. One cloud per scene, generated from the scene, so it is always the same sky for the same scene.'],
+  ['The view button', 'Now cycles four ways and names where you are.'],
+]];
+const WHATS_NEW_PREV = ['1.0.12', [
   ['The column', 'A second reading of the constellation — the bar on end, one shell per step, cells on nested orbits. Shows where the bar is busy and lets you drop the playhead anywhere in it.'],
   ['The MIDI window', 'A live key display, the wheels and pressure as meters, the last message in words, and the one override the app needs: whether a controller is keys or pads.'],
   ['Export', 'Four bars of any scene out to a WAV, through the same engine as playback.'],
@@ -2426,9 +2827,14 @@ function renderHelp() {
   body.dataset.built = '1';
   const rows = (list) => list.map(([d, w]) =>
     '<div class="hrow"><span class="hd">' + esc(d) + '</span><span class="hw">' + esc(w) + '</span></div>').join('');
+  // Two releases deep, not one. Someone who skipped an update should still find
+  // out what changed in it; a what's-new that only ever shows the very latest
+  // release quietly loses everything for anyone who was not watching.
   body.innerHTML =
     '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + '</h4>' +
-      rows(WHATS_NEW[1]) + '</div></div>' +
+      rows(WHATS_NEW[1]) +
+      '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_PREV[0]) + '</h4>' +
+      rows(WHATS_NEW_PREV[1]) + '</div></div>' +
     HELP.map(([title, list]) =>
       '<div class="hgrp"><h4>' + esc(title) + '</h4>' + rows(list) + '</div>').join('') +
     '<div class="hgrp"><h4>DATA</h4>' +
@@ -2466,7 +2872,11 @@ window.__ult = {
   // The column's node list, same shape and same purpose as nebBodies: a test
   // can prove that the thing it taps is the thing that was drawn.
   colNodes: () => (NEB.col ? NEB.col.nodes.map((n) => ({ i: n.i, s: n.s, x: n.x, y: n.y, vel: n.vel })) : []),
-  setView, colPick,
+  setView, colPick, setScene,
+  // The Oort layout, same purpose as nebBodies and colNodes: what a test taps
+  // must be what the renderer drew.
+  oortNodes: () => (NEB.oort ? NEB.oort.shells.flatMap((sh) => sh.nodes.map((n) => ({
+    sc: n.sc, i: n.i, hits: n.hits, live: n.live, x: n.x, y: n.y, z: n.z }))) : []),
   // Every selector the manual claims to document. The coverage test reads this
   // and compares it against the controls that actually exist — in both
   // directions, so an undocumented button and a documented ghost both fail.
