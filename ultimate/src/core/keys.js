@@ -79,7 +79,7 @@ export function guessRole(name) {
   return null;                     // unknown — behaviour will settle it
 }
 
-export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, poly = 16 } = {}) {
+export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick, poly = 16 } = {}) {
   const roles = readRoles();
   const held = new Map();          // "ch:note" -> live voice handle
   const sustained = new Set();     // keys whose note-off is waiting on the pedal
@@ -304,6 +304,14 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, poly =
       const status = data[0] & 0xf0, c = data[0] & 0x0f;
       if (status === 0xf0 || data[0] >= 0xf8) return;      // clock and sysex are not ours
 
+      // PROGRAM CHANGE — the mode/preset selector on a controller.
+      //
+      // Almost every board with a rotary "mode" or "preset" knob sends this,
+      // and it is the one message whose entire purpose is "I have chosen a
+      // different sound". Wiring it to which voice the keys play is not a
+      // mapping decision, it is what the message already means. No setup, no
+      // learn step: turn the knob and the keyboard is on another pad.
+      if (status === 0xc0) { onPick && onPick(data[1] | 0, 'program'); return; }
       if (status === 0xb0) { cc(c, data[1], data[2]); return; }
       if (status === 0xe0) { bend(c, data[1], data[2]); return; }
       if (status === 0xd0) {                                // channel pressure
