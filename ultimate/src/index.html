@@ -184,6 +184,18 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 .cell.solo{outline:2px solid var(--acc);outline-offset:-2px;
   box-shadow:var(--e1),var(--lip),0 0 22px rgba(75,227,200,.35);}
 .cell.dimmed{filter:saturate(.35) brightness(.72);}
+/* --e is written on every pad on nearly every frame while the music plays, and
+   exactly one thing reads it: the pad's own ::after ring. As an ordinary custom
+   property it still INHERITS, so each write invalidated the pad's whole subtree
+   — a name, a ribbon and sixteen ribbon segments — asking the style engine to
+   re-resolve seventeen elements that never look at it. Across sixteen pads that
+   is 272 elements, sixty times a second, to light one ring.
+
+   Registering it as non-inheriting is the entire fix: the write then reaches
+   the pad and its pseudo-element and stops. An engine too old for @property
+   ignores this and behaves exactly as it did before — correct, merely slower —
+   so there is nothing that needs a fallback. */
+@property --e { syntax:'<number>'; inherits:false; initial-value:0; }
 /* Energy ring — driven by the meter, so brightness IS loudness. */
 .cell::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   box-shadow:inset 0 0 0 1px hsl(var(--h) 90% 62% / calc(var(--e) * .9)),
@@ -792,6 +804,7 @@ function buildDeck() {
     });
     deck.appendChild(el);
   });
+  cacheRibbons();
   refreshCellStates();
 }
 // The label has to carry what the pad IS and what state it is in, because the
@@ -875,9 +888,20 @@ function drawCellSheet() {
     st.appendChild(b);
   }
 }
+// The ribbon segments, cached per pad. They are rebuilt only when the deck is,
+// and the playhead touches them on every step — looking them up by selector
+// each time was a query over the whole deck several times a second forever.
+const ribbonSegs = [];
+function cacheRibbons() {
+  ribbonSegs.length = 0;
+  for (let i = 0; i < deck.children.length; i++) {
+    ribbonSegs.push(Array.prototype.slice.call(deck.children[i].querySelectorAll('.ribbon b')));
+  }
+  shownStep = -1;
+}
 function syncRibbon(i) {
   const el = deck.children[i]; if (!el) return;
-  const c = liveCells(song)[i], bs = el.querySelectorAll('.ribbon b');
+  const c = liveCells(song)[i], bs = ribbonSegs[i] || el.querySelectorAll('.ribbon b');
   for (let s = 0; s < STEPS; s++) bs[s].classList.toggle('on', !!c.steps[s]);
   // The ribbon and the label are two renderings of the same fact — how much
   // this pad plays. Updating one without the other leaves the spoken version
@@ -1091,8 +1115,34 @@ $('#sbounce').addEventListener('click', async (e) => {
 // ---- LIVE RENDER LOOP ------------------------------------------------------
 // One loop for the whole app. Each altitude draws only when it is visible, so
 // flying to CONSTELLATION costs nothing while you are down in GRAIN.
-function frame() {
+// The last value written to each pad, so a value that has not changed is not
+// written again. This is not micro-optimisation: a custom property set on a
+// pad invalidates that pad's whole subtree, and each pad contains a sixteen
+// segment ribbon — so sixteen unconditional writes per frame were asking the
+// engine to restyle 272 elements sixty times a second, whether or not anything
+// had actually moved. On a phone-class CPU the deck sat at 18fps because of it.
+// Meters decay geometrically to zero and then stay there, so in practice almost
+// every write was writing the same number over the top of itself.
+const lastE = new Float32Array(CELLS).fill(-1);
+
+// A smoothed frame time, used to decide how much work the heavy views can
+// afford. Measured rather than guessed from the user agent: the same phone is
+// fast on a cold app and slow with a browser full of tabs behind it, and a
+// device string cannot tell you which one you are on right now.
+let frameMs = 16, lastFrameAt = 0, heavyFrame = 0;
+
+function frame(now) {
   requestAnimationFrame(frame);
+  if (lastFrameAt) {
+    const dt = now - lastFrameAt;
+    // Ignore the huge gap after a tab has been in the background: it says
+    // nothing about how fast this machine is.
+    if (dt < 400) frameMs += (dt - frameMs) * 0.1;
+  }
+  lastFrameAt = now;
+  // Tell the scheduler how slow this machine is being, so its look-ahead can
+  // widen before a stall costs a note rather than after.
+  eng.pace(frameMs);
   const lvl = atlas.level, cells = liveCells(song);
 
   // meters decay every frame so a hit reads as a strike, not a switch
@@ -1100,10 +1150,30 @@ function frame() {
   if (lvl <= 1) {
     for (let i = 0; i < cells.length; i++) {
       const el = deck.children[i]; if (!el) continue;
-      el.style.setProperty('--e', eng.meters[i].toFixed(3));
+      const e = eng.meters[i];
+      // A twentieth of the range: below that the glow difference is not
+      // visible on any screen, so the write buys nothing.
+      if (Math.abs(e - lastE[i]) < 0.005) continue;
+      lastE[i] = e;
+      el.style.setProperty('--e', e.toFixed(3));
     }
   }
-  if (lvl === 0) VIEW_DRAW[NEB.mode](cells);
+  // The playhead catches up to the audio clock rather than to the timer that
+  // committed the notes. Everything already scheduled stays scheduled; this
+  // only decides when it is allowed to LOOK like it has happened.
+  if (stepQ.length) {
+    const ct = eng.ctx ? eng.ctx.currentTime : 0;
+    let s = -1;
+    while (stepQ.length >= 2 && stepQ[1] <= ct) { s = stepQ.shift(); stepQ.shift(); }
+    if (s >= 0 && s !== shownStep) { paintPlayhead(s); shownStep = s; }
+  }
+  // On a machine that is already missing frames, the constellation draws every
+  // OTHER frame. It is the ambient picture, not the instrument: halving its
+  // rate is invisible on a drifting starfield and gives the whole budget back
+  // to the things that are not — the transport, the pads, and the scheduler
+  // that has to be topped up on this same thread. Above the threshold nothing
+  // changes at all.
+  if (lvl === 0 && !(frameMs > 26 && (heavyFrame++ & 1))) VIEW_DRAW[NEB.mode](cells);
   if (lvl === 4) drawScope();
   drawMonitor(cells);
   // The MIDI window's meters follow the wheels continuously, so they belong on
@@ -1202,6 +1272,44 @@ function drawMonitor(cells) {
 // on a desktop and would put eight buttons into a row that already wraps to two
 // on a 390px phone. The price of cycling is that the control must say what it
 // is currently showing, or it is a mystery button; so it does.
+// GLOW SPRITES.
+// Every body in every view was drawing its halo as a fresh createRadialGradient
+// plus a fill over a circle several times its own radius. That is a gradient
+// object allocated and a large area shaded, per body, per frame — sixteen times
+// in the field, up to forty in the column, up to sixty-four in the Oort cloud.
+// Radial shading is one of the more expensive things a 2D canvas does, and on a
+// machine without a GPU raster path it dominated the whole view.
+//
+// A cell owns its hue for life, so there are only ever sixteen of these. Bake
+// each once and the per-body cost becomes a single scaled blit.
+const glowCache = new Map();
+function glowSprite(hue) {
+  let c = glowCache.get(hue);
+  if (c) return c;
+  const S = 128;
+  c = document.createElement('canvas');
+  c.width = S; c.height = S;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  // The same falloff the hand-rolled gradients had: a hot centre, a broad
+  // shoulder, and nothing at the rim so the square edge of the sprite can
+  // never show.
+  rg.addColorStop(0, 'hsl(' + hue + ' 94% 66%)');
+  rg.addColorStop(0.35, 'hsl(' + hue + ' 92% 58% / .55)');
+  rg.addColorStop(0.7, 'hsl(' + hue + ' 90% 54% / .13)');
+  rg.addColorStop(1, 'hsl(' + hue + ' 90% 54% / 0)');
+  g.fillStyle = rg;
+  g.fillRect(0, 0, S, S);
+  glowCache.set(hue, c);
+  return c;
+}
+function drawGlow(hue, x, y, r, alpha) {
+  if (alpha <= 0.004 || r <= 0) return;
+  nctx.globalAlpha = Math.min(1, alpha);
+  nctx.drawImage(glowSprite(hue), x - r, y - r, r * 2, r * 2);
+  nctx.globalAlpha = 1;
+}
+
 const NEB = { hit: null, drag: null, col: null, mode: 'field', seek: -1,
               yaw: 0.55, pitch: 0.32, oort: null };
 const VIEWS = ['field', 'column', 'oort', 'nebula'];
@@ -1299,12 +1407,8 @@ function drawNebula(cells, overlay) {
     const e = eng.meters[b.i] || 0;
     const size = b.r * dpr;
     const col = 'hsl(' + b.c.hue + ' 92% ' + (52 + e * 30) + '%';
-    // halo
-    const g = nctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, size * 2.8);
-    g.addColorStop(0, col + ' / ' + (b.c.mute ? .12 : .8) + ')');
-    g.addColorStop(1, col + ' / 0)');
-    nctx.fillStyle = g;
-    nctx.beginPath(); nctx.arc(b.x, b.y, size * 2.8, 0, 7); nctx.fill();
+    // halo — a baked sprite, not a gradient built and shaded every frame
+    drawGlow(b.c.hue, b.x, b.y, size * 2.8, b.c.mute ? 0.16 : 0.85);
     // core
     nctx.fillStyle = col + ' / ' + (b.c.mute ? .3 : 1) + ')';
     nctx.beginPath(); nctx.arc(b.x, b.y, size * 0.42, 0, 7); nctx.fill();
@@ -1467,11 +1571,7 @@ function drawColumn(cells) {
     const l = 50 + energy * 26;
     const a = (n.c.mute ? 0.22 : 1) * front;
     const col = 'hsl(' + n.c.hue + ' 92% ' + l + '%';
-    const g = nctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, size * 3);
-    g.addColorStop(0, col + ' / ' + (a * 0.55).toFixed(3) + ')');
-    g.addColorStop(1, col + ' / 0)');
-    nctx.fillStyle = g;
-    nctx.beginPath(); nctx.arc(n.x, n.y, size * 3, 0, 7); nctx.fill();
+    drawGlow(n.c.hue, n.x, n.y, size * 3, a * 0.6);
     nctx.fillStyle = col + ' / ' + a.toFixed(3) + ')';
     nctx.beginPath(); nctx.arc(n.x, n.y, size, 0, 7); nctx.fill();
   });
@@ -1664,13 +1764,7 @@ function drawOort() {
 
     // The halo first: one soft glow for the whole cluster, so a busy cell reads
     // as a bright patch of sky from across the room.
-    if (n.hits) {
-      const g = nctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, spread * 2.6);
-      g.addColorStop(0, base + ' / ' + (a * 0.46 * (0.35 + n.hits / STEPS)).toFixed(3) + ')');
-      g.addColorStop(1, base + ' / 0)');
-      nctx.fillStyle = g;
-      nctx.beginPath(); nctx.arc(n.x, n.y, spread * 2.6, 0, 7); nctx.fill();
-    }
+    if (n.hits) drawGlow(n.c.hue, n.x, n.y, spread * 2.6, a * 0.5 * (0.35 + n.hits / STEPS));
 
     nctx.fillStyle = base + ' / ' + a.toFixed(3) + ')';
     for (let k = 0; k < count; k++) {
@@ -1735,21 +1829,38 @@ function fogFor(seed) {
   if (!fogs.has(seed)) fogs.set(seed, createFog(seed));
   return fogs.get(seed);
 }
+// The star field is BAKED, not drawn per frame. It never moves — the whole
+// point of it is to be the fixed thing everything else moves against — so
+// stroking a hundred and ninety little arcs sixty times a second was paying
+// for a picture that is identical every time. Baked once per scene and per
+// size, it becomes a single blit.
+//
+// The slow breath went with it. It was a nice detail and it cost the entire
+// saving, because a field that changes at all cannot be cached; on a
+// phone-class CPU that trade is not close.
+let starCv = null, starKey = '';
 function drawStars(W, H, alpha) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const seed = song.scene * 977 + 41;
-  if (seed !== starSeed) { starSeed = seed; stars = makeStars(seed, 190); }
-  const t = performance.now() / 1000;
-  nctx.save();
-  for (let i = 0; i < stars.length; i++) {
-    const s = stars[i];
-    // A slow breath rather than a twinkle. Anything faster reads as a fault.
-    const a = s.a * (0.75 + 0.25 * Math.sin(t * 0.35 + s.p)) * alpha;
-    nctx.fillStyle = 'rgba(226,239,255,' + a.toFixed(3) + ')';
-    nctx.beginPath();
-    nctx.arc(s.x * W, s.y * H, s.r * dpr, 0, 7);
-    nctx.fill();
+  const key = seed + ':' + W + 'x' + H;
+  if (key !== starKey) {
+    starKey = key;
+    if (seed !== starSeed) { starSeed = seed; stars = makeStars(seed, 190); }
+    if (!starCv) starCv = document.createElement('canvas');
+    starCv.width = W; starCv.height = H;
+    const sc = starCv.getContext('2d');
+    sc.clearRect(0, 0, W, H);
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      sc.fillStyle = 'rgba(226,239,255,' + s.a.toFixed(3) + ')';
+      sc.beginPath();
+      sc.arc(s.x * W, s.y * H, s.r * dpr, 0, 7);
+      sc.fill();
+    }
   }
+  nctx.save();
+  nctx.globalAlpha = alpha;
+  nctx.drawImage(starCv, 0, 0);
   nctx.restore();
 }
 // The three hues carrying the most weight right now: how much of the pattern a
@@ -1776,11 +1887,25 @@ function drawNebulaView(cells) {
   let heat = 0;
   for (let i = 0; i < cells.length; i++) heat = Math.max(heat, eng.meters[i] || 0);
   drawStars(W, H, 1);
+  // Shed work when the machine is not keeping up, from measured frame time.
+  // A cloud that drifts a little more slowly and is cached a little smaller is
+  // not a worse picture in any way anyone would notice; a cloud at six frames a
+  // second is a broken app. Two thresholds rather than a continuous curve, so
+  // it settles instead of oscillating around a boundary.
+  const tight = frameMs > 26;
   fogFor(song.scene * 7919 + 13).draw(nctx, W, H, {
     t: performance.now() / 1000,
     hues: loudHues(cells),
     energy: heat,
     now: performance.now(),
+    interval: tight ? 260 : 110,
+    // 1 when there is budget, and that is not an oversight. Caching at four
+    // fifths and letting the blit stretch it back sounds cheaper — a third
+    // fewer pixels to composite — and measured SLOWER, 45fps against 51: a 1:1
+    // blit is a straight copy, while any other ratio makes every frame resample
+    // again. The saving only pays once the machine is missing frames anyway,
+    // which is what the 0.5 is for.
+    scale: tight ? 0.5 : 1,
     // Held back from full, because the bodies have to stay the brightest thing
     // on screen. The gas is the room, not the subject.
     alpha: 1,
@@ -2091,19 +2216,19 @@ grip.addEventListener('dblclick', () => {
 const playBtn = $('#play');
 playBtn.addEventListener('click', () => {
   eng.resume();
-  if (eng.playing) { eng.stop(); playBtn.classList.remove('on'); }
+  if (eng.playing) { eng.stop(); playBtn.classList.remove('on'); clearPlayhead(); }
   else {
     eng.start(song, (s, at) => {
       recStep = s; recAt = at;
-      // Paint the playhead on the DECK ribbons and the CELL steps.
-      requestAnimationFrame(() => {
-        deck.querySelectorAll('.ribbon b.at').forEach((b) => b.classList.remove('at'));
-        deck.querySelectorAll('.ribbon').forEach((rb) => {
-          const b = rb.children[s]; if (b) b.classList.add('at');
-        });
-        document.querySelectorAll('.st.at').forEach((e) => e.classList.remove('at'));
-        const st = document.querySelectorAll('#steps .st')[s]; if (st) st.classList.add('at');
-      });
+      // QUEUED, not painted. `at` is the audio time this step will sound at,
+      // and the scheduler commits up to 600ms ahead when the machine is
+      // struggling — so painting on the next animation frame would put the
+      // playhead as much as five steps in front of what you can hear. The
+      // render loop drains this against the audio clock instead, which means
+      // the light and the sound arrive together no matter how far ahead the
+      // notes were committed.
+      stepQ.push(s, at);
+      if (stepQ.length > 64) stepQ.splice(0, stepQ.length - 64);
     });
     playBtn.classList.add('on');
   }
@@ -2115,6 +2240,7 @@ playBtn.addEventListener('click', () => {
 // you stop looking for the real cause.
 $('#panic').addEventListener('click', () => {
   eng.stop();
+  clearPlayhead();
   keys.panic();
   // Anything held by a finger on the drawn keyboard goes too.
   touched.forEach((t) => t.h.off());
@@ -2146,6 +2272,44 @@ $('#bpm').addEventListener('input', (e) => {
 // person with no experience will reach for first.
 let recording = false;
 let recStep = 0, recAt = 0;                 // the last step the engine committed
+// Committed steps waiting for the audio clock to reach them, as flat (step,
+// time) pairs. Drained in the render loop.
+const stepQ = [];
+let shownStep = -1;
+
+// Painting the playhead used to run on every step at every altitude: two
+// querySelectorAll sweeps over a deck of 272 elements plus a document-wide one,
+// nine times a second, including while looking at the constellation where none
+// of those elements are on screen. Now it only touches what is actually
+// visible, and only when the step it would draw has changed.
+// Stopping drops both the pending steps and the lit segment. Leaving a step
+// queued means the playhead jumps to a stale position the moment play resumes.
+function clearPlayhead() {
+  stepQ.length = 0;
+  if (shownStep >= 0) {
+    ribbonSegs.forEach((segs) => { if (segs && segs[shownStep]) segs[shownStep].classList.remove('at'); });
+    const host = $('#steps');
+    if (host && host.children[shownStep]) host.children[shownStep].classList.remove('at');
+  }
+  shownStep = -1;
+}
+function paintPlayhead(s) {
+  const lvl = atlas.level;
+  if (lvl <= 1) {
+    for (let i = 0; i < ribbonSegs.length; i++) {
+      const segs = ribbonSegs[i]; if (!segs) continue;
+      if (shownStep >= 0 && segs[shownStep]) segs[shownStep].classList.remove('at');
+      if (segs[s]) segs[s].classList.add('at');
+    }
+  }
+  if (lvl === 2) {
+    const host = $('#steps');
+    if (host) {
+      if (shownStep >= 0 && host.children[shownStep]) host.children[shownStep].classList.remove('at');
+      if (host.children[s]) host.children[s].classList.add('at');
+    }
+  }
+}
 $('#rec').addEventListener('click', (e) => {
   recording = !recording;
   e.currentTarget.classList.toggle('on', recording);

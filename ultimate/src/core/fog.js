@@ -95,13 +95,27 @@ function hsl(h, s, l) {
 
 const LUT = 64;
 
+// THE SCRATCH CANVASES ARE SHARED, AND HAVE TO BE.
+// Only one cloud is ever on screen — there is one constellation and it shows
+// one scene. But a fog is created PER SCENE so each keeps its own lattice, and
+// the resample target is the size of the main canvas: about 11.7MB on a
+// desktop. Four scenes visited means four of those alive forever, roughly 47MB
+// of backing store for three pictures nobody is looking at. Canvas memory does
+// not show up in the JS heap, so nothing would ever have reported it.
+//
+// What is genuinely per-scene is small: the lattice, the palette and the
+// timestamp. Those stay owned; the two big buffers are module-level and passed
+// around, with an owner token so that switching scenes repaints rather than
+// showing the previous scene's sky.
+let cv = null, cx = null, img = null, buf = null, LW = 0, LH = 0;
+let full = null, fctx = null, fw = 0, fh = 0, owner = null;
+
 export function createFog(seed) {
   const lattice = makeLattice(seed);
-  let cv = null, cx = null, img = null, buf = null;
-  let LW = 0, LH = 0;
   let lut = new Uint8Array(LUT * 3);
   let lutKey = '';
   let last = -1e9;
+  const me = {};                        // identity token for the shared buffers
 
   // The palette runs ACROSS the cloud rather than over time, which is what
   // makes the colour follow the filaments instead of washing the whole frame
@@ -130,18 +144,18 @@ export function createFog(seed) {
   }
 
   function fit(W, H) {
-    // A sixth of the canvas, floored at something that still has structure in
+    // A seventh of the canvas, floored at something that still has structure in
     // it and capped so a 4K window does not quietly become a per-pixel job.
     const w = Math.max(48, Math.min(168, Math.round(W / 7)));
     const h = Math.max(32, Math.round(w * H / W));
-    if (w === LW && h === LH && cv) return;
+    if (w === LW && h === LH && cv) return false;
     LW = w; LH = h;
     cv = document.createElement('canvas');
     cv.width = LW; cv.height = LH;
     cx = cv.getContext('2d');
     img = cx.createImageData(LW, LH);
     buf = img.data;
-    last = -1e9;                            // force a repaint at the new size
+    return true;                            // caller must repaint at this size
   }
 
   // Repaint the low-resolution buffer. `t` is seconds; `energy` lifts the whole
@@ -219,7 +233,6 @@ export function createFog(seed) {
   // So the resample happens on the same schedule as the noise, into a canvas
   // that is already the right size, and the render loop does a 1:1 blit — which
   // is the one thing a compositor is genuinely fast at.
-  let full = null, fctx = null, fw = 0, fh = 0;
   function resample(W, H) {
     if (fw !== W || fh !== H || !full) {
       fw = W; fh = H;
@@ -231,15 +244,31 @@ export function createFog(seed) {
     fctx.imageSmoothingEnabled = true;
     fctx.imageSmoothingQuality = 'high';
     fctx.drawImage(cv, 0, 0, W, H);
+    owner = me;
   }
 
   return {
     // Composite the cloud onto a destination context.
-    draw(ctx, W, H, { t = 0, hues = [190], energy = 0, alpha = 1, now = 0 } = {}) {
-      fit(W, H);
-      if (now - last > 110 || fw !== W || fh !== H) {
+    //
+    // `scale` shrinks the cached layer. At 1 the per-frame blit is 1:1 and the
+    // cheapest it can be; at 0.5 it is a quarter of the pixels and gets scaled
+    // up on the way out, which costs a resample but of four times less data —
+    // the right trade on a machine that is already missing frames. `interval`
+    // is how stale the cloud may get. Both are decided by the caller from
+    // MEASURED frame time, because the same phone is fast on a fresh app and
+    // slow with twenty tabs behind it.
+    draw(ctx, W, H, { t = 0, hues = [190], energy = 0, alpha = 1, now = 0,
+                      interval = 110, scale = 1 } = {}) {
+      const tw = Math.max(64, Math.round(W * scale));
+      const th = Math.max(48, Math.round(H * scale));
+      const resized = fit(tw, th);
+      // Repaint when the cloud is stale, when the canvas changed size, or when
+      // the shared buffer currently holds SOMEONE ELSE'S sky — the last one is
+      // what makes switching scenes show the new scene rather than a frame of
+      // the old one.
+      if (resized || owner !== me || now - last > interval || fw !== tw || fh !== th) {
         paint(t, hues, energy);
-        resample(W, H);
+        resample(tw, th);
         last = now;
       }
       ctx.save();
@@ -247,7 +276,7 @@ export function createFog(seed) {
       // black instead of going grey.
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = alpha;
-      ctx.drawImage(full, 0, 0);
+      ctx.drawImage(full, 0, 0, W, H);
       ctx.restore();
     },
     get size() { return [LW, LH]; },

@@ -19,6 +19,10 @@
 // be rendered and measured without playing it, and how a song will be bounced
 // to a file later. Everything below is written against ctx, so neither path
 // needs a special case.
+// How far ahead of "now" a live hit is scheduled. Three render quanta at
+// 44.1kHz. See play() for why zero is the wrong answer.
+const NUDGE = 128 * 3 / 44100;
+
 export function createEngine({ sampleFor, context, onFail } = {}) {
   let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
   const meters = new Float32Array(64);
@@ -298,10 +302,26 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     // Silence is a mode, not an error: everything upstream still runs, the
     // meters still light, and the pattern is still being edited.
     if (!init()) { if (cellIndex != null) meters[cellIndex] = 1; return { stop: 0 }; }
-    const t = when || ctx.currentTime;
+    // A LIVE hit (when == 0) used to be scheduled at exactly ctx.currentTime.
+    // That time has already been passed by the audio thread — the graph renders
+    // in blocks of 128 samples, so "now" is always somewhere inside a block that
+    // is already being computed. Every ramp starting at a past time is applied
+    // from partway along, so the attack begins at whatever value it should have
+    // reached by then instead of at zero, and a jump from silence to partway up
+    // is a click. On every pad hit, every key, every audition.
+    //
+    // NUDGE is three render quanta at 44.1k. Far enough ahead that the whole
+    // envelope is in the future, far below anything a player can feel — this is
+    // three milliseconds against a speaker and room that add twenty.
+    const t = when || (ctx.currentTime + NUDGE);
     const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
     const g = ctx.createGain();
-    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    // A panner set to dead centre is a node that does nothing but cost
+    // something. Every hit builds its own graph, so at a busy tempo this is
+    // hundreds of nodes a second created, connected and collected for no
+    // audible effect — and most pads in most kits are centred.
+    const pan = (ctx.createStereoPanner && Math.abs(clamp(voice.pan, -1, 1)) > 0.02)
+      ? ctx.createStereoPanner() : null;
     const flt = ctx.createBiquadFilter();
     flt.type = 'lowpass';
     // Musical taper: linear cutoff spends its whole travel where the ear hears
@@ -427,7 +447,10 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
 
   function hold(voice, note, vel, when) {
     if (!init()) return silentVoice();
-    const t = when || ctx.currentTime;
+    // Same nudge as play(), for the same reason: a key held down is still a
+    // note starting, and starting it in the past clips its attack to a click.
+    // A keyboard is the place that would be noticed first — every note.
+    const t = when || (ctx.currentTime + NUDGE);
     const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
 
     const env = ctx.createGain(), exp = ctx.createGain();
@@ -564,12 +587,85 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
   // Look-ahead scheduling. AHEAD is how far into the future we commit notes;
   // TICK is how often we top up. AHEAD must comfortably exceed TICK or a late
   // timer leaves a hole in the music.
-  const AHEAD = 0.12, TICK = 25;
+  // AHEAD is how far into the future notes are committed; TICK is how often the
+  // queue is topped up. AHEAD must comfortably exceed TICK, or a late timer
+  // leaves a hole in the music.
+  //
+  // IT ADAPTS, because a fixed value cannot be right. This scheduler runs on
+  // the main thread, so a heavy frame does not merely slow the picture down —
+  // it stops the queue being topped up at all. Measured on a CPU four times
+  // slower than a laptop, with the nebula running, the main thread was blocked
+  // for over 160ms at a stretch and TWENTY-FIVE of forty-six notes were handed
+  // to the audio clock after it had already gone past them. That is not a
+  // subtle timing wobble; that is the crackle.
+  //
+  // A bigger look-ahead absorbs it completely, and costs nothing that matters:
+  // notes are placed on the audio clock by TIME, so a note committed 400ms
+  // early sounds at exactly the same instant as one committed 120ms early. The
+  // only price is that an edit to the pattern takes slightly longer to be
+  // heard, so the window grows only when it has to and shrinks back when the
+  // machine recovers.
+  const AHEAD_MIN = 0.12, AHEAD_MAX = 0.6, TICK = 25;
+  let ahead = AHEAD_MIN;
   let playing = false, step = 0, nextTime = 0, timer = 0, onStep = null;
+
+  // HOW HEALTHY THE CLOCK IS.
+  // Every note is handed to the audio clock with some LEAD — the gap between
+  // now and the moment it is due. Positive lead means it will sound exactly on
+  // time. Lead at or below zero means the clock has already gone past it, and
+  // the audio thread does the only thing it can: plays it immediately, late,
+  // usually with its attack cut off. That is what "crackling" actually is, and
+  // it is a number rather than a feeling.
+  //
+  // Two subtractions per step buys the difference between "the audio sounds
+  // bad on my phone" and "the scheduler missed eleven times in four seconds".
+  // `worst` is over a ROLLING window, not since the beginning. One bad moment
+  // half an hour ago is not what anyone means by "is the audio struggling", and
+  // a lifetime minimum can only ever get worse, so it stops carrying
+  // information almost immediately.
+  // About three seconds of steps at a normal tempo. Long enough to be a
+  // trend, short enough that "lately" still means lately — a 64-step ring
+  // reported a bad lead from seven seconds ago as if it were current.
+  const RECENT = 24;
+  const recent = new Float32Array(RECENT).fill(1);
+  let rp = 0;
+  const health = { late: 0, steps: 0 };
+  function worstRecent() {
+    let m = Infinity;
+    for (let i = 0; i < RECENT; i++) if (recent[i] < m) m = recent[i];
+    return m;
+  }
 
   function schedule(song) {
     const spb = 60 / clamp(song.bpm, 20, 300) / 4;      // sixteenths
-    while (nextTime < ctx.currentTime + AHEAD) {
+
+    // RESYNC. If the queue has fallen a long way behind — the tab was hidden,
+    // the phone slept, a long task blocked everything — then nextTime can be
+    // seconds in the past, and the loop below would faithfully fire every step
+    // it missed, all at once, as a burst of noise. Catching up is not what
+    // anyone wants from a loop: pick up from the beat that is due now.
+    const behind = ctx.currentTime - nextTime;
+    if (behind > 0.5) {
+      const missed = Math.ceil(behind / spb);
+      step = (step + missed) % 16;
+      nextTime += missed * spb;
+      health.late++;
+    }
+
+    while (nextTime < ctx.currentTime + ahead) {
+      const lead = nextTime - ctx.currentTime;
+      health.steps++;
+      recent[rp] = lead; rp = (rp + 1) % RECENT;
+      if (lead <= 0) {
+        health.late++;
+        // Open the window. One late note means the main thread just stalled for
+        // longer than the window, and the only defence is a wider one.
+        ahead = Math.min(AHEAD_MAX, ahead + 0.12);
+      } else if (lead > ahead * 0.55 && ahead > AHEAD_MIN) {
+        // Comfortably ahead: close it again, slowly. Snapping straight back
+        // would just re-enter the stall on the next heavy frame.
+        ahead = Math.max(AHEAD_MIN, ahead - 0.004);
+      }
       const cells = song.scenes[song.scene].cells;
       const anySolo = cells.some((c) => c.solo);
       // Swing delays the off-beats only. Applying it to every step just slows
@@ -602,8 +698,32 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     start(song, cb) {
       resume(); if (playing || !ctx) return;
       playing = true; step = 0; onStep = cb || null;
+      health.late = 0; health.steps = 0; recent.fill(1); ahead = AHEAD_MIN;
       nextTime = ctx.currentTime + 0.06;
       schedule(song);
+    },
+    // What the clock has been doing lately. `worst` is the smallest lead any of
+    // the last 64 notes got, in seconds; `late` counts every note that was
+    // already overdue when it was handed over; `ahead` is how wide the
+    // look-ahead window has had to open to keep up.
+    get health() {
+      return { late: health.late, steps: health.steps, ahead,
+               worst: health.steps ? worstRecent() : 0 };
+    },
+    // How long a frame is currently taking, in milliseconds, from whoever is
+    // running the render loop.
+    //
+    // The scheduler cannot see this for itself, and it is the single best
+    // predictor of the thing that hurts it: a frame that takes 60ms is a main
+    // thread that will be unavailable for 60ms at a time, and a look-ahead
+    // window narrower than that is a hole in the music waiting to happen.
+    // Reacting to lateness alone is always one stall too late — the first one
+    // has already been heard. This lets the window open BEFORE anything is
+    // missed, which is the difference between recovering and not crackling.
+    pace(ms) {
+      if (!(ms > 0)) return;
+      const floor = Math.max(AHEAD_MIN, Math.min(AHEAD_MAX, ms * 4 / 1000));
+      if (floor > ahead) ahead = floor;
     },
     stop() { playing = false; clearTimeout(timer); step = 0; },
     get step() { return step; },

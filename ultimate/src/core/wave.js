@@ -30,6 +30,35 @@
 export function createScope(analyser) {
   let data = null, prevTrigger = 0, quiet = 0;
 
+  // The canvas's size, OBSERVED rather than measured every frame.
+  // getBoundingClientRect forces the browser to flush pending layout before it
+  // can answer, so calling it inside the render loop turns a read into a
+  // synchronous layout — sixty times a second, on a canvas that is inside a
+  // fixed, transformed, draggable console. A ResizeObserver reports the same
+  // number when it actually changes, which is almost never.
+  let box = null, seen = null, ro = null, stale = 0;
+  function sizeOf(cv) {
+    if (seen !== cv) {
+      seen = cv; box = null;
+      if (ro) { ro.disconnect(); ro = null; }
+      if (typeof ResizeObserver !== 'undefined') {
+        ro = new ResizeObserver((e) => {
+          const r = e[e.length - 1].contentRect;
+          if (r.width) box = { w: r.width, h: r.height };
+        });
+        ro.observe(cv);
+      }
+    }
+    // No observer — an old WebView. Re-measure occasionally rather than never:
+    // a cached size that can go stale forever means a rotated phone draws the
+    // trace at the old width for the rest of the session.
+    if (!box || (!ro && (stale = (stale + 1) % 30) === 0)) {
+      const r = cv.getBoundingClientRect();
+      if (r.width) box = { w: r.width, h: r.height };
+    }
+    return box;
+  }
+
   // A rising crossing of the mid-line, with hysteresis so hiss cannot trigger.
   // Searching only the first half of the buffer leaves the second half to draw.
   function findTrigger(buf, half) {
@@ -54,10 +83,10 @@ export function createScope(analyser) {
   return function draw(cv, opts) {
     if (!cv || !analyser) return 0;
     const o = opts || {};
-    const r = cv.getBoundingClientRect();
-    if (!r.width) return 0;
+    const r = sizeOf(cv);
+    if (!r || !r.w) return 0;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.max(1, r.width * dpr | 0), h = Math.max(1, r.height * dpr | 0);
+    const w = Math.max(1, r.w * dpr | 0), h = Math.max(1, r.h * dpr | 0);
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
 
     if (!data || data.length !== analyser.fftSize) data = new Uint8Array(analyser.fftSize);
@@ -97,12 +126,23 @@ export function createScope(analyser) {
     const amp = (h * 0.44) * (0.35 + Math.pow(Math.min(1, peak), 0.6) * 0.65) / Math.max(0.08, peak);
     const span = half;
 
+    // ONE POINT PER TWO PIXELS, not one per sample. A 1024-sample half-buffer
+    // drawn into a strip about 1100 device pixels wide was putting a path
+    // vertex on nearly every pixel — and then stroking that path TWICE, with
+    // round joins, every frame, at every altitude. Two thousand vertices per
+    // frame for a picture two pixels tall in places.
+    //
+    // The step is derived from the actual width rather than fixed, so the trace
+    // has the same visual density on a phone strip and a wide desktop one, and
+    // never draws detail finer than the screen can show.
+    const stride = Math.max(1, Math.round(span / Math.max(64, w / 2)));
+
     g.lineJoin = 'round'; g.lineCap = 'round';
     // A dim wide pass under a bright thin one. Two strokes give the trace the
     // glow of a phosphor tube for a fraction of the cost of a real blur.
     for (let pass = 0; pass < 2; pass++) {
       g.beginPath();
-      for (let n = 0; n < span; n++) {
+      for (let n = 0; n < span; n += stride) {
         const x = (n / span) * w;
         const y = mid - ((data[start + n] - 128) / 128) * amp;
         n ? g.lineTo(x, y) : g.moveTo(x, y);
