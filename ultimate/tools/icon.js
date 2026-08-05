@@ -147,7 +147,7 @@ function roundRect(x, y, w, h, r) {
 // and may as well use the one thing bitmaps are better at.
 function canvasScript() {
   const g = rings();
-  return `(size, round) => {
+  return `(size, round, inset) => {
     const c = document.createElement('canvas');
     c.width = size; c.height = size;
     const x = c.getContext('2d');
@@ -175,7 +175,12 @@ function canvasScript() {
 
     // The mark sits in the safe area even here, so the square and round icons
     // read as the same object at the same scale.
-    const SAFE = S * 0.62;
+    // A MASKABLE icon may be cropped to a circle, a squircle or a rounded
+    // square of the platform's choosing, and only the middle ~80% is
+    // guaranteed to survive. Same rule as Android's adaptive icon, same
+    // reason — so that variant draws the mark smaller rather than trusting
+    // the corners.
+    const SAFE = S * (inset ? 0.46 : 0.62);
     x.lineJoin = 'round';
     for (const ring of rings) {
       const h = ring.half * SAFE, rr = ring.r * SAFE;
@@ -289,6 +294,34 @@ async function main() {
   const store = await pg.evaluate(([src]) => eval(src)(512, false), [canvasScript()]);
   fs.writeFileSync(path.join(brand, 'icon-512.png'), Buffer.from(store.split(',')[1], 'base64'));
   console.log('raster: ultimate/brand/icon-512.png (store listing)');
+
+  // ---- The web app's icons -------------------------------------------------
+  // An iPad installs this from Safari's Add to Home Screen, and iOS does not
+  // read the manifest for that icon — it wants a <link rel="apple-touch-icon">
+  // at 180. The 192 and the maskable 512 are what Android and the desktop
+  // browsers read out of the manifest.
+  //
+  // MASKABLE means the platform may crop it to a circle, a squircle or a
+  // rounded square of its choosing, and only the middle ~80% is guaranteed to
+  // survive. So that one is rendered with the mark inset rather than filling
+  // the frame — the same rule as Android's adaptive icon, for the same reason.
+  //
+  // These live in ultimate/web/ — the web app's own directory, next to the
+  // manifest and the service worker that name them — and are COMMITTED rather
+  // than generated in CI, because rendering them needs a headless browser and a
+  // publish job should not have to boot Chromium to produce four static PNGs.
+  // ultimate/tools/site.js copies them next to the bundle at publish time.
+  const web = path.join(ROOT, 'ultimate/web');
+  fs.mkdirSync(web, { recursive: true });
+  for (const [name, size, inset] of [['icon-180.png', 180, false],
+                                     ['icon-192.png', 192, false],
+                                     ['icon-512.png', 512, false],
+                                     ['icon-maskable.png', 512, true]]) {
+    const url = await pg.evaluate(([src, n, ins]) => eval(src)(n, false, ins),
+                                  [canvasScript(), size, inset]);
+    fs.writeFileSync(path.join(web, name), Buffer.from(url.split(',')[1], 'base64'));
+  }
+  console.log('raster: ultimate/web/icon-{180,192,512,maskable}.png (web app)');
 
   // ---- Windows .ico -------------------------------------------------------
   // Same mark, because a person who installs both should see one product.

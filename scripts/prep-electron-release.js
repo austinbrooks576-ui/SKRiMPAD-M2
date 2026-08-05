@@ -29,6 +29,28 @@ if (edition === 'ultimate') {
   pkg.build.productName = 'SKRiMPAD ULTIMATE';
   pkg.description = 'SKRiMPAD ULTIMATE — one continuous depth instead of screens';
   pkg.build.win = Object.assign({}, pkg.build.win, { icon: '../ultimate/brand/icon.ico' });
+  // macOS. electron-builder renders the .icns itself from a 512 PNG, so there
+  // is one mark for every platform rather than a separate hand-exported file
+  // that drifts.
+  //
+  // identity: null means DO NOT SIGN. There is no Apple Developer account
+  // behind this, and an unsigned build that says so is honest; a build config
+  // that pretends to sign fails the whole job instead. Gatekeeper will ask the
+  // person to confirm on first open — see the release notes.
+  //
+  // Both architectures: an Intel Mac and an Apple Silicon Mac need different
+  // binaries, and shipping only one silently excludes half the machines.
+  pkg.build.mac = Object.assign({}, pkg.build.mac, {
+    icon: '../ultimate/brand/icon-512.png',
+    category: 'public.app-category.music',
+    identity: null,
+    darkModeSupport: true,
+    target: [
+      { target: 'dmg', arch: ['arm64', 'x64'] },
+      { target: 'zip', arch: ['arm64', 'x64'] },
+    ],
+  });
+  pkg.build.dmg = Object.assign({}, pkg.build.dmg, { writeUpdateInfo: false });
   pkg.build.nsis = Object.assign({}, pkg.build.nsis, {
     shortcutName: 'SKRiMPAD ULTIMATE',
     uninstallDisplayName: 'SKRiMPAD ULTIMATE',

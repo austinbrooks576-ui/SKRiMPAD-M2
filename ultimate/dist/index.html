@@ -4,6 +4,47 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
 <title>SKRiMPAD ULTIMATE</title>
+<!-- INSTALLING ON AN IPAD.
+     iPadOS has no sideloading: there is no way to hand someone a file they can
+     install, the way an APK works on Android. What it DOES have is Add to Home
+     Screen, which gives a real icon, a full-screen app with no browser chrome,
+     and — with the service worker below — an app that works with the network
+     switched off. That is the honest route onto an iPad, and it is a good one
+     for this app in particular, because the whole thing is one self-contained
+     file that synthesises its own sound.
+
+     apple-mobile-web-app-capable is what removes Safari's chrome. iOS ignores
+     the manifest's icons for the home screen, so apple-touch-icon has to be
+     stated separately or the icon comes out as a screenshot of the page.
+     black-translucent puts the app under the status bar, which is why the
+     layout already respects env(safe-area-inset-*).
+
+     The <meta> tags are static because they cost nothing — they are values, not
+     requests. The <link> tags are NOT, and that is the whole reason for the
+     script below: this same file is also the Electron app and the APK, where it
+     loads over file:// with only itself on disk. A static
+     <link rel="manifest"> there is a guaranteed 404 on every launch of the
+     desktop and Android builds, for a manifest no file:// page can ever use.
+     Injecting them costs one line and only on the platform they mean anything
+     on. They go in during head parsing, so they are in the DOM long before
+     anyone could reach Share → Add to Home Screen. -->
+<meta name="theme-color" content="#06070B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SKRiMPAD">
+<script>
+(function () {
+  if (!location.protocol.startsWith('http')) return;   // file:// — nothing to install from
+  [['manifest', 'manifest.webmanifest', ''],
+   ['apple-touch-icon', 'icon-180.png', ''],
+   ['icon', 'icon-192.png', 'image/png']].forEach(function (r) {
+    var l = document.createElement('link');
+    l.rel = r[0]; l.href = r[1]; if (r[2]) l.type = r[2];
+    document.head.appendChild(l);
+  });
+})();
+</script>
 <style>
 /* The display face is embedded, not linked: this ships inside an APK that loads
    from file:// with no network. Two static weights rather than the variable cut,
@@ -5629,7 +5670,8 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     ]],
     ["THE PADS", [
       ["Tap", "Plays it. If REC is armed it also writes the hit into the pattern.", [".cell", "#deck"]],
-      ["Right-click \xB7 M", "Mute. The pad keeps its place and is struck through, so silence is a decision you can see.", []],
+      ["Right-click \xB7 hold", "Everything you can do to this pad, in one list: open its pattern, open its sound, play it with the keys, give it a sound, take that sound off, mute, solo, fill the bar, every fourth step, clear it. Same list either way \u2014 a mouse gets the right button, a finger gets a press and hold.", []],
+      ["M", "Mute. The pad keeps its place and is struck through, so silence is a decision you can see.", []],
       ["Shift+right-click \xB7 S", "Solo \u2014 everything else drops away. Soloing a muted pad unmutes it rather than leaving you with silence.", []],
       ["Drag a sound onto it", "Assigns that sound. Works in both directions: arm a sound and tap a pad, or tap a pad and pick a sound.", []],
       ["The ribbon", "The bar under each pad is its pattern \u2014 sixteen steps at a glance without leaving the deck.", []]
@@ -5709,32 +5751,53 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Tab", "Reaches every control in order. Focus is always visible.", []],
       ["M \xB7 S on a focused pad", "Mute, solo.", []]
     ]],
+    ["GETTING IT ONTO A DEVICE", [
+      ["Windows", "An installer and a portable build. It updates itself in the background and installs alongside SKRiMPAD M2 rather than over it.", []],
+      ["macOS", "A disk image, one for Apple Silicon and one for Intel. It is not signed by Apple \u2014 there is no paid developer account behind it \u2014 so the first launch has to be right-click \u2192 Open rather than a double-click. Once. After that it opens normally. It does not auto-update, because an unsigned Mac app is not allowed to.", []],
+      ["Android", "An APK, same as the other editions.", []],
+      ["iPad and iPhone", "Open the web address in Safari, then Share \u2192 Add to Home Screen. That is the whole install. Apple does not allow apps from anywhere but the App Store without a paid developer account, so there is no .ipa to sideload \u2014 but a web app needs no account, no store and no cable, and this one is under a megabyte because every sound is synthesised rather than downloaded. It must be Safari; Chrome on iOS cannot add to the home screen.", []],
+      ["Any browser", "The same address works in a tab with nothing missing. Chrome and Edge offer an install button in the address bar; Android Chrome offers Add to Home screen.", []],
+      ["Offline", "Once it has opened once, it keeps itself on the device and starts with the network off \u2014 which is the point, for an instrument you might play on a plane. Everything you make stays on your device: there is no account and nothing is uploaded.", []]
+    ]],
     ["THIS WINDOW", [
       ["Settings \xB7 help", "Everything the app can do is listed here. Every new feature is added to this list in the same release that adds it \u2014 a control that is not written up here fails the build.", ["#gear", "#helpwin", "#helpx"]],
       ["START OVER", "Throws away the song, the sounds and every remembered setting. There is no undo for it, so it asks twice.", ["#resetall"]]
     ]]
   ];
-  var WHATS_NEW = ["1.0.15", [
+  var WHATS_NEW = ["1.0.16", [
+    ["It runs on a Mac", "A disk image for Apple Silicon and one for Intel. Unsigned, so the first launch is right-click \u2192 Open \u2014 once."],
+    ["It installs on an iPad", "Open it in Safari and Share \u2192 Add to Home Screen. Its own icon, full screen, and it works with the network off. Apple allows no other way in without a paid developer account, and this one needs no account at all."],
+    ["A menu on everything", "Right-click a pad or a sound \u2014 or press and hold it on a phone \u2014 for everything you can do to it. Open its pattern, give it a sound, fill the bar, clear it. The right button used to mute and nothing else."]
+  ]];
+  var WHATS_NEW_2 = ["1.0.15", [
     ["Bluetooth reconnects itself", "A controller already paired with this app is reopened at startup. The code to do it has been there since the MIDI stack was ported and nothing had ever called it, which is most of what \u201CBluetooth does not connect\u201D actually was."],
     ["It tells you what is wrong", "The MIDI window now says WHY there is no controller \u2014 no port, access refused, or a port that has never sent a byte, which is the usual half-connected Bluetooth state on Windows."],
     ["Pad mapping", "Map your controller\u2019s drum pads to the sixteen sounds by hitting them in order."]
   ]];
-  var WHATS_NEW_2 = ["1.0.14", [
+  var WHATS_NEW_3 = ["1.0.14", [
     ["Pick the keys\u2019 voice", "The keyboard plays one SELECTED pad rather than whatever you happen to be looking at. Hit a pad on the controller, turn its preset knob, tap a chip in the MIDI window, or fly to a pad \u2014 all four set the same thing."],
     ["Hardware transport", "PLAY, STOP and RECORD on a controller drive the app. Standards work untouched; anything else can be learned by pressing the button."],
     ["Faster, and no crackle", "Adaptive look-ahead, so a busy screen can no longer make the audio stutter; live hits no longer start a fraction of a millisecond in the past, which was a click on every single pad press."]
   ]];
-  var WHATS_NEW_3 = ["1.0.13", [
+  var WHATS_NEW_4 = ["1.0.13", [
     ["The Oort cloud", "A fourth view: the whole song as a sphere you can turn. Every scene is a shell, every pad a cluster, and the size of a cluster is how many hits are in it \u2014 so how much song exists is finally something you can see rather than infer."],
     ["The nebula", "The field view through drifting gas, tinted by whichever pads are actually carrying the mix. One cloud per scene, generated from the scene, so it is always the same sky for the same scene."],
     ["The view button", "Now cycles four ways and names where you are."]
   ]];
+  var WHATS_NEW_OLDER = ["1.0.12", [
+    ["The column", "A second reading of the constellation \u2014 the bar on end, one shell per step, cells on nested orbits. Shows where the bar is busy and lets you drop the playhead anywhere in it."],
+    ["The MIDI window", "A live key display, the wheels and pressure as meters, the last message in words, and the one override the app needs: whether a controller is keys or pads."],
+    ["Export", "Four bars of any scene out to a WAV, through the same engine as playback."],
+    ["Scene actions", "CLEAR and COPY TO NEXT, both undoable."],
+    ["This page", "Everything the app does, in one place, checked by a test."]
+  ]];
+  var RELEASES = [WHATS_NEW, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
   function renderHelp() {
     const body = $("#helpbody");
     if (body.dataset.built) return;
     body.dataset.built = "1";
     const rows = (list) => list.map(([d, w]) => '<div class="hrow"><span class="hd">' + esc(d) + '</span><span class="hw">' + esc(w) + "</span></div>").join("");
-    body.innerHTML = '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + "</h4>" + rows(WHATS_NEW[1]) + '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_2[0]) + "</h4>" + rows(WHATS_NEW_2[1]) + '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_3[0]) + "</h4>" + rows(WHATS_NEW_3[1]) + "</div></div>" + HELP.map(([title, list]) => '<div class="hgrp"><h4>' + esc(title) + "</h4>" + rows(list) + "</div>").join("") + '<div class="hgrp"><h4>DATA</h4><button class="wbtn danger" id="resetall">START OVER</button></div>';
+    body.innerHTML = '<div class="hnew">' + RELEASES.slice(0, 3).map(([ver, list], i) => '<div class="hgrp"><h4>' + (i ? "" : "NEW IN ") + esc(ver) + "</h4>" + rows(list) + "</div>").join("") + "</div>" + HELP.map(([title, list]) => '<div class="hgrp"><h4>' + esc(title) + "</h4>" + rows(list) + "</div>").join("") + '<div class="hgrp"><h4>DATA</h4><button class="wbtn danger" id="resetall">START OVER</button></div>';
     let armed2 = 0;
     $("#resetall").addEventListener("click", async (e) => {
       const b = e.currentTarget;
@@ -5819,6 +5882,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     },
     openMidi
   };
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {
+      });
+    });
+  }
   window.__ultMakeEngine = createEngine;
   window.__ultBounce = bounceScene;
 })();

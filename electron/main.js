@@ -93,6 +93,14 @@ function createWindow() {
 // to surface it (auto-update ON/OFF ghosted window) via the preload bridge.
 function wireUpdater(win) {
   if (!autoUpdater) return;
+  // macOS is DELIBERATELY excluded. Squirrel.Mac refuses to apply an update to
+  // an app that is not code-signed, and there is no Apple Developer identity
+  // behind these builds — so on a Mac the updater cannot do anything except
+  // download a few hundred megabytes in the background and then report an
+  // error the person can do nothing about. Better to be honestly manual: the
+  // Mac release page tells you to download the new .dmg, which is a step that
+  // actually works.
+  if (process.platform === 'darwin') return;
   // Per-edition channel so the three editions in one repo never cross-serve:
   // an SE build only reads latest-se.yml, VGA latest-vga.yml, consumer latest.yml.
   try { const ch = require('./package.json').skrimpadChannel; if (ch) autoUpdater.channel = ch; } catch (e) {}
