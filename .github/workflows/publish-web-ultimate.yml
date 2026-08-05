@@ -71,6 +71,12 @@ jobs:
           cd ultimate/site
           zip -r ../../skrimpad-ultimate-web-${{ github.run_number }}.zip .
 
+      # enablement stays FALSE on purpose. The action can switch Pages on by
+      # itself, and doing so would publish this app at a public github.io
+      # address — which is a decision about putting something on the open
+      # internet, not a build step, so it is the repository owner's to make and
+      # not a side effect of a workflow. Until it is switched on, everything
+      # below still runs and the zip release below is the app.
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v5
@@ -81,6 +87,20 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ultimate/site
+
+      # Said out loud, because a skipped step in a green run is invisible, and
+      # "the iPad install link does not exist" would otherwise look like a
+      # feature that was never built rather than a setting nobody has flipped.
+      - name: Say why there is no link yet
+        if: steps.pages.outcome != 'success'
+        run: |
+          echo "### No web address yet" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "GitHub Pages is not switched on for this repository, so the site was built and attached to a release but not published to a URL. An iPad installs from a URL, so until this is on there is nothing for Safari's Add to Home Screen to point at." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Settings → Pages → Build and deployment → Source: GitHub Actions.** Then re-run this workflow. Note that this publishes the app at a public \`github.io\` address." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The zip on the release below is the whole app either way." >> $GITHUB_STEP_SUMMARY
 
       # A release as well as Pages, for two reasons: it is the only copy if
       # Pages is not enabled on the repo, and it gives the desktop editions a

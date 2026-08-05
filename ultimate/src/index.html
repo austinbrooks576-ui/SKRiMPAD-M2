@@ -688,7 +688,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     aria-labelledby="bpmlab" aria-label="Tempo, beats per minute">
   <span class="blab" id="swglab">SWING</span><input id="swing" type="number" min="0" max="60" step="2" value="0"
     aria-labelledby="swglab" aria-label="Swing, percent">
-  <button class="tb" id="dice" title="Surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
+  <button class="tb" id="dice" title="Surprise me — right-click or hold for genres"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
   <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
 </div>
@@ -705,6 +705,7 @@ import { createScope } from './core/wave.js';
 import { bounceScene, saveBlob } from './core/bounce.js';
 import { createFog, makeStars } from './core/fog.js';
 import { openMenu, closeMenu, onLongPress } from './core/menu.js';
+import { genreList, applyGenre, GENRES } from './core/genres.js';
 
 const $ = (s) => document.querySelector(s);
 // setPointerCapture throws whenever the pointer it names is not currently
@@ -2574,6 +2575,73 @@ $('#dice').addEventListener('click', () => {
   if (atlas.level === 2) drawCellSheet();
 });
 
+// ---- GENRES ----------------------------------------------------------------
+// The same button, held or right-clicked, asks the other question. DICE means
+// "give me anything"; this means "give me a jungle track". Both are the same
+// gesture — surprise me — so they are the same button rather than a second one
+// competing for space in a transport bar that is already full.
+//
+// It writes ALL FOUR SCENES, not one. A genre is a song's worth of decisions —
+// the pattern, a variation on it, a breakdown, and a bar that ends in a fill —
+// and putting only the first of those on screen would be handing someone a loop
+// and calling it a style. See core/genres.js for what each of the four is.
+let genreSeed = 1, lastGenre = '';
+function applyGenreNow(id, fresh) {
+  if (fresh) genreSeed = (genreSeed * 1664525 + 1013904223) >>> 0;
+  const done = applyGenre(song, id, genreSeed);
+  if (!done) return;
+  lastGenre = id;
+  // syncRibbon only redraws the SCENE ON SCREEN, and this wrote all four — but
+  // the other three are not drawn until you switch to them, and switching
+  // re-reads the model, so there is nothing to invalidate for them.
+  liveCells(song).forEach((c, i) => syncRibbon(i));
+  // The engine reads song.bpm and song.swing every scheduling tick, so setting
+  // them IS setting the tempo. These two lines are only the readouts catching
+  // up with the model.
+  $('#bpm').value = song.bpm;
+  $('#swing').value = Math.round(song.swing * 100);
+  hist.push(song); saveSong(song); invalidateSheets();
+  toast(done.label + ' — ' + done.bpm + ' BPM'
+        + (done.swing ? ', ' + Math.round(done.swing * 100) + '% swing' : '')
+        + ' — ctrl+Z to undo');
+}
+
+// The menu is a table, same as every other menu in the app. Thirty-four names
+// in one column is a wall you scroll past; five families of five to nine is
+// five things you can read. Each row says what the genre feels like and where
+// it sits, because "Hardstep" tells you nothing and "Menacing · 170-180" tells
+// you whether it is the one you want.
+function genreMenu() {
+  return [
+    { head: 'Build a song' },
+    ...genreList().map(([family, list]) => ({
+      label: family,
+      hint: list.length + '',
+      items: list.map((g) => ({
+        label: g.label,
+        hint: g.mood + ' · ' + g.bpm[0] + '-' + g.bpm[1],
+        on: lastGenre === g.id,
+        run: () => applyGenreNow(g.id, lastGenre === g.id),
+      })),
+    })),
+    { sep: 1 },
+    // Applying the same genre again gives a DIFFERENT take of it rather than
+    // the identical bar back — which is the only reason to press it twice.
+    { label: 'Another take', hint: lastGenre ? GENRES[lastGenre].l : '', disabled: !lastGenre,
+      run: () => applyGenreNow(lastGenre, true) },
+  ];
+}
+
+// Right-click on a desktop, press and hold on a phone — the same two ways in as
+// every other menu in the app.
+$('#dice').addEventListener('contextmenu', (ev) => {
+  ev.preventDefault();
+  showMenu(ev, genreMenu(), 'Genres');
+});
+onLongPress($('#dice'), 420, (ev, x, y) => {
+  openMenu({ x, y, items: genreMenu(), title: 'Genres' });
+});
+
 // ---- MIDI ------------------------------------------------------------------
 // The hardened stack from LIVEx: it waits for the Android bridge, keeps sweeping
 // on a backoff while nothing is attached, and re-scans the instant the app comes
@@ -3401,6 +3469,7 @@ const HELP = [
     ['BPM', 'Tempo, 20 to 300. The whole app follows it, including the export.', ['#bpm']],
     ['SWING', 'Delays the offbeats only, 0 to 60%. Applying it to every step would just be a slower tempo.', ['#swing']],
     ['DICE', 'Surprise me. Rewrites the current scene into something playable rather than something random.', ['#dice']],
+    ['DICE, right-click or held', 'The same question with an answer you choose: thirty-four genres, grouped, each with what it feels like and the tempo it lives at. Picking one writes a whole song — see GENRES below.', []],
     ['SOUNDS', 'Opens the sound shelf over whatever you are looking at.', ['#libbtn']],
     ['PANIC', 'Silences everything immediately, including notes a controller is still holding.', ['#panic']],
     ['The grip', 'Drag the whole console anywhere — it lands under your palm otherwise if you play left-handed. Double-tap it to put it back.', ['#grip']],
@@ -3489,6 +3558,13 @@ const HELP = [
     ['Tab', 'Reaches every control in order. Focus is always visible.', []],
     ['M · S on a focused pad', 'Mute, solo.', []],
   ]],
+  ['GENRES', [
+    ['Where they are', 'Right-click DICE, or press and hold it. Thirty-four of them in five families, each row saying what it feels like and what tempo it runs at — because "Hardstep" tells you nothing and "Menacing · 170-180" tells you whether it is the one you want.', []],
+    ['What picking one does', 'Writes a whole song, not a loop. Scene 1 is the groove, scene 2 is a variation of it, scene 3 is the breakdown, scene 4 ends with a fill. It sets the tempo and the swing to match, and it all goes through undo as one step.', []],
+    ['Why they sound different from each other', 'Every hit has a velocity taken from where it lands in the bar and what the pad is. A kick is loud and nearly flat; a hat is quiet and very dynamic, and that is where most of a groove actually lives. Genres that swing also get ghost notes — the near-silent hits between the real ones — and straight genres deliberately do not, because a shuffle and a machine are two different things.', []],
+    ['ANOTHER TAKE', 'At the bottom of the menu, or just pick the genre you are already on again. Same genre, different song: a new tempo inside its range, a different variation, a different fill.', []],
+    ['It follows your kit', 'Parts are matched to pads by name, so a genre lands on the pad doing that job. Rename or rearrange the kit and it still lands right; a part with no pad to go to is simply not written rather than dumped on pad one.', []],
+  ]],
   ['GETTING IT ONTO A DEVICE', [
     ['Windows', 'An installer and a portable build. It updates itself in the background and installs alongside SKRiMPAD M2 rather than over it.', []],
     ['macOS', 'A disk image, one for Apple Silicon and one for Intel. It is not signed by Apple — there is no paid developer account behind it — so the first launch has to be right-click → Open rather than a double-click. Once. After that it opens normally. It does not auto-update, because an unsigned Mac app is not allowed to.', []],
@@ -3504,7 +3580,11 @@ const HELP = [
 ];
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
-const WHATS_NEW = ['1.0.16', [
+const WHATS_NEW = ['1.0.17', [
+  ['Thirty-four genres', 'Right-click DICE, or hold it. Pick a genre and it writes a whole song — groove, variation, breakdown, and a bar that ends in a fill — at that genre’s tempo and swing. Every hit is weighted by where it falls in the bar, and the genres that swing get the quiet ghost notes between the hits, which is most of what makes a groove sound played rather than programmed.'],
+  ['Another take', 'Pick the same genre twice and you get a different song in it, not the same bar back.'],
+]];
+const WHATS_NEW_1A = ['1.0.16', [
   ['It runs on a Mac', 'A disk image for Apple Silicon and one for Intel. Unsigned, so the first launch is right-click → Open — once.'],
   ['It installs on an iPad', 'Open it in Safari and Share → Add to Home Screen. Its own icon, full screen, and it works with the network off. Apple allows no other way in without a paid developer account, and this one needs no account at all.'],
   ['A menu on everything', 'Right-click a pad or a sound — or press and hold it on a phone — for everything you can do to it. Open its pattern, give it a sound, fill the bar, clear it. The right button used to mute and nothing else.'],
@@ -3535,7 +3615,7 @@ const WHATS_NEW_OLDER = ['1.0.12', [
 // renaming four constants by hand is how you end up declaring the same one
 // twice — which is exactly what happened once. Adding a release is now
 // unshifting onto this list.
-const RELEASES = [WHATS_NEW, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
+const RELEASES = [WHATS_NEW, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
 
 function renderHelp() {
   const body = $('#helpbody');
@@ -3583,6 +3663,7 @@ window.__ult = {
   nebBodies: () => (NEB.hit || []).map((x) => ({ i: x.i, x: x.x, y: x.y, r: x.r })),
   nebPick,
   warmHas: (id) => warm.has(id),
+  genreMenu, applyGenre: applyGenreNow, get lastGenre() { return lastGenre; },
   focusCell: (i) => selectCell(i, 'test'),
   get keyCell() { return keyCell; },
   selectCell,
