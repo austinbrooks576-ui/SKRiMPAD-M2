@@ -7,6 +7,16 @@ import { BLE_MIDI_SERVICE, BLE_MIDI_CHAR, createBleDecoder, looksLikeMidiName } 
 export function createMidiIO({ onEvent, onPorts } = {}) {
   let access = null;
   let bleStatus = 0; // BLE running-status latch
+
+  // WHY THIS RECORDS ITS OWN STATE.
+  // "no controller yet" was the app's answer to four completely different
+  // situations: Web MIDI missing entirely, access refused, access granted but
+  // zero ports, and — the one that actually bites on Windows — a port that
+  // exists and has never sent a single byte because the vendor's panel has not
+  // been told to connect it. Those need four different things done about them,
+  // and the app said the same sentence for all four. Nobody can act on that.
+  const diag = { mode: 'starting', err: '', tried: 0, sysex: false,
+                 inputs: 0, outputs: 0, bytes: 0, at: 0, ble: 0, auto: '' };
   let bleName = 'BLE MIDI'; // set on GATT connect so the board titles correctly
 
   // Has any real MIDI byte ever arrived? This distinguishes a LIVE port from a
@@ -26,7 +36,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     // PLAY / STOP / REC buttons send, which is why they never did anything.
     if (status === 0xf8 || status === 0xf9 || status === 0xfd || status === 0xfe || status === 0xff) return;
 
-    const fire = (e) => { lastDataAt = Date.now(); onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port, raw: data }, e)); };
+    const fire = (e) => { lastDataAt = Date.now(); diag.bytes++; diag.at = lastDataAt; onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port, raw: data }, e)); };
 
     // System Real-Time transport: Start / Continue / Stop
     if (status === 0xfa || status === 0xfb) { fire({ transport: 'play' }); return; }
@@ -186,14 +196,39 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       nativeMode = true;
       try { window.AndroidMidi.enable(); } catch (e) {}
       try { window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth(); } catch (e) {}
+      diag.mode = 'native';
       return { mode: 'native' };
+    }
+    diag.tried++;
+    if ((typeof navigator === 'undefined' || !navigator.requestMIDIAccess)
+        && !(typeof window !== 'undefined' && window.AndroidMidi)) {
+      // Not transient: this build has no Web MIDI at all. Say so rather than
+      // sweeping forever and reporting "no controller yet".
+      diag.mode = 'unsupported';
+      diag.err = 'navigator.requestMIDIAccess is not available in this build';
     }
     if (typeof navigator !== 'undefined' && navigator.requestMIDIAccess) {
       // SysEx MUST be requested: MMC (F0 7F .. 06 ..) is how most PLAY/STOP/REC
       // buttons report, and with sysex:false the browser silently drops it, so
       // those buttons could never work no matter what we did downstream.
-      try { access = await navigator.requestMIDIAccess({ sysex: true }); }
-      catch (e) { access = await navigator.requestMIDIAccess({ sysex: false }); }
+      try {
+        access = await navigator.requestMIDIAccess({ sysex: true });
+        diag.sysex = true;
+      } catch (e) {
+        // Losing SysEx costs the MMC transport messages and nothing else, so it
+        // is right to carry on without it — but it has to be RECORDED, because
+        // "my transport buttons do nothing" and "sysex was refused" are the
+        // same fact, and the app knew it all along.
+        diag.sysex = false;
+        diag.err = 'sysex refused: ' + ((e && e.message) || e);
+        try {
+          access = await navigator.requestMIDIAccess({ sysex: false });
+        } catch (e2) {
+          diag.mode = 'denied';
+          diag.err = 'MIDI access refused: ' + ((e2 && e2.message) || e2);
+          throw e2;
+        }
+      }
       const hook = () => access.inputs.forEach((inp) => { inp.onmidimessage = (e) => emit(e.data, inp); });
       hook();
       access.onstatechange = () => { hook(); onPorts && onPorts(listInputs()); };
@@ -208,6 +243,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
         if (nowKeys !== seen) { seen = nowKeys; hook(); onPorts && onPorts(listInputs()); }
         else hook();   // cheap: re-assert handlers in case a port was re-opened
       }, 3000);
+      diag.mode = 'webmidi';
       return { mode: 'webmidi', access };
     }
     return { mode: 'none' };
@@ -355,11 +391,13 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // out of range we watch for its advertisement and connect the moment it wakes.
   async function autoReconnect({ onStatus } = {}) {
     if (typeof navigator === 'undefined' || !navigator.bluetooth || !navigator.bluetooth.getDevices) {
+      diag.auto = 'this build cannot reopen paired devices';
       return { mode: 'unsupported', devices: 0 };
     }
     let devs = [];
-    try { devs = await navigator.bluetooth.getDevices(); } catch (e) { return { mode: 'none', devices: 0 }; }
-    if (!devs.length) return { mode: 'none', devices: 0 };
+    try { devs = await navigator.bluetooth.getDevices(); }
+    catch (e) { diag.auto = 'getDevices failed'; return { mode: 'none', devices: 0 }; }
+    if (!devs.length) { diag.auto = 'nothing paired with this app yet'; return { mode: 'none', devices: 0 }; }
     let connected = 0;
     for (const dev of devs) {
       try {
@@ -378,6 +416,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
         } catch (e2) { /* advertisement watching unavailable — user can tap 📶 */ }
       }
     }
+    diag.auto = connected + ' of ' + devs.length + ' reopened';
     if (connected) onStatus && onStatus({ mode: 'gatt', connected: true, auto: true, count: connected });
     return { mode: connected ? 'gatt' : 'watching', devices: devs.length, connected };
   }
@@ -385,6 +424,22 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   return {
     start, keepLooking, rescan, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
     hasLiveData, access: () => access, _emit: emit,
+    // Everything the app knows about why MIDI is or is not working. Read by the
+    // MIDI window, so a controller that will not connect produces a specific
+    // sentence instead of a shrug.
+    diagnostics() {
+      const ins = listInputs();
+      diag.inputs = ins.length;
+      diag.outputs = access ? access.outputs.size : 0;
+      diag.ble = bleCtx.size;
+      return Object.assign({}, diag, {
+        names: ins.map((p) => p.name || '?'),
+        live: lastDataAt > 0,
+        webBluetooth: !!(typeof navigator !== 'undefined' && navigator.bluetooth),
+        canReopen: !!(typeof navigator !== 'undefined' && navigator.bluetooth
+                      && navigator.bluetooth.getDevices),
+      });
+    },
     // devices reported by the native bridge, with their raw Android properties —
     // read by the MIDI monitor so an unidentified controller can be diagnosed
     devices: () => nativeDevices,

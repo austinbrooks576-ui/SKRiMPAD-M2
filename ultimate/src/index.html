@@ -468,6 +468,8 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   min-height:26px;flex:none;transition:color .15s,border-color .15s;}
 .port .pb:hover{color:var(--acc);border-color:var(--acc);}
 .none{font-size:var(--fs-sm);color:var(--dim);line-height:1.8;padding:4px 2px;}
+.none b{color:var(--ink);font-weight:600;}
+.none .dim{font-size:var(--fs-xs);opacity:.6;font-variant-numeric:tabular-nums;letter-spacing:.08em;}
 
 /* THE KEY DISPLAY.
    Same light model as the rest of the app: every key is lit on its top edge and
@@ -588,7 +590,10 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   <div class="body">
     <div class="wsec">CONNECTED</div>
     <div id="ports"></div>
+    <div id="whynot"></div>
     <button class="wbtn" id="bleconnect">CONNECT BLUETOOTH</button>
+    <div class="wsec">DRUM PADS</div>
+    <div id="padmap"></div>
     <div class="wsec">TRANSPORT BUTTONS</div>
     <div id="tlearn"></div>
     <div class="wsec">VOICE — <span id="midicell">—</span></div>
@@ -2421,6 +2426,47 @@ $('#dice').addEventListener('click', () => {
 // then press the one on the controller, and whatever arrives is what that
 // button is. Three bindings, remembered per install. Nothing to look up, and
 // it works on hardware nobody has ever tested against.
+// ---- DRUM PAD MAPPING ------------------------------------------------------
+// Pads were hard-wired to (note - 36) % 16, which is the General MIDI drum
+// window and is right for a good number of boards and wrong for all the rest.
+// An MPD starts at 36 on bank A and somewhere else on B, C and D; a nanoPAD
+// starts wherever its scene file says; a keyboard's pad strip often sits up
+// where nothing expects it. There was no way to correct any of that.
+//
+// So the map is LEARNED, and learned the fast way: arm it, then hit your pads
+// in the order you want them, and each one takes the next cell. Sixteen taps
+// and the whole board is mapped — rather than sixteen separate bindings each
+// needing a target picked first.
+//
+// While mapping, ANY note counts as a pad. That matters on a combined board
+// where the pads share a channel with the keys and cannot be told apart by the
+// usual rules: during a mapping sweep, whatever you hit is by definition a pad.
+const PADMAP_KEY = 'skrimpad_ultimate_padmap';
+let padMap = {};
+try {
+  const raw = JSON.parse(localStorage.getItem(PADMAP_KEY) || 'null');
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) padMap = raw;
+} catch (e) {}
+let padLearn = null;                 // index of the next cell to bind, or null
+
+function padCell(note) {
+  const m = padMap[note];
+  if (m != null) return m;
+  // The General MIDI drum window, as the fallback it always was.
+  return (((note - 36) % CELLS) + CELLS) % CELLS;
+}
+function padLearnHit(note) {
+  // Re-hitting a pad already bound moves it rather than leaving it in two
+  // places, which is what makes a mis-tap recoverable without starting over.
+  for (const k of Object.keys(padMap)) if (padMap[k] === padLearn) delete padMap[k];
+  padMap[note] = padLearn;
+  padLearn++;
+  if (padLearn >= CELLS) padLearn = null;
+  try { localStorage.setItem(PADMAP_KEY, JSON.stringify(padMap)); } catch (e) {}
+  renderPadMap();
+  if (padLearn == null) toast('all ' + CELLS + ' pads mapped');
+}
+
 const TRANSPORT_KEY = 'skrimpad_ultimate_transport';
 let bindings = {};
 try {
@@ -2505,7 +2551,7 @@ const keys = createKeys({
   // a pad and change to it" workflow on any board with pads and keys: hit the
   // pad to pick the sound, then play it on the keys.
   onPad: (note, vel) => {
-    const idx = (((note - 36) % CELLS) + CELLS) % CELLS;
+    const idx = padCell(note);
     eng.resume(); eng.play(liveCells(song)[idx].voice, 0, vel, idx);
     recordHit(idx, vel);
     flash(idx);
@@ -2535,6 +2581,10 @@ const io = createMidiIO({
     // a note. That is the point: if you told the app this button is STOP, it is
     // STOP, even though it is physically a pad sending note 44.
     if (learning) { bindTransport(e); return; }
+    // A mapping sweep takes note-ons before anything else looks at them, so a
+    // board whose pads share a channel with its keys can still be mapped.
+    if (padLearn != null && e.cmd === 0x90 && e.d2 > 0) { padLearnHit(e.d1); return; }
+    if (padLearn != null && (e.cmd === 0x80 || e.cmd === 0x90)) return;
     const act = matchTransport(e);
     if (act) { fireTransport(act); return; }
     keys.handle(e.raw, (e.port && e.port.name) || '');
@@ -2542,7 +2592,7 @@ const io = createMidiIO({
   onPorts: (ports) => {
     const s = $('#status');
     lastPorts = ports || [];
-    if (midiOpen) renderPorts();
+    if (midiOpen) { renderPorts(); renderWhyNot(); }
     if (!ports || !ports.length) {
       s.innerHTML = 'no controller yet<br>usb: plug in · bluetooth: pair in settings';
       return;
@@ -2559,6 +2609,16 @@ const io = createMidiIO({
 });
 io.start().catch(() => {});
 io.keepLooking();
+// REOPEN WHAT IS ALREADY PAIRED. autoReconnect() has existed in the MIDI stack
+// since it was ported and NOTHING HAS EVER CALLED IT — so on desktop a
+// controller you paired last week was never picked up again, and the only way
+// back was pressing CONNECT BLUETOOTH every single session. That is most of
+// what "the Bluetooth connection is not working" actually is.
+//
+// It is silent by design: no chooser, no prompt. It can only reopen devices
+// this app was already granted, so there is nothing here for a user to approve
+// a second time.
+io.autoReconnect({ onStatus: (st) => { if (st && st.connected) io.rescan(); } }).catch(() => {});
 // Losing the page mid-chord must not leave a note ringing forever.
 window.addEventListener('blur', () => keys.panic());
 document.addEventListener('visibilitychange', () => { if (document.hidden) keys.panic(); });
@@ -2589,7 +2649,7 @@ function showWin(el) {
 function closeWin() {
   if (!openWin) return;
   openWin.classList.remove('open');
-  if (openWin === $('#midiwin')) { midiOpen = false; learning = null; }
+  if (openWin === $('#midiwin')) { midiOpen = false; learning = null; padLearn = null; }
   openWin = null;
   $('#scrim').classList.remove('open');
   // Put the keyboard back where it was. Dropping focus to <body> is how a
@@ -2737,6 +2797,41 @@ function noteLastMessage(e) {
 // button to (re)learn it. A row that says "standard" is one the app already
 // understands without being told — realtime or MMC — so most controllers show
 // nothing to do here, which is the point.
+function renderPadMap() {
+  const host = $('#padmap');
+  if (!host) return;
+  const bound = Object.keys(padMap).length;
+  const cells = liveCells(song);
+  let msg;
+  if (padLearn != null) {
+    const c = cells[padLearn];
+    msg = '<b>Hit the pad you want for ' + esc(c ? c.name : ('pad ' + (padLearn + 1))) + '</b>' +
+      ' \u00b7 ' + (padLearn + 1) + ' of ' + CELLS;
+  } else if (bound) {
+    msg = bound + ' pad' + (bound === 1 ? '' : 's') + ' mapped.';
+  } else {
+    msg = 'Using the standard drum notes (36 up). If your pads land on the wrong ' +
+      'sounds, map them \u2014 hit each pad in the order you want them.';
+  }
+  host.innerHTML = '<div class="none">' + msg + '</div>' +
+    '<div class="port"><span class="pn">PAD LAYOUT</span>' +
+      '<button class="pb" id="padlearn">' + (padLearn != null ? 'CANCEL' : 'MAP PADS') + '</button>' +
+      (bound ? '<button class="pb" id="padclear">RESET</button>' : '') +
+    '</div>';
+}
+$('#padmap').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.id === 'padlearn') {
+    padLearn = padLearn == null ? 0 : null;
+    if (padLearn === 0) toast('hit your pads in order');
+  } else if (b.id === 'padclear') {
+    padMap = {}; padLearn = null;
+    try { localStorage.removeItem(PADMAP_KEY); } catch (e) {}
+    toast('pad layout reset');
+  }
+  renderPadMap();
+});
+
 function renderTransportLearn() {
   const host = $('#tlearn');
   if (!host) return;
@@ -2763,6 +2858,45 @@ $('#tlearn').addEventListener('click', (ev) => {
   }
   renderTransportLearn();
 });
+
+// WHY IT IS NOT WORKING, in a sentence, from what the MIDI stack actually
+// knows. Each branch is a different thing to go and do — which is the whole
+// reason for having it, because "no controller yet" covered all of them.
+function renderWhyNot() {
+  const host = $('#whynot');
+  if (!host) return;
+  const d = io.diagnostics();
+  const lines = [];
+  if (d.mode === 'unsupported') {
+    lines.push('<b>This build has no MIDI support at all.</b> Nothing plugged in can be seen. ' +
+      'If this is the desktop app, it is a build problem rather than anything you have done.');
+  } else if (d.mode === 'denied') {
+    lines.push('<b>MIDI access was refused.</b> ' + esc(d.err));
+  } else if (!d.inputs) {
+    lines.push('<b>No MIDI port is visible.</b> On Windows a Bluetooth controller only appears ' +
+      'once its vendor panel (the KORG BLE-MIDI panel, for instance) has actually CONNECTED it — ' +
+      'pairing it in Windows settings is not enough on its own.');
+  } else if (!d.live) {
+    // The Windows trap the BLE code has always known about, said out loud in
+    // the one place someone would go looking.
+    lines.push('<b>' + d.inputs + ' port' + (d.inputs === 1 ? '' : 's') +
+      ' visible, but not one byte has arrived.</b> That is the classic half-connected ' +
+      'Bluetooth state: the driver has published the port and the controller is not actually ' +
+      'joined to it. Press CONNECT in the vendor panel, or use CONNECT BLUETOOTH below to have ' +
+      'this app open the link itself.');
+  } else {
+    lines.push('<b>Receiving.</b> ' + d.bytes + ' message' + (d.bytes === 1 ? '' : 's') + ' so far.');
+  }
+  if (!d.sysex && d.mode === 'webmidi') {
+    lines.push('SysEx was refused, so transport buttons that use MMC will not arrive. ' +
+      'Everything else works; LEARN below binds them by hand.');
+  }
+  if (d.auto) lines.push('Paired devices: ' + esc(d.auto) + '.');
+  host.innerHTML = '<div class="none">' + lines.join('<br>') +
+    '<br><span class="dim">' + esc(d.mode) + (d.sysex ? ' + sysex' : '') +
+    ' \u00b7 ' + d.inputs + ' in, ' + d.outputs + ' out' +
+    (d.webBluetooth ? ' \u00b7 web bluetooth' : ' \u00b7 no web bluetooth') + '</span></div>';
+}
 
 function renderPorts() {
   const box = $('#ports');
@@ -2793,7 +2927,7 @@ $('#ports').addEventListener('click', (ev) => {
   const name = String(p.name || 'MIDI');
   if (b.dataset.role) { keys.setRole(name, b.dataset.role); toast(name.slice(0, 16) + ' → ' + b.dataset.role); }
   else { keys.forget(name); toast('relearning ' + name.slice(0, 16)); }
-  renderPorts();
+  renderPorts(); renderWhyNot();
   io.rescan();
 });
 
@@ -2807,7 +2941,7 @@ $('#bleconnect').addEventListener('click', async (e) => {
     if (!/cancel|NotFound/i.test(String(err && err.message))) toast('bluetooth: ' + String(err && err.message || err).slice(0, 60));
   } finally {
     b.disabled = false; b.textContent = 'CONNECT BLUETOOTH';
-    renderPorts();
+    renderPorts(); renderWhyNot();
   }
 });
 
@@ -2839,7 +2973,7 @@ function openMidi() {
   buildKeybed(); buildExprs();
   midiOpen = true;
   lastPorts = io.listInputs() || [];
-  renderPorts(); renderTransportLearn();
+  renderPorts(); renderWhyNot(); renderPadMap(); renderTransportLearn();
   buildVoicePick(); syncVoicePick(); syncMidiCell(); paintKeys(); paintExprs();
   $('#lastmsg').innerHTML = lastMsg || 'no MIDI yet';
   showWin($('#midiwin'));
@@ -3135,7 +3269,9 @@ const HELP = [
     ['The readout', 'Top right: what is plugged in and what the app decided it is. Tap it to open this window.', ['#status', '#midiwin', '#midix']],
     ['Plugging in', 'Nothing to set up. Plug a controller in and play it — notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.', ['#ports']],
     ['KEYS or PADS', 'The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here — or RELEARN to make it work it out again.', []],
-    ['CONNECT BLUETOOTH', 'Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly.', ['#bleconnect']],
+    ['CONNECT BLUETOOTH', 'Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly. A controller you have already paired with this app is reopened on its own at startup \u2014 you should not have to press this twice.', ['#bleconnect']],
+    ['Why it is not connecting', 'A plain answer instead of a shrug. \u201cNo port visible\u201d, \u201caccess refused\u201d and \u201ca port exists but not one byte has arrived\u201d are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.', ['#whynot']],
+    ['MAP PADS', 'Pads default to the standard drum notes from 36 up, which is right for many boards and wrong for the rest. Press MAP PADS and hit your pads in the order you want them \u2014 each takes the next sound, sixteen taps for the whole board. Hitting a pad twice moves it rather than binding it in two places, and RESET goes back to the default. While a mapping sweep is running, anything you play counts as a pad, so a board whose pads share a channel with its keys can still be mapped.', ['#padmap']],
     ['The keyboard', 'A display: it lights where the hardware is playing, so you can see the app hearing you. Touch it to audition the pad you are looking at across its range.', ['#keybed', '#midicell']],
     ['BEND · MOD · PRESS · TIMBRE', 'What the wheels and the pressure sensor are doing right now. This is the part that proves your controller\'s expression is getting through.', ['#exprs']],
     ['The last message', 'The most recent thing that arrived, in words. If this is not moving, the app is not hearing the controller.', ['#lastmsg']],
@@ -3158,12 +3294,17 @@ const HELP = [
 ];
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
-const WHATS_NEW = ['1.0.14', [
+const WHATS_NEW = ['1.0.15', [
+  ['Bluetooth reconnects itself', 'A controller already paired with this app is reopened at startup. The code to do it has been there since the MIDI stack was ported and nothing had ever called it, which is most of what \u201cBluetooth does not connect\u201d actually was.'],
+  ['It tells you what is wrong', 'The MIDI window now says WHY there is no controller \u2014 no port, access refused, or a port that has never sent a byte, which is the usual half-connected Bluetooth state on Windows.'],
+  ['Pad mapping', 'Map your controller\u2019s drum pads to the sixteen sounds by hitting them in order.'],
+]];
+const WHATS_NEW_2 = ['1.0.14', [
   ['Pick the keys\u2019 voice', 'The keyboard plays one SELECTED pad rather than whatever you happen to be looking at. Hit a pad on the controller, turn its preset knob, tap a chip in the MIDI window, or fly to a pad \u2014 all four set the same thing.'],
   ['Hardware transport', 'PLAY, STOP and RECORD on a controller drive the app. Standards work untouched; anything else can be learned by pressing the button.'],
   ['Faster, and no crackle', 'Adaptive look-ahead, so a busy screen can no longer make the audio stutter; live hits no longer start a fraction of a millisecond in the past, which was a click on every single pad press.'],
 ]];
-const WHATS_NEW_OLD = ['1.0.13', [
+const WHATS_NEW_3 = ['1.0.13', [
   ['The Oort cloud', 'A fourth view: the whole song as a sphere you can turn. Every scene is a shell, every pad a cluster, and the size of a cluster is how many hits are in it — so how much song exists is finally something you can see rather than infer.'],
   ['The nebula', 'The field view through drifting gas, tinted by whichever pads are actually carrying the mix. One cloud per scene, generated from the scene, so it is always the same sky for the same scene.'],
   ['The view button', 'Now cycles four ways and names where you are.'],
@@ -3188,10 +3329,10 @@ function renderHelp() {
   body.innerHTML =
     '<div class="hnew"><div class="hgrp"><h4>NEW IN ' + esc(WHATS_NEW[0]) + '</h4>' +
       rows(WHATS_NEW[1]) +
-      '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_OLD[0]) + '</h4>' +
-      rows(WHATS_NEW_OLD[1]) +
-      '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_OLDER[0]) + '</h4>' +
-      rows(WHATS_NEW_OLDER[1]) + '</div></div>' +
+      '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_2[0]) + '</h4>' +
+      rows(WHATS_NEW_2[1]) +
+      '</div><div class="hgrp"><h4>' + esc(WHATS_NEW_3[0]) + '</h4>' +
+      rows(WHATS_NEW_3[1]) + '</div></div>' +
     HELP.map(([title, list]) =>
       '<div class="hgrp"><h4>' + esc(title) + '</h4>' + rows(list) + '</div>').join('') +
     '<div class="hgrp"><h4>DATA</h4>' +
@@ -3232,6 +3373,9 @@ window.__ult = {
   // can prove that the thing it taps is the thing that was drawn.
   colNodes: () => (NEB.col ? NEB.col.nodes.map((n) => ({ i: n.i, s: n.s, x: n.x, y: n.y, vel: n.vel })) : []),
   setView, colPick, setScene,
+  // The learned pad layout, so a test can prove a mapped pad fires what it was
+  // mapped to rather than the note it happens to send.
+  padMap: () => Object.assign({}, padMap),
   // The Oort layout, same purpose as nebBodies and colNodes: what a test taps
   // must be what the renderer drew.
   oortNodes: () => (NEB.oort ? NEB.oort.shells.flatMap((sh) => sh.nodes.map((n) => ({
