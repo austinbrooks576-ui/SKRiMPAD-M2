@@ -2048,7 +2048,28 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       onStatus && onStatus({ mode: "none", hint: "No MIDI device found \u2014 pair the controller, then tap \u{1F4F6} again." });
       return { mode: "none" };
     }
-    const KNOWN = ["SMK", "SMK25", "WORLDE", "M-VAVE", "MVAVE", "M-WAVE", "KORG", "nanoKEY", "microKEY", "MPK", "LPK", "MPD", "Launchkey"];
+    const KNOWN = [
+      "SMK",
+      "SMK25",
+      "WORLDE",
+      "M-VAVE",
+      "MVAVE",
+      "M-WAVE",
+      "KORG",
+      "nanoKEY",
+      "microKEY",
+      "MPK",
+      "LPK",
+      "MPD",
+      "Launchkey",
+      "JamJum",
+      "JAM JUM",
+      "JP-1",
+      "JP1",
+      "JP-Mini",
+      "JP Mini",
+      "KUWEE"
+    ];
     const bound = /* @__PURE__ */ new Set();
     async function attachDevice(dev, { onStatus } = {}) {
       if (dev && dev.name) bleName = dev.name;
@@ -2419,7 +2440,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   // ultimate/src/core/keys.js
   var PORT_ROLES = "skrimpad_ultimate_ports";
   var KEYISH = /key|piano|synth|s49|s61|s88|mpk|launchkey|keystation|keylab|minilab|oxygen|axiom|nektar|impact|smk|micro ?key|nano ?key|k-?board|seaboard|linnstr|osmose|xkey|reface|casio|prophet|moog|hydra|deepmind|jd-?xi|jp-?\d|montage|modx|fantom|jupiter|juno/i;
-  var PADISH = /\bmpd\d*\b|\bmpc\b|maschine|launchpad|pad ?kontrol|beatstep|beat ?pad|\bspd\b|dd-?\d{2}|linn ?drum|\batom\b|blocks|trigger ?finger|\bpads?\b|drum ?pad/i;
+  var PADISH = /\bjp[-\s]?1\b|\bjp[-\s]?mini\b|\bjam\s?jum\b|\bkuwee\b|\bmpd\d*\b|\bmpc\b|maschine|launchpad|pad ?kontrol|beatstep|beat ?pad|\bspd\b|dd-?\d{2}|linn ?drum|\batom\b|blocks|trigger ?finger|\bpads?\b|drum ?pad/i;
   var PAD_LO = 36;
   var PAD_HI = 63;
   function readRoles() {
@@ -4917,6 +4938,18 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     }
     host.innerHTML = '<div class="none">' + msg + '</div><div class="port"><span class="pn">PAD LAYOUT</span><button class="pb" id="padlearn">' + (padLearn != null ? "CANCEL" : "MAP PADS") + "</button>" + (bound ? '<button class="pb" id="padclear">RESET</button>' : "") + "</div>";
   }
+  $("#whynot").addEventListener("click", (ev) => {
+    if (!ev.target.closest("#rescan")) return;
+    io.rescan();
+    io.autoReconnect({ onStatus: () => {
+    } }).catch(() => {
+    });
+    setTimeout(() => {
+      renderPorts();
+      renderWhyNot();
+    }, 400);
+    toast("looking for controllers");
+  });
   $("#padmap").addEventListener("click", (ev) => {
     const b = ev.target.closest("button");
     if (!b) return;
@@ -4977,8 +5010,9 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     if (!d.sysex && d.mode === "webmidi") {
       lines.push("SysEx was refused, so transport buttons that use MMC will not arrive. Everything else works; LEARN below binds them by hand.");
     }
+    if (d.names.length) lines.push("Ports: " + esc(d.names.join(", ")));
     if (d.auto) lines.push("Paired devices: " + esc(d.auto) + ".");
-    host.innerHTML = '<div class="none">' + lines.join("<br>") + '<br><span class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : "") + " \xB7 " + d.inputs + " in, " + d.outputs + " out" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + "</span></div>";
+    host.innerHTML = '<div class="none">' + lines.join("<br>") + '<br><span class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : "") + " \xB7 " + d.inputs + " in, " + d.outputs + " out" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.canReopen ? " \xB7 can reopen" : " \xB7 cannot reopen") + '</span></div><div class="port"><span class="pn">LOOK AGAIN</span><button class="pb" id="rescan">RESCAN</button></div>';
   }
   function renderPorts() {
     const box = $("#ports");
@@ -5345,7 +5379,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Plugging in", "Nothing to set up. Plug a controller in and play it \u2014 notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.", ["#ports"]],
       ["KEYS or PADS", "The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here \u2014 or RELEARN to make it work it out again.", []],
       ["CONNECT BLUETOOTH", "Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly. A controller you have already paired with this app is reopened on its own at startup \u2014 you should not have to press this twice.", ["#bleconnect"]],
-      ["Why it is not connecting", "A plain answer instead of a shrug. \u201CNo port visible\u201D, \u201Caccess refused\u201D and \u201Ca port exists but not one byte has arrived\u201D are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.", ["#whynot"]],
+      ["Why it is not connecting", "A plain answer instead of a shrug, with the names of every port the app can see, and RESCAN to look again without restarting. \u201CNo port visible\u201D, \u201Caccess refused\u201D and \u201Ca port exists but not one byte has arrived\u201D are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.", ["#whynot"]],
       ["MAP PADS", "Pads default to the standard drum notes from 36 up, which is right for many boards and wrong for the rest. Press MAP PADS and hit your pads in the order you want them \u2014 each takes the next sound, sixteen taps for the whole board. Hitting a pad twice moves it rather than binding it in two places, and RESET goes back to the default. While a mapping sweep is running, anything you play counts as a pad, so a board whose pads share a channel with its keys can still be mapped.", ["#padmap"]],
       ["The keyboard", "A display: it lights where the hardware is playing, so you can see the app hearing you. Touch it to audition the pad you are looking at across its range.", ["#keybed", "#midicell"]],
       ["BEND \xB7 MOD \xB7 PRESS \xB7 TIMBRE", "What the wheels and the pressure sensor are doing right now. This is the part that proves your controller's expression is getting through.", ["#exprs"]],

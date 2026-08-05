@@ -52,7 +52,13 @@ const PORT_ROLES = 'skrimpad_ultimate_ports';
 const KEYISH = /key|piano|synth|s49|s61|s88|mpk|launchkey|keystation|keylab|minilab|oxygen|axiom|nektar|impact|smk|micro ?key|nano ?key|k-?board|seaboard|linnstr|osmose|xkey|reface|casio|prophet|moog|hydra|deepmind|jd-?xi|jp-?\d|montage|modx|fantom|jupiter|juno/i;
 // \bmpd\d*\b, not \bmpd\b: the products are called MPD218 / MPD226 / MPD232, and
 // a plain word boundary after "mpd" never matches any of them.
-const PADISH = /\bmpd\d*\b|\bmpc\b|maschine|launchpad|pad ?kontrol|beatstep|beat ?pad|\bspd\b|dd-?\d{2}|linn ?drum|\batom\b|blocks|trigger ?finger|\bpads?\b|drum ?pad/i;
+// JamJum's JP-1 and JP mini are 4x4 PAD controllers with no keybed at all —
+// and \bjp-?\d\b in the keyboard list above (there for Roland's JP-8000 and
+// friends) matches "JP-1" exactly. Tested first, this wins, which is why the
+// order of these two lines is load-bearing rather than incidental. A real JP
+// mini reports as "KUWEE Technology JP-Mini" — KUWEE being the OEM — so a unit
+// that gives only its maker's name still lands on the right face.
+const PADISH = /\bjp[-\s]?1\b|\bjp[-\s]?mini\b|\bjam\s?jum\b|\bkuwee\b|\bmpd\d*\b|\bmpc\b|maschine|launchpad|pad ?kontrol|beatstep|beat ?pad|\bspd\b|dd-?\d{2}|linn ?drum|\batom\b|blocks|trigger ?finger|\bpads?\b|drum ?pad/i;
 
 // The General MIDI pad bank. A controller that only ever speaks inside this
 // window is a pad bank; the first note outside it is a keyboard giving itself

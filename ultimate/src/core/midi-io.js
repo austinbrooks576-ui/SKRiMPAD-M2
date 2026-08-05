@@ -327,7 +327,18 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     return { mode: 'none' };
   }
 
-  const KNOWN = ['SMK', 'SMK25', 'WORLDE', 'M-VAVE', 'MVAVE', 'M-WAVE', 'KORG', 'nanoKEY', 'microKEY', 'MPK', 'LPK', 'MPD', 'Launchkey'];
+  // Name prefixes for the Bluetooth chooser, used only when a controller does
+  // not advertise the standard BLE-MIDI service — which is common, and is why
+  // an accept-all fallback sits behind this.
+  //
+  // JamJum's pad controllers are here because they are Bluetooth-first: the
+  // JP-1 and the JP mini are both 4x4 pad grids on BLE with no keybed, and a
+  // real JP mini reports its OEM rather than its product ("KUWEE Technology
+  // JP-Mini"), so the maker name has to be matched as well or the unit never
+  // appears in the chooser at all.
+  const KNOWN = ['SMK', 'SMK25', 'WORLDE', 'M-VAVE', 'MVAVE', 'M-WAVE', 'KORG',
+                 'nanoKEY', 'microKEY', 'MPK', 'LPK', 'MPD', 'Launchkey',
+                 'JamJum', 'JAM JUM', 'JP-1', 'JP1', 'JP-Mini', 'JP Mini', 'KUWEE'];
   const bound = new Set(); // devices already wired, so we never double-attach
 
   // Wire one BluetoothDevice: open GATT, subscribe to the BLE-MIDI characteristic,

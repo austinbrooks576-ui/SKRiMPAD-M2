@@ -14,6 +14,19 @@ const REPO_RELEASES = 'https://github.com/austinbrooks576-ui/SKRiMPAD-M2/release
 // audio clock, and the catch-up burst on restore froze the app.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// WEB BLUETOOTH, THE PART THAT WAS MISSING.
+// navigator.bluetooth.getDevices() — the call that lets an app silently reopen
+// a controller it has already been granted — lives behind this feature flag.
+// Without it the function is simply UNDEFINED, so the auto-reconnect path can
+// never run on desktop and every session starts with the controller
+// disconnected no matter how many times it has been paired before.
+//
+// The same backend is what makes a granted device PERSIST across restarts.
+// Without it, "pair once" is not a thing that exists: every launch is a first
+// launch, which is exactly what a Bluetooth controller that will not stay
+// connected looks like from the outside.
+app.commandLine.appendSwitch('enable-features', 'WebBluetoothNewPermissionsBackend');
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -50,7 +63,7 @@ function createWindow() {
   // WAIT for a MIDI-named controller rather than grabbing whatever appears first
   // (which was often a phone/headset). If none is named within a few seconds we
   // fall back to the first device found; if the list is still empty, cancel.
-  const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon/i;
+  const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon|jam\s?jum|jp-?1\b|jp-?mini|kuwee/i;
   let btCb = null, btDevs = [], btTimer = null;
   win.webContents.on('select-bluetooth-device', (event, devices, callback) => {
     event.preventDefault();
@@ -118,7 +131,11 @@ app.whenReady().then(() => {
   // Grant mic (voice/hum-to-notes) AND MIDI — Chromium gates Web MIDI behind a
   // permission, so requestMIDIAccess() rejects without this and hardware
   // controllers never connect on Windows.
-  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex'];
+  // 'bluetooth' was missing, and setPermissionCheckHandler DENIES anything not
+  // on this list. So navigator.bluetooth.requestDevice() was being refused
+  // before the chooser could ever open — the select-bluetooth-device handler
+  // below is correct and was simply never reached.
+  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex', 'bluetooth'];
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
     callback(GRANTED.includes(permission));
   });
