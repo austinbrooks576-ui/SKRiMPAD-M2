@@ -525,6 +525,31 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   letter-spacing:.1em;min-height:1.4em;}
 #lastmsg b{color:var(--acc);font-weight:600;}
 
+/* ---------- THE DROP-DOWN --------------------------------------------------
+   Right-click on a desktop, press and hold on a phone. Same menu either way,
+   because it is the same question — "what can I do to this thing?" — and the
+   answer should not depend on what you are holding. */
+.menu{position:fixed;z-index:70;min-width:min(230px,72vw);max-width:min(300px,86vw);
+  max-height:min(70svh,520px);overflow-y:auto;overscroll-behavior:contain;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--e2),var(--lip);padding:5px;
+  opacity:0;transform:scale(.97);transform-origin:top left;
+  transition:opacity .11s,transform .11s cubic-bezier(.2,.7,.3,1);}
+.menu.open{opacity:1;transform:none;}
+.mitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);
+  font-size:var(--fs-sm);letter-spacing:.06em;cursor:pointer;min-height:var(--hit);}
+.mitem:hover:not(:disabled),.mitem:focus-visible{background:rgba(75,227,200,.12);color:var(--acc);}
+.mitem:disabled{opacity:.35;cursor:default;}
+.mitem.danger:hover{background:rgba(255,107,132,.14);color:#FF6B84;}
+.mitem.on .ml::before{content:'\2713 ';color:var(--acc);}
+.mitem.back{color:var(--dim);}
+.mitem .ml{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mitem .mh{flex:none;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
+.mitem .mx{flex:none;color:var(--dim);font-size:var(--fs-md);}
+.mhead{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding:7px 10px 4px;}
+.msep{border:0;border-top:1px solid var(--line);margin:4px 6px;}
+
 /* ---------- HELP -----------------------------------------------------------
    Rendered from the same table the app checks itself against, so a control that
    is not written down here fails a test rather than quietly going undocumented. */
@@ -2237,57 +2262,57 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     return "PERC";
   }
   function openDB() {
-    return new Promise((resolve) => {
-      if (typeof indexedDB === "undefined") return resolve(null);
+    return new Promise((resolve2) => {
+      if (typeof indexedDB === "undefined") return resolve2(null);
       let req;
       try {
         req = indexedDB.open(DB, 1);
       } catch (e) {
-        return resolve(null);
+        return resolve2(null);
       }
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
+      req.onsuccess = () => resolve2(req.result);
+      req.onerror = () => resolve2(null);
     });
   }
   function tx(db, mode, fn) {
-    return new Promise((resolve) => {
-      if (!db) return resolve(null);
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(null);
       let t;
       try {
         t = db.transaction(STORE, mode);
       } catch (e) {
-        return resolve(null);
+        return resolve2(null);
       }
       let out = null;
       try {
         out = fn(t.objectStore(STORE));
       } catch (e) {
-        return resolve(null);
+        return resolve2(null);
       }
-      t.oncomplete = () => resolve(out && out.result !== void 0 ? out.result : out);
-      t.onerror = t.onabort = () => resolve(null);
+      t.oncomplete = () => resolve2(out && out.result !== void 0 ? out.result : out);
+      t.onerror = t.onabort = () => resolve2(null);
     });
   }
   function txWrite(db, fn) {
-    return new Promise((resolve) => {
-      if (!db) return resolve(false);
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(false);
       let t;
       try {
         t = db.transaction(STORE, "readwrite");
       } catch (e) {
-        return resolve(false);
+        return resolve2(false);
       }
       try {
         fn(t.objectStore(STORE));
       } catch (e) {
-        return resolve(false);
+        return resolve2(false);
       }
-      t.oncomplete = () => resolve(true);
-      t.onerror = t.onabort = () => resolve(false);
+      t.oncomplete = () => resolve2(true);
+      t.onerror = t.onabort = () => resolve2(false);
     });
   }
   function createLibrary({ ctx, onChange, onError } = {}) {
@@ -3166,6 +3191,176 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     return out;
   }
 
+  // ultimate/src/core/menu.js
+  var openEl = null;
+  var closeFn = null;
+  function closeMenu() {
+    if (closeFn) closeFn();
+  }
+  function onLongPress(el, ms, fn) {
+    let timer = 0, sx = 0, sy = 0, id = null;
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      id = null;
+    };
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      cancel();
+      id = ev.pointerId;
+      sx = ev.clientX;
+      sy = ev.clientY;
+      timer = setTimeout(() => {
+        timer = 0;
+        fn(ev, sx, sy);
+      }, ms);
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (ev.pointerId !== id || !timer) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cancel();
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((e) => el.addEventListener(e, cancel));
+    return cancel;
+  }
+  function resolve(v) {
+    return typeof v === "function" ? v() : v;
+  }
+  function openMenu({ x, y, items, title, onClose }) {
+    closeMenu();
+    const root = document.createElement("div");
+    root.className = "menu";
+    root.setAttribute("role", "menu");
+    if (title) root.setAttribute("aria-label", title);
+    const stack = [];
+    function build(list, host) {
+      host.innerHTML = "";
+      resolve(list).forEach((it) => {
+        if (!it) return;
+        if (it.sep) {
+          host.appendChild(document.createElement("hr")).className = "msep";
+          return;
+        }
+        if (it.head) {
+          const h = document.createElement("div");
+          h.className = "mhead";
+          h.textContent = it.head;
+          host.appendChild(h);
+          return;
+        }
+        const b = document.createElement("button");
+        b.className = "mitem" + (it.danger ? " danger" : "") + (it.on ? " on" : "");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        if (it.disabled) b.disabled = true;
+        b.innerHTML = '<span class="ml"></span>' + (it.hint ? '<span class="mh"></span>' : "") + (it.items ? '<span class="mx">\u203A</span>' : "");
+        b.querySelector(".ml").textContent = it.label;
+        if (it.hint) b.querySelector(".mh").textContent = it.hint;
+        b.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (it.disabled) return;
+          if (it.items) {
+            push(it);
+            return;
+          }
+          closeMenu();
+          if (it.run) it.run();
+        });
+        host.appendChild(b);
+      });
+    }
+    function push(it) {
+      stack.push(it);
+      render();
+    }
+    function pop() {
+      stack.pop();
+      render();
+    }
+    function render() {
+      const cur = stack[stack.length - 1];
+      root.innerHTML = "";
+      if (cur) {
+        const back = document.createElement("button");
+        back.className = "mitem back";
+        back.type = "button";
+        back.innerHTML = '<span class="ml"></span>';
+        back.querySelector(".ml").textContent = "\u2039 " + cur.label;
+        back.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          pop();
+        });
+        root.appendChild(back);
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(cur.items, body);
+      } else {
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(items, body);
+      }
+      place();
+      const first = root.querySelector(".mitem:not(:disabled)");
+      if (first) first.focus();
+    }
+    function place() {
+      root.style.left = "0px";
+      root.style.top = "0px";
+      const w = root.offsetWidth, h = root.offsetHeight;
+      const pad = 8;
+      let px = x, py = y;
+      if (px + w > innerWidth - pad) px = Math.max(pad, x - w);
+      if (py + h > innerHeight - pad) py = Math.max(pad, innerHeight - h - pad);
+      root.style.left = Math.max(pad, px) + "px";
+      root.style.top = Math.max(pad, py) + "px";
+    }
+    document.body.appendChild(root);
+    render();
+    requestAnimationFrame(() => root.classList.add("open"));
+    const away = (ev) => {
+      if (!root.contains(ev.target)) closeMenu();
+    };
+    const key = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeMenu();
+        return;
+      }
+      if (ev.key === "ArrowLeft" && stack.length) {
+        ev.preventDefault();
+        pop();
+        return;
+      }
+      if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+      ev.preventDefault();
+      const all = [...root.querySelectorAll(".mitem:not(:disabled)")];
+      if (!all.length) return;
+      const i = all.indexOf(document.activeElement);
+      const n = ev.key === "ArrowDown" ? i + 1 : i - 1;
+      all[(n + all.length) % all.length].focus();
+    };
+    setTimeout(() => {
+      document.addEventListener("pointerdown", away, true);
+      window.addEventListener("keydown", key, true);
+      window.addEventListener("resize", closeMenu);
+      window.addEventListener("blur", closeMenu);
+    }, 0);
+    openEl = root;
+    closeFn = () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+      root.remove();
+      openEl = null;
+      closeFn = null;
+      if (onClose) onClose();
+    };
+    return closeFn;
+  }
+
   // ultimate/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   function capture(el, id) {
@@ -3336,7 +3531,18 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       });
       el.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
-        ev.shiftKey ? toggleSolo(i) : toggleMute(i);
+        if (ev.shiftKey) {
+          toggleSolo(i);
+          return;
+        }
+        showMenu(ev, padMenu(i), "Pad actions");
+      });
+      onLongPress(el, 480, (ev, x, y) => {
+        if (held) {
+          clearTimeout(held);
+          held = 0;
+        }
+        openMenu({ x, y, items: padMenu(i), title: "Pad actions" });
       });
       deck.appendChild(el);
     });
@@ -3578,6 +3784,105 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       b.addEventListener("click", () => setScene(s));
       host.appendChild(b);
     }
+  }
+  function soundItems(onPick) {
+    return () => {
+      const items = [{ head: "SOUNDS" }];
+      const list = lib.items;
+      if (!list.length) {
+        items.push({ label: "nothing imported yet", disabled: true });
+        items.push({ sep: 1 });
+        items.push({ label: "IMPORT SOUNDS\u2026", run: () => {
+          $("#libbtn").click();
+        } });
+        return items;
+      }
+      list.slice(0, 60).forEach((it) => items.push({
+        label: it.name,
+        hint: it.kind || "",
+        run: () => onPick(it.id)
+      }));
+      if (list.length > 60) items.push({ label: "\u2026" + (list.length - 60) + " more in the shelf", disabled: true });
+      return items;
+    };
+  }
+  function padMenu(i) {
+    const c = liveCells(song)[i];
+    if (!c) return [];
+    const on = c.steps.filter((v) => v > 0).length;
+    return [
+      { head: c.name },
+      { label: "Open its pattern", hint: "hold", run: () => {
+        atlas.setFocus(2, i);
+        atlas.goTo(2, i);
+      } },
+      { label: "Open its sound", run: () => {
+        atlas.setFocus(3, i);
+        atlas.goTo(3, i);
+      } },
+      { sep: 1 },
+      { label: "Play it with the keys", on: keyCell === i, run: () => selectCell(i, "menu") },
+      { label: "Give it a sound", items: soundItems((id) => assignSample(i, id)) },
+      {
+        label: "Take its sound off",
+        disabled: !c.voice.sampleId,
+        run: () => assignSample(i, null)
+      },
+      { sep: 1 },
+      { label: "Mute", on: !!c.mute, run: () => toggleMute(i) },
+      { label: "Solo", on: !!c.solo, run: () => toggleSolo(i) },
+      { sep: 1 },
+      { label: "Fill the bar", run: () => {
+        densify(i, STEPS);
+        hist.push(song);
+        saveSong(song);
+      } },
+      { label: "Every fourth step", run: () => {
+        densify(i, 4);
+        hist.push(song);
+        saveSong(song);
+      } },
+      {
+        label: "Clear its pattern",
+        danger: 1,
+        disabled: !on,
+        run: () => {
+          densify(i, 0);
+          hist.push(song);
+          saveSong(song);
+        }
+      }
+    ];
+  }
+  function soundMenu(id) {
+    const it = lib.find(id);
+    if (!it) return [];
+    const cells = liveCells(song);
+    return [
+      { head: it.name },
+      { label: "Put it on a pad", items: () => cells.map((c, i) => ({
+        label: c.name,
+        hint: c.voice.sampleId === id ? "has it" : "",
+        on: c.voice.sampleId === id,
+        run: () => assignSample(i, id)
+      })) },
+      { label: "Put it on the keys", run: () => assignSample(keyCell, id) },
+      { sep: 1 },
+      // Routed through the row's own remove button rather than calling
+      // lib.remove directly: that path also releases any pad holding the sound,
+      // drops it from the warm cache and re-pins. Two ways to delete a thing is
+      // two chances to forget one of those.
+      { label: "Remove from the library", danger: 1, run: () => {
+        const row = [...document.querySelectorAll(".snd")].find((e) => e.__id === id);
+        if (row) row.querySelector(".sx").click();
+        else lib.remove(id);
+      } }
+    ];
+  }
+  function showMenu(ev, items, title) {
+    const x = ev.clientX != null ? ev.clientX : 0;
+    const y = ev.clientY != null ? ev.clientY : 0;
+    openMenu({ x, y, items, title });
   }
   $("#sclear").addEventListener("click", () => {
     const cells = liveCells(song);
@@ -5116,6 +5421,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     items.forEach((it) => {
       const el = document.createElement("div");
       el.className = "snd" + (armed === it.id ? " armed" : "");
+      el.__id = it.id;
       el.draggable = true;
       el.innerHTML = '<span class="k"></span><span class="n"></span><span class="d"></span><button class="sx" title="Remove this sound" aria-label="Remove"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
       el.querySelector(".k").textContent = it.kind;
@@ -5130,6 +5436,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           previewBuffer(buf2);
         }
         deck.querySelectorAll(".cell").forEach((c) => c.classList.toggle("arm", !!armed));
+      });
+      el.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        showMenu(ev, soundMenu(it.id), "Sound actions");
+      });
+      onLongPress(el, 480, (ev, x, y) => {
+        openMenu({ x, y, items: soundMenu(it.id), title: "Sound actions" });
       });
       el.querySelector(".sx").addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -5370,7 +5683,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     ]],
     ["SOUNDS", [
       ["Drop or browse", "Anything the device can decode. Files are stored inside the app, so they survive a restart and work offline.", ["#drop", "#file"]],
-      ["A sound row", "Tap to arm it \u2014 every pad lights up as a target \u2014 then tap the pad you want it on. Or drag the row straight onto a pad.", [".snd", "#list"]],
+      ["A sound row", "Tap to arm it \u2014 every pad lights up as a target \u2014 then tap the pad you want it on. Or drag the row straight onto a pad. Right-click or hold it for the same menu from the other direction: put this sound on a named pad, or straight onto whichever pad the keys are playing.", [".snd", "#list"]],
       ["The cross", "Removes it from the library. Any pad using it lets go rather than pointing at nothing.", [".snd .sx"]],
       ["Space", "The library keeps itself under 96MB, dropping the least recently used sounds first. Nothing you have put on a pad is ever dropped.", ["#shelf", "#shelfx"]]
     ]],
