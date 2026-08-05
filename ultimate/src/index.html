@@ -688,7 +688,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     aria-labelledby="bpmlab" aria-label="Tempo, beats per minute">
   <span class="blab" id="swglab">SWING</span><input id="swing" type="number" min="0" max="60" step="2" value="0"
     aria-labelledby="swglab" aria-label="Swing, percent">
-  <button class="tb" id="dice" title="Surprise me — right-click or hold for genres"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
+  <button class="tb" id="dice" title="Make me a song — 34 genres, or surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
   <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
 </div>
@@ -2564,7 +2564,7 @@ function recordHit(i, vel) {
 }
 // One button that always gives you something to react to. A blank grid is the
 // hardest thing to start from; this guarantees you never face one.
-$('#dice').addEventListener('click', () => {
+function rollDice() {
   const cells = liveCells(song);
   cells.forEach((c, i) => {
     const dens = i < 4 ? [0.25, 0.12, 0.5, 0.12][i] : (Math.random() < 0.45 ? 0.18 : 0);
@@ -2573,7 +2573,7 @@ $('#dice').addEventListener('click', () => {
   });
   hist.push(song); saveSong(song);
   if (atlas.level === 2) drawCellSheet();
-});
+}
 
 // ---- GENRES ----------------------------------------------------------------
 // The same button, held or right-clicked, asks the other question. DICE means
@@ -2614,6 +2614,15 @@ function applyGenreNow(id, fresh) {
 function genreMenu() {
   return [
     { head: 'Build a song' },
+    // SURPRISE ME IS THE FIRST ROW, not a hidden second gesture on the same
+    // button. Thirty-four genres were reachable only by right-clicking an
+    // unlabelled icon — which means the single most useful thing in the app for
+    // someone who has never made a track was, in practice, invisible. A person
+    // who does not already know a feature exists will not go looking for it
+    // with the one mouse button they rarely use, and on a phone they will not
+    // hold a button they have no reason to think holds anything.
+    { label: 'Surprise me', hint: 'this scene', run: () => rollDice() },
+    { sep: 1 },
     ...genreList().map(([family, list]) => ({
       label: family,
       hint: list.length + '',
@@ -2632,8 +2641,12 @@ function genreMenu() {
   ];
 }
 
-// Right-click on a desktop, press and hold on a phone — the same two ways in as
-// every other menu in the app.
+// A PLAIN TAP opens it. Right-click and hold do too, so the muscle memory the
+// rest of the app teaches still works here — but neither is required, because
+// requiring them hid the whole thing.
+$('#dice').addEventListener('click', (ev) => {
+  showMenu(ev, genreMenu(), 'Genres');
+});
 $('#dice').addEventListener('contextmenu', (ev) => {
   ev.preventDefault();
   showMenu(ev, genreMenu(), 'Genres');
@@ -3468,8 +3481,7 @@ const HELP = [
     ['REC', 'Arms recording. With it armed, anything you play — pads, keys, a controller — is written into the pattern at the step it landed on, quantised to the grid.', ['#rec']],
     ['BPM', 'Tempo, 20 to 300. The whole app follows it, including the export.', ['#bpm']],
     ['SWING', 'Delays the offbeats only, 0 to 60%. Applying it to every step would just be a slower tempo.', ['#swing']],
-    ['DICE', 'Surprise me. Rewrites the current scene into something playable rather than something random.', ['#dice']],
-    ['DICE, right-click or held', 'The same question with an answer you choose: thirty-four genres, grouped, each with what it feels like and the tempo it lives at. Picking one writes a whole song — see GENRES below.', []],
+    ['DICE', 'Make me something. One tap opens the list: SURPRISE ME rewrites this scene into something playable, or pick one of thirty-four genres and get a whole song. Right-click and hold open the same list.', ['#dice']],
     ['SOUNDS', 'Opens the sound shelf over whatever you are looking at.', ['#libbtn']],
     ['PANIC', 'Silences everything immediately, including notes a controller is still holding.', ['#panic']],
     ['The grip', 'Drag the whole console anywhere — it lands under your palm otherwise if you play left-handed. Double-tap it to put it back.', ['#grip']],
