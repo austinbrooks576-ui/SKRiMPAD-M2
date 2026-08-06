@@ -74,7 +74,13 @@ export async function bounceScene({ song, sceneIndex, makeEngine, sampleFor, bar
         const c = cells[i];
         if (c.mute || (anySolo && !c.solo)) continue;
         const vel = c.steps[s % c.steps.length];
-        if (vel > 0) eng.play(c.voice, t, vel, null);
+        // Same pitch rule as the live scheduler. An export that ignored the
+        // pitch lane would render a different song from the one you heard,
+        // which is the one thing an export must never do.
+        if (vel > 0) {
+          const semis = (c.notes && c.voice.kind !== 'drum') ? (c.notes[s % c.notes.length] | 0) : 0;
+          eng.play(c.voice, t, vel, null, semis);
+        }
       }
     }
   }

@@ -298,7 +298,11 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
   // ---- one hit ------------------------------------------------------------
   // `when` is an absolute AudioContext time. Passing 0 means "now" — the live
   // path — and the sequencer always passes a real future time.
-  function play(voice, when, vel, cellIndex) {
+  // `semis` is the step's own pitch, in semitones from the voice's note. It is
+  // a separate argument rather than a field on the voice because it changes on
+  // every step while the voice does not, and mutating a shared voice record per
+  // step would be a race with whatever the UI is doing to the same object.
+  function play(voice, when, vel, cellIndex, semis) {
     // Silence is a mode, not an error: everything upstream still runs, the
     // meters still light, and the pattern is still being edited.
     if (!init()) { if (cellIndex != null) meters[cellIndex] = 1; return { stop: 0 }; }
@@ -362,7 +366,7 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
         sample.buffer = buf;
         // Tune a sample by playback rate — the honest, zero-cost way. tune is in
         // semitones so it reads the same as it does on a synth voice.
-        sample.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
+        sample.playbackRate.value = Math.pow(2, (clamp(voice.tune, -24, 24) + (semis || 0)) / 12);
         sample.connect(flt);
       }
     }
@@ -389,7 +393,7 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     } else {
       stop = t + a + d + r;
       envelope(g, t, a, d, s, r, peak, stop);
-      const oscs = makeUnison(voice, t, hz(voice.note), flt);
+      const oscs = makeUnison(voice, t, hz(voice.note + (semis || 0)), flt);
       oscs.forEach((o) => { o.start(t); o.stop(stop + 0.02); });
     }
 
@@ -675,7 +679,13 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
         const c = cells[i];
         if (c.mute || (anySolo && !c.solo)) continue;
         const vel = c.steps[step % c.steps.length];
-        if (vel > 0) play(c.voice, nextTime + swung, vel, i);
+        if (vel > 0) {
+          // Drums are left alone. A kick that changes pitch with the chord is
+          // not a feature anyone asked for, and the pitch lane is written by
+          // the genre engine only for the roles that carry harmony.
+          const semis = (c.notes && c.voice.kind !== 'drum') ? (c.notes[step % c.notes.length] | 0) : 0;
+          play(c.voice, nextTime + swung, vel, i, semis);
+        }
       }
       const at = nextTime, s = step;
       // Hand the UI the exact audio time this step lands, so the playhead can be

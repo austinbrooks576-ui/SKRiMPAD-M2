@@ -85,7 +85,8 @@ export function guessRole(name) {
   return null;                     // unknown — behaviour will settle it
 }
 
-export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick, poly = 16 } = {}) {
+export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick,
+                             foldFor, poly = 16 } = {}) {
   const roles = readRoles();
   const held = new Map();          // "ch:note" -> live voice handle
   const sustained = new Set();     // keys whose note-off is waiting on the pedal
@@ -114,9 +115,9 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
   // display reads this so what lights on screen is what is held on the
   // hardware — not a repaint of the messages that went past.
   const down = new Set();
-  function sawNote(n, on, vel) {
+  function sawNote(n, on, vel, shift) {
     on ? down.add(n) : down.delete(n);
-    onNote && onNote(n, on, vel);
+    onNote && onNote(n, on, vel, shift || 0);
   }
 
   function decide(name, note) {
@@ -164,7 +165,13 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
     }
     stealIfNeeded();
 
-    const h = engine.hold(voice, n, vel, 0);
+    // THE FOLD. The note that SOUNDS is the nearest one in the song's key; the
+    // note that is HELD, displayed and matched by the note-off is the one you
+    // actually pressed. Keying the bookkeeping on the pressed note matters: fold
+    // two adjacent keys to the same pitch, release one, and a table keyed on the
+    // sounding note would kill the other one too.
+    const sound = foldFor ? foldFor(n) : n;
+    const h = engine.hold(voice, sound, vel, 0);
     held.set(k, h); order.push(k);
     sustained.delete(k);
 
@@ -178,7 +185,7 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
     h.timbre(s.timbre);
     h.level(s.level);
 
-    live.notes = held.size; sawNote(n, true, vel); announce();
+    live.notes = held.size; sawNote(n, true, vel, sound - n); announce();
   }
 
   function noteOff(c, n) {

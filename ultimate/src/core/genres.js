@@ -43,6 +43,8 @@
 //        drill and dubstep are written at double tempo and felt at half.
 //   r    the pattern, by role, sixteen characters each.
 // ---------------------------------------------------------------------------
+import { keyForGenre, noteFor, PITCHED } from './harmony.js';
+
 export const GENRES = {
   afrobeats: { l: 'Afrobeats', m: 'Sunny bounce', bpm: [98, 110], sw: 0.10, r: { HAT: '0010010010010010', KICK: '1001001000100100', RIM: '0100010101000101', SNARE: '0000100000001000' } },
   amapiano: { l: 'Amapiano', m: 'Log-drum roll', bpm: [110, 115], sw: 0.12, r: { BASS: '1001001010010010', HAT: '1010101010101010', KICK: '0000100000001000', RIM: '0001000000010000' } },
@@ -373,6 +375,36 @@ function fill(bar, gen, seed) {
 // PUBLIC
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// PITCH
+//
+// A genre used to write rhythm and nothing else, so the melodic pads played
+// their own single note over and over. A part that repeats one note is not a
+// part. core/harmony.js turns the genre's progression into a note per step per
+// ROLE, voiced across the kit — the sub takes the root, the stab the fifth, the
+// bell the third — because a cell is one voice and cannot play a triad, while
+// sixteen of them can.
+// ---------------------------------------------------------------------------
+function pitchBar(bar, key) {
+  const out = {};
+  Object.keys(bar).forEach((role) => {
+    if (!PITCHED.includes(role)) return;
+    const lane16 = bar[role];
+    const notes = new Array(16).fill(0);
+    let hit = 0;
+    for (let s = 0; s < 16; s++) {
+      if (!lane16[s]) continue;
+      // baseNote 0 here: the offset is resolved against the actual pad's note
+      // by applyGenre, which is the only place that knows what pad a role
+      // landed on. Passing 0 gives the absolute target, and the subtraction
+      // happens there.
+      notes[s] = noteFor(role, s, key, 0, hit++);
+    }
+    out[role] = notes;
+  });
+  return out;
+}
+
 export function genreList() {
   return FAMILIES.map(([family, ids]) => [family, ids.map((id) => ({
     id, label: GENRES[id].l, mood: GENRES[id].m,
@@ -414,16 +446,44 @@ export function applyGenre(song, id, seed = 1) {
   const bars = buildScenes(id, seed);
   if (!bars) return null;
   const tempo = genreTempo(id, seed);
+  // The mode and the progression come from the genre; the ROOT is kept from
+  // whatever the song was already in. Someone who set the key to F minor and
+  // then auditions five genres wants five genres, not five different keys —
+  // and the root is the one part of a key a person actually picks for
+  // themselves, usually because of the range they sing in.
+  const gk = keyForGenre(id, (song.key && song.key.root));
+  song.key = Object.assign({}, song.key, {
+    root: gk.root, mode: gk.mode, prog: gk.prog,
+    fold: song.key ? song.key.fold !== false : true,
+  });
+  const pitched = bars.map((bar) => pitchBar(bar, song.key));
   let written = 0;
   song.scenes.forEach((scene, si) => {
     const bar = bars[si % bars.length];
+    const pitch = pitched[si % pitched.length];
     scene.cells.forEach((cell) => {
       const lane16 = bar[cell.name];
-      for (let s = 0; s < cell.steps.length; s++) cell.steps[s] = (lane16 && lane16[s]) || 0;
+      const notes = pitch[cell.name];
+      for (let s = 0; s < cell.steps.length; s++) {
+        cell.steps[s] = (lane16 && lane16[s]) || 0;
+        // pitchBar computed against a base of 0, so the stored value is the
+        // ABSOLUTE target; here is the only place that knows which pad the role
+        // landed on, so here is where it becomes an offset from that pad's own
+        // note. Clamped to the two octaves the engine can actually apply.
+        if (!cell.notes) cell.notes = new Array(cell.steps.length).fill(0);
+        if (notes && lane16 && lane16[s]) {
+          const base = (cell.voice && cell.voice.note) || 60;
+          const target = notes[s] + 12 * Math.round((base - notes[s]) / 12);
+          cell.notes[s] = Math.max(-24, Math.min(24, target - base));
+        } else {
+          cell.notes[s] = 0;
+        }
+      }
       if (lane16 && lane16.some(Boolean)) written++;
     });
   });
   song.bpm = tempo.bpm;
   song.swing = tempo.swing;
-  return { id, label: GENRES[id].l, bpm: tempo.bpm, swing: tempo.swing, lanes: written };
+  return { id, label: GENRES[id].l, bpm: tempo.bpm, swing: tempo.swing,
+           lanes: written, key: song.key };
 }

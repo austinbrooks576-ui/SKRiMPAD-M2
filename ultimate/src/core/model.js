@@ -92,6 +92,12 @@ export function makeCell(i) {
     name: (p && p.name) || ('CELL ' + (i + 1)),
     hue: Math.round((i * 360) / CELLS),
     steps: new Array(STEPS).fill(0),      // 0 = off, 1..127 = velocity
+    // Pitch, per step, in semitones from this pad's own note — NOT an absolute
+    // note. Storing the offset means retuning a pad transposes its whole part,
+    // which is what anyone would expect retuning to do, and it means a drum pad
+    // that will never be pitched costs sixteen zeroes rather than sixteen
+    // numbers that have to agree with its voice.
+    notes: new Array(STEPS).fill(0),
     voice: makeVoice(i),
     mute: false, solo: false,
     level: 0,                             // live meter, written by the engine
@@ -130,6 +136,11 @@ export function makeSong() {
     name: 'UNTITLED',
     bpm: 138,          // where trance sits; 100 was a placeholder that suits nothing
     swing: 0,
+    // ONE key for the whole song. Not per scene, because scenes are alternative
+    // bars of the same piece and a key that changed when you switched them would
+    // make switching sound like a mistake. `fold` is what stops a controller
+    // playing a wrong note; see core/harmony.js.
+    key: { root: 9, mode: 'minor', fold: true, prog: [0, 5, 2, 6] },
     scene: 0,
     scenes: Array.from({ length: SCENES }, (_, s) => ({
       name: 'SCENE ' + (s + 1),
@@ -164,6 +175,13 @@ export function loadSong() {
     fresh.bpm = Number.isFinite(+v.bpm) ? Math.max(20, Math.min(300, +v.bpm)) : fresh.bpm;
     fresh.swing = Number.isFinite(+v.swing) ? Math.max(0, Math.min(0.6, +v.swing)) : 0;
     fresh.scene = Math.max(0, Math.min(SCENES - 1, +v.scene || 0));
+    if (v.key && typeof v.key === 'object') {
+      const k = fresh.key;
+      if (Number.isFinite(+v.key.root)) k.root = ((+v.key.root | 0) % 12 + 12) % 12;
+      if (typeof v.key.mode === 'string') k.mode = v.key.mode;
+      if (typeof v.key.fold === 'boolean') k.fold = v.key.fold;
+      if (Array.isArray(v.key.prog) && v.key.prog.length) k.prog = v.key.prog.map((d) => +d || 0);
+    }
     v.scenes.slice(0, SCENES).forEach((sc, s) => {
       if (!sc || !Array.isArray(sc.cells)) return;
       if (typeof sc.name === 'string') fresh.scenes[s].name = sc.name;
@@ -175,6 +193,15 @@ export function loadSong() {
         if (typeof c.name === 'string' && keepVoices) dst.name = c.name;
         if (Number.isFinite(+c.hue)) dst.hue = +c.hue;
         if (Array.isArray(c.steps)) for (let k = 0; k < STEPS; k++) dst.steps[k] = +c.steps[k] || 0;
+        // A song saved before pitch existed simply has no notes array, and the
+        // zeroes it keeps are exactly right: every part plays its pad's own
+        // note, which is what it did before.
+        if (Array.isArray(c.notes)) {
+          for (let k = 0; k < STEPS; k++) {
+            const n = +c.notes[k] || 0;
+            dst.notes[k] = Math.max(-24, Math.min(24, n));
+          }
+        }
         if (keepVoices && c.voice && typeof c.voice === 'object') Object.assign(dst.voice, c.voice);
         // A sample someone imported and assigned is theirs at any version, so it
         // survives the migration even when the rest of the voice does not.

@@ -200,6 +200,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 #swing{width:46px;}
 #bpm:focus,#swing:focus{color:var(--acc);}
 .blab{font-size:var(--fs-xs);color:var(--dim);}
+/* A transport button carrying TEXT rather than a glyph. Auto width with a floor
+   so "A♯m" and "Cm" do not resize the bar as the key changes — a control that
+   moves its neighbours when you use it is a control people stop using. */
+.tb.wide{width:auto;min-width:38px;padding:0 8px;font-size:var(--fs-sm);
+  font-weight:600;letter-spacing:.02em;}
+.tb.wide.off{opacity:.55;}
 
 /* ---------- CELLS ---------------------------------------------------------
    The single repeated object of the whole app. It is a pad on the DECK, a node
@@ -688,6 +694,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     aria-labelledby="bpmlab" aria-label="Tempo, beats per minute">
   <span class="blab" id="swglab">SWING</span><input id="swing" type="number" min="0" max="60" step="2" value="0"
     aria-labelledby="swglab" aria-label="Swing, percent">
+  <button class="tb wide" id="keybtn" title="The key everything is in — and what your keyboard is allowed to play">Am</button>
   <button class="tb" id="dice" title="Make me a song — 34 genres, or surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
   <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -1038,6 +1045,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       hue: Math.round(i * 360 / CELLS),
       steps: new Array(STEPS).fill(0),
       // 0 = off, 1..127 = velocity
+      // Pitch, per step, in semitones from this pad's own note — NOT an absolute
+      // note. Storing the offset means retuning a pad transposes its whole part,
+      // which is what anyone would expect retuning to do, and it means a drum pad
+      // that will never be pitched costs sixteen zeroes rather than sixteen
+      // numbers that have to agree with its voice.
+      notes: new Array(STEPS).fill(0),
       voice: makeVoice(i),
       mute: false,
       solo: false,
@@ -1062,6 +1075,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       bpm: 138,
       // where trance sits; 100 was a placeholder that suits nothing
       swing: 0,
+      // ONE key for the whole song. Not per scene, because scenes are alternative
+      // bars of the same piece and a key that changed when you switched them would
+      // make switching sound like a mistake. `fold` is what stops a controller
+      // playing a wrong note; see core/harmony.js.
+      key: { root: 9, mode: "minor", fold: true, prog: [0, 5, 2, 6] },
       scene: 0,
       scenes: Array.from({ length: SCENES }, (_, s) => ({
         name: "SCENE " + (s + 1),
@@ -1085,6 +1103,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       fresh.bpm = Number.isFinite(+v.bpm) ? Math.max(20, Math.min(300, +v.bpm)) : fresh.bpm;
       fresh.swing = Number.isFinite(+v.swing) ? Math.max(0, Math.min(0.6, +v.swing)) : 0;
       fresh.scene = Math.max(0, Math.min(SCENES - 1, +v.scene || 0));
+      if (v.key && typeof v.key === "object") {
+        const k = fresh.key;
+        if (Number.isFinite(+v.key.root)) k.root = ((+v.key.root | 0) % 12 + 12) % 12;
+        if (typeof v.key.mode === "string") k.mode = v.key.mode;
+        if (typeof v.key.fold === "boolean") k.fold = v.key.fold;
+        if (Array.isArray(v.key.prog) && v.key.prog.length) k.prog = v.key.prog.map((d) => +d || 0);
+      }
       v.scenes.slice(0, SCENES).forEach((sc, s) => {
         if (!sc || !Array.isArray(sc.cells)) return;
         if (typeof sc.name === "string") fresh.scenes[s].name = sc.name;
@@ -1094,6 +1119,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           if (typeof c.name === "string" && keepVoices) dst.name = c.name;
           if (Number.isFinite(+c.hue)) dst.hue = +c.hue;
           if (Array.isArray(c.steps)) for (let k = 0; k < STEPS; k++) dst.steps[k] = +c.steps[k] || 0;
+          if (Array.isArray(c.notes)) {
+            for (let k = 0; k < STEPS; k++) {
+              const n = +c.notes[k] || 0;
+              dst.notes[k] = Math.max(-24, Math.min(24, n));
+            }
+          }
           if (keepVoices && c.voice && typeof c.voice === "object") Object.assign(dst.voice, c.voice);
           else if (c.voice && typeof c.voice.sampleId === "string") dst.voice.sampleId = c.voice.sampleId;
           dst.mute = !!c.mute;
@@ -1346,7 +1377,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       }
       return oscs;
     }
-    function play(voice, when, vel, cellIndex) {
+    function play(voice, when, vel, cellIndex, semis) {
       if (!init()) {
         if (cellIndex != null) meters[cellIndex] = 1;
         return { stop: 0 };
@@ -1388,7 +1419,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         if (buf2) {
           sample = ctx.createBufferSource();
           sample.buffer = buf2;
-          sample.playbackRate.value = Math.pow(2, clamp(voice.tune, -24, 24) / 12);
+          sample.playbackRate.value = Math.pow(2, (clamp(voice.tune, -24, 24) + (semis || 0)) / 12);
           sample.connect(flt);
         }
       }
@@ -1408,7 +1439,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       } else {
         stop = t + a + d + r;
         envelope(g, t, a, d, s, r, peak, stop);
-        const oscs = makeUnison(voice, t, hz(voice.note), flt);
+        const oscs = makeUnison(voice, t, hz(voice.note + (semis || 0)), flt);
         oscs.forEach((o) => {
           o.start(t);
           o.stop(stop + 0.02);
@@ -1651,7 +1682,10 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           const c = cells[i];
           if (c.mute || anySolo && !c.solo) continue;
           const vel = c.steps[step % c.steps.length];
-          if (vel > 0) play(c.voice, nextTime + swung, vel, i);
+          if (vel > 0) {
+            const semis = c.notes && c.voice.kind !== "drum" ? c.notes[step % c.notes.length] | 0 : 0;
+            play(c.voice, nextTime + swung, vel, i, semis);
+          }
         }
         const at = nextTime, s = step;
         if (onStep) onStep(s, at);
@@ -2529,7 +2563,16 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     if (KEYISH.test(n)) return "keys";
     return null;
   }
-  function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick, poly = 16 } = {}) {
+  function createKeys({
+    engine,
+    voiceFor,
+    onPad,
+    onActivity,
+    onNote,
+    onPick,
+    foldFor,
+    poly = 16
+  } = {}) {
     const roles = readRoles();
     const held = /* @__PURE__ */ new Map();
     const sustained = /* @__PURE__ */ new Set();
@@ -2556,9 +2599,9 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       onActivity && onActivity(live);
     }
     const down = /* @__PURE__ */ new Set();
-    function sawNote(n, on, vel) {
+    function sawNote(n, on, vel, shift) {
       on ? down.add(n) : down.delete(n);
-      onNote && onNote(n, on, vel);
+      onNote && onNote(n, on, vel, shift || 0);
     }
     function decide(name, note) {
       if (roles[name]) return roles[name];
@@ -2606,7 +2649,8 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         if (j >= 0) order.splice(j, 1);
       }
       stealIfNeeded();
-      const h = engine.hold(voice, n, vel, 0);
+      const sound = foldFor ? foldFor(n) : n;
+      const h = engine.hold(voice, sound, vel, 0);
       held.set(k, h);
       order.push(k);
       sustained.delete(k);
@@ -2617,7 +2661,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       h.timbre(s.timbre);
       h.level(s.level);
       live.notes = held.size;
-      sawNote(n, true, vel);
+      sawNote(n, true, vel, sound - n);
       announce();
     }
     function noteOff(c, n) {
@@ -2999,7 +3043,10 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           const c = cells[i];
           if (c.mute || anySolo && !c.solo) continue;
           const vel = c.steps[s % c.steps.length];
-          if (vel > 0) eng2.play(c.voice, t, vel, null);
+          if (vel > 0) {
+            const semis = c.notes && c.voice.kind !== "drum" ? c.notes[s % c.notes.length] | 0 : 0;
+            eng2.play(c.voice, t, vel, null, semis);
+          }
         }
       }
     }
@@ -3341,11 +3388,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         root.appendChild(body);
         build(items, body);
       }
-      place();
+      place2();
       const first = root.querySelector(".mitem:not(:disabled)");
       if (first) first.focus();
     }
-    function place() {
+    function place2() {
       root.style.left = "0px";
       root.style.top = "0px";
       const w = root.offsetWidth, h = root.offsetHeight;
@@ -3400,6 +3447,137 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       if (onClose) onClose();
     };
     return closeFn;
+  }
+
+  // ultimate/src/core/harmony.js
+  var ROOTS = ["C", "C\u266F", "D", "D\u266F", "E", "F", "F\u266F", "G", "G\u266F", "A", "A\u266F", "B"];
+  var MODES = {
+    minor: { l: "minor", iv: [0, 2, 3, 5, 7, 8, 10] },
+    major: { l: "major", iv: [0, 2, 4, 5, 7, 9, 11] },
+    dorian: { l: "dorian", iv: [0, 2, 3, 5, 7, 9, 10] },
+    phrygian: { l: "phrygian", iv: [0, 1, 3, 5, 7, 8, 10] },
+    mixolydian: { l: "mixolydian", iv: [0, 2, 4, 5, 7, 9, 10] },
+    lydian: { l: "lydian", iv: [0, 2, 4, 6, 7, 9, 11] },
+    harmonic: { l: "harmonic", iv: [0, 2, 3, 5, 7, 8, 11] },
+    pentatonic: { l: "pentatonic", iv: [0, 3, 5, 7, 10] }
+  };
+  var MODE_IDS = Object.keys(MODES);
+  var DEFAULT_KEY = { root: 9, mode: "minor", fold: true };
+  function foldNote(note, key) {
+    if (!key || key.fold === false) return note;
+    const iv = (MODES[key.mode] || MODES.minor).iv;
+    const root = ((key.root | 0) % 12 + 12) % 12;
+    const pc = ((note - root) % 12 + 12) % 12;
+    let best = iv[0], bestD = 99;
+    for (let i = 0; i < iv.length; i++) {
+      const d = Math.abs(iv[i] - pc);
+      if (d < bestD) {
+        bestD = d;
+        best = iv[i];
+      }
+    }
+    return note + (best - pc);
+  }
+  function keyName(key) {
+    const k = key || DEFAULT_KEY;
+    return ROOTS[((k.root | 0) % 12 + 12) % 12] + " " + (MODES[k.mode] || MODES.minor).l;
+  }
+  function keyShort(key) {
+    const k = key || DEFAULT_KEY;
+    const r = ROOTS[((k.root | 0) % 12 + 12) % 12];
+    return r + (k.mode === "major" || k.mode === "lydian" ? "" : "m");
+  }
+  var FAMILY = {
+    hiphop: { mode: "minor", prog: [0, 5, 2, 6] },
+    // i · VI · III · VII
+    house: { mode: "minor", prog: [0, 6, 5, 6] },
+    bass: { mode: "minor", prog: [0, 0, 5, 5] },
+    groove: { mode: "dorian", prog: [0, 3, 0, 4] },
+    // the modal vamp
+    air: { mode: "major", prog: [0, 5, 3, 4] }
+  };
+  var GENRE_KEY = {
+    lofi: { mode: "dorian", prog: [1, 4, 0, 0] },
+    // the ii-V-I everybody borrows
+    boombap: { mode: "minor", prog: [0, 5, 0, 4] },
+    oldschool: { mode: "minor", prog: [0, 5, 0, 4] },
+    westcoast: { mode: "minor", prog: [0, 4, 0, 4] },
+    memphis: { mode: "phrygian", prog: [0, 0, 1, 0] },
+    // the flat second is the whole sound
+    drill: { mode: "phrygian", prog: [0, 0, 5, 0] },
+    grime: { mode: "phrygian", prog: [0, 1, 0, 6] },
+    trap: { mode: "minor", prog: [0, 0, 5, 4] },
+    dirtysouth: { mode: "minor", prog: [0, 5, 3, 5] },
+    techno: { mode: "minor", prog: [0, 0, 0, 0] },
+    // static on purpose
+    industrial: { mode: "phrygian", prog: [0, 0, 0, 1] },
+    psytrance: { mode: "phrygian", prog: [0, 0, 0, 0] },
+    trance: { mode: "minor", prog: [0, 5, 2, 6] },
+    // the euphoric one
+    house: { mode: "minor", prog: [0, 3, 5, 4] },
+    disco: { mode: "major", prog: [0, 5, 1, 4] },
+    hardcore: { mode: "minor", prog: [0, 0, 6, 6] },
+    jungle: { mode: "minor", prog: [0, 0, 6, 0] },
+    hardstep: { mode: "minor", prog: [0, 0, 0, 6] },
+    dubstep: { mode: "minor", prog: [0, 0, 5, 5] },
+    tripstep: { mode: "minor", prog: [0, 5, 0, 5] },
+    breakcore: { mode: "harmonic", prog: [0, 6, 5, 4] },
+    garage: { mode: "dorian", prog: [1, 4, 0, 5] },
+    dub: { mode: "minor", prog: [0, 0, 3, 3] },
+    afrobeats: { mode: "major", prog: [0, 4, 5, 3] },
+    amapiano: { mode: "minor", prog: [0, 3, 5, 4] },
+    dancehall: { mode: "minor", prog: [0, 5, 3, 4] },
+    reggaeton: { mode: "minor", prog: [0, 5, 3, 4] },
+    funk: { mode: "dorian", prog: [0, 0, 3, 3] },
+    // one-chord vamp with a lift
+    tribal: { mode: "pentatonic", prog: [0, 0, 0, 0] },
+    ambient: { mode: "lydian", prog: [0, 0, 3, 3] },
+    cinematic: { mode: "minor", prog: [0, 5, 0, 4] },
+    synthwave: { mode: "minor", prog: [0, 5, 2, 6] },
+    vaporwave: { mode: "major", prog: [3, 4, 2, 5] },
+    // the woozy one
+    viking: { mode: "harmonic", prog: [0, 0, 6, 0] }
+  };
+  function keyForGenre(id, root) {
+    const g = GENRE_KEY[id] || FAMILY.hiphop;
+    return { root: root == null ? DEFAULT_KEY.root : root, mode: g.mode, prog: g.prog };
+  }
+  function triad(degree, mode) {
+    const iv = (MODES[mode] || MODES.minor).iv;
+    const n = iv.length;
+    const at = (k) => iv[k % n] + 12 * Math.floor(k / n);
+    const d = ((degree | 0) % n + n) % n;
+    return [at(d), at(d + 2), at(d + 4)];
+  }
+  var VOICING = {
+    SUB: { t: 0, oct: 0 },
+    BASS: { t: 0, oct: 0, alt: 2 },
+    // root, with the fifth on the offbeats
+    PAD: { t: 0, oct: 0 },
+    ATMOS: { t: 2, oct: 0 },
+    STAB: { t: 2, oct: 0 },
+    BELL: { t: 1, oct: 1 },
+    PLUCK: { t: 1, oct: 0, alt: 2 },
+    LEAD: { t: 0, oct: 0, walk: 1 }
+    // walks the chord tones instead of holding one
+  };
+  var PITCHED = Object.keys(VOICING);
+  function place(semi, around) {
+    return semi + 12 * Math.round((around - semi) / 12);
+  }
+  function noteFor(role, step, key, baseNote, hitIndex) {
+    const v = VOICING[role];
+    if (!v) return 0;
+    const prog = key && key.prog || FAMILY.hiphop.prog;
+    const deg = prog[Math.floor((step & 15) / 4) % prog.length];
+    const tones = triad(deg, key && key.mode);
+    let t = v.t;
+    if (v.alt != null && step & 1) t = v.alt;
+    if (v.walk) t = (hitIndex || 0) % 3;
+    const root = (key && key.root) | 0;
+    const abs = root + tones[t % 3] + (v.oct || 0) * 12;
+    const target = place(abs, baseNote);
+    return Math.max(-24, Math.min(24, target - baseNote));
   }
 
   // ultimate/src/core/genres.js
@@ -3633,6 +3811,21 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     out.RIDE[0] = velocity("RIDE", 0, rand, 1.2);
     return out;
   }
+  function pitchBar(bar, key) {
+    const out = {};
+    Object.keys(bar).forEach((role) => {
+      if (!PITCHED.includes(role)) return;
+      const lane16 = bar[role];
+      const notes = new Array(16).fill(0);
+      let hit = 0;
+      for (let s = 0; s < 16; s++) {
+        if (!lane16[s]) continue;
+        notes[s] = noteFor(role, s, key, 0, hit++);
+      }
+      out[role] = notes;
+    });
+    return out;
+  }
   function genreList() {
     return FAMILIES.map(([family, ids]) => [family, ids.map((id) => ({
       id,
@@ -3666,18 +3859,45 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     const bars = buildScenes(id, seed);
     if (!bars) return null;
     const tempo = genreTempo(id, seed);
+    const gk = keyForGenre(id, song2.key && song2.key.root);
+    song2.key = Object.assign({}, song2.key, {
+      root: gk.root,
+      mode: gk.mode,
+      prog: gk.prog,
+      fold: song2.key ? song2.key.fold !== false : true
+    });
+    const pitched = bars.map((bar) => pitchBar(bar, song2.key));
     let written = 0;
     song2.scenes.forEach((scene, si) => {
       const bar = bars[si % bars.length];
+      const pitch = pitched[si % pitched.length];
       scene.cells.forEach((cell) => {
         const lane16 = bar[cell.name];
-        for (let s = 0; s < cell.steps.length; s++) cell.steps[s] = lane16 && lane16[s] || 0;
+        const notes = pitch[cell.name];
+        for (let s = 0; s < cell.steps.length; s++) {
+          cell.steps[s] = lane16 && lane16[s] || 0;
+          if (!cell.notes) cell.notes = new Array(cell.steps.length).fill(0);
+          if (notes && lane16 && lane16[s]) {
+            const base = cell.voice && cell.voice.note || 60;
+            const target = notes[s] + 12 * Math.round((base - notes[s]) / 12);
+            cell.notes[s] = Math.max(-24, Math.min(24, target - base));
+          } else {
+            cell.notes[s] = 0;
+          }
+        }
         if (lane16 && lane16.some(Boolean)) written++;
       });
     });
     song2.bpm = tempo.bpm;
     song2.swing = tempo.swing;
-    return { id, label: GENRES[id].l, bpm: tempo.bpm, swing: tempo.swing, lanes: written };
+    return {
+      id,
+      label: GENRES[id].l,
+      bpm: tempo.bpm,
+      swing: tempo.swing,
+      lanes: written,
+      key: song2.key
+    };
   }
 
   // ultimate/src/.boot.entry.js
@@ -5247,6 +5467,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     liveCells(song).forEach((c, i) => syncRibbon(i));
     $("#bpm").value = song.bpm;
     $("#swing").value = Math.round(song.swing * 100);
+    paintKey();
     hist.push(song);
     saveSong(song);
     invalidateSheets();
@@ -5285,6 +5506,53 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       }
     ];
   }
+  function paintKey() {
+    const b = $("#keybtn");
+    if (!b) return;
+    b.textContent = keyShort(song.key);
+    b.classList.toggle("off", song.key && song.key.fold === false);
+    b.setAttribute("aria-label", "Key: " + keyName(song.key) + (song.key && song.key.fold === false ? ", notes not corrected" : ", notes corrected to the key"));
+  }
+  function setKey(patch) {
+    song.key = Object.assign({}, song.key, patch);
+    paintKey();
+    saveSong(song);
+  }
+  function keyMenu() {
+    const k = song.key || {};
+    return [
+      { head: "Key \u2014 " + keyName(k) },
+      {
+        label: "Correct my notes",
+        hint: "so nothing is out of key",
+        on: k.fold !== false,
+        run: () => {
+          setKey({ fold: k.fold === false });
+          toast(k.fold === false ? "notes corrected to " + keyName(song.key) : "notes left exactly as played");
+        }
+      },
+      { sep: 1 },
+      { label: "Root", hint: ROOTS[(k.root | 0) % 12], items: () => ROOTS.map((r, i) => ({
+        label: r,
+        on: (k.root | 0) % 12 === i,
+        run: () => {
+          setKey({ root: i });
+          toast(keyName(song.key));
+        }
+      })) },
+      { label: "Mode", hint: (MODES[k.mode] || {}).l || "", items: () => MODE_IDS.map((m) => ({
+        label: MODES[m].l,
+        on: k.mode === m,
+        run: () => {
+          setKey({ mode: m });
+          toast(keyName(song.key));
+        }
+      })) }
+    ];
+  }
+  $("#keybtn").addEventListener("click", (ev) => showMenu(ev, keyMenu(), "Key"));
+  onLongPress($("#keybtn"), 420, (ev, x, y) => openMenu({ x, y, items: keyMenu(), title: "Key" }));
+  paintKey();
   $("#dice").addEventListener("click", (ev) => {
     showMenu(ev, genreMenu(), "Genres");
   });
@@ -5372,6 +5640,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   var lastMsg = "";
   var keys = createKeys({
     engine: eng,
+    // The song's key, applied to every note the controller sends. This is the
+    // whole of "you cannot play a wrong note" — see core/harmony.js for why it is
+    // done to the incoming note rather than by drawing an instrument that has no
+    // wrong notes on it.
+    foldFor: (n) => foldNote(n, song.key),
     // Keys sound the cell you are looking at. There is no separate "instrument"
     // to select, because you already selected one by flying to it — the thing
     // under your attention is the thing under your hands.
@@ -6087,6 +6360,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Tab", "Reaches every control in order. Focus is always visible.", []],
       ["M \xB7 S on a focused pad", "Mute, solo.", []]
     ]],
+    ["THE KEY", [
+      ["The button", "One word beside the tempo \u2014 the key everything is in. Tap it for the root, the mode, and the one switch that matters.", ["#keybtn"]],
+      ["CORRECT MY NOTES", "On by default. Every note your controller sends moves to the nearest note in the key before it reaches a sound, so a real keyboard cannot play a wrong one. You keep your velocity, your pitch bend, your wheel and your pedal \u2014 only the pitch is caught. The button dims when this is off, so you can always see which it is.", []],
+      ["Why it is done this way", "Other apps solve this by drawing you an instrument with no wrong notes on it. There is no on-screen instrument here \u2014 the keys are on your desk and all twelve are real \u2014 so the notes are corrected on the way in instead. That is only possible in an app built around a controller, and it means you keep playing your own keyboard.", []],
+      ["Picking a genre sets it", "Each genre brings its own mode and progression \u2014 Memphis is phrygian because the flat second is the whole sound, techno sits on one chord on purpose. Your ROOT is kept, so auditioning five genres gives you five genres rather than five keys.", []],
+      ["The chord is spread across the pads", "A pad is one voice and cannot play a triad, but sixteen can. SUB and BASS take the root, STAB and ATMOS the fifth, BELL and PLUCK the third, and LEAD walks between them \u2014 so the chord is a property of the kit. Mute a pad and you hear which note it was holding.", []]
+    ]],
     ["GENRES", [
       ["Where they are", 'Right-click DICE, or press and hold it. Thirty-four of them in five families, each row saying what it feels like and what tempo it runs at \u2014 because "Hardstep" tells you nothing and "Menacing \xB7 170-180" tells you whether it is the one you want.', []],
       ["What picking one does", "Writes a whole song, not a loop. Scene 1 is the groove, scene 2 is a variation of it, scene 3 is the breakdown, scene 4 ends with a fill. It sets the tempo and the swing to match, and it all goes through undo as one step.", []],
@@ -6107,7 +6387,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["START OVER", "Throws away the song, the sounds and every remembered setting. There is no undo for it, so it asks twice.", ["#resetall"]]
     ]]
   ];
-  var WHATS_NEW = ["1.0.17", [
+  var WHATS_NEW = ["1.0.18", [
+    ["A key, and no wrong notes", "One button beside the tempo. Every note your controller sends now lands on the nearest note in the song\u2019s key, so a real keyboard cannot play a wrong one \u2014 velocity, bend, wheel and pedal all untouched. Dim the button off if you would rather it left you alone."],
+    ["Genres write notes, not just drums", "Each of the thirty-four brings its own mode and chord progression, and the chord is voiced ACROSS the pads \u2014 the sub takes the root, the stab the fifth, the bell the third. A pad is one voice and cannot play a chord; sixteen of them can."],
+    ["The genre list is findable", "A plain tap on DICE opens it. It used to need a right-click on an unlabelled icon, which meant most people never knew it was there."]
+  ]];
+  var WHATS_NEW_0A = ["1.0.17", [
     ["Thirty-four genres", "Right-click DICE, or hold it. Pick a genre and it writes a whole song \u2014 groove, variation, breakdown, and a bar that ends in a fill \u2014 at that genre\u2019s tempo and swing. Every hit is weighted by where it falls in the bar, and the genres that swing get the quiet ghost notes between the hits, which is most of what makes a groove sound played rather than programmed."],
     ["Another take", "Pick the same genre twice and you get a different song in it, not the same bar back."]
   ]];
@@ -6138,7 +6423,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     ["Scene actions", "CLEAR and COPY TO NEXT, both undoable."],
     ["This page", "Everything the app does, in one place, checked by a test."]
   ]];
-  var RELEASES = [WHATS_NEW, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
+  var RELEASES = [WHATS_NEW, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
   function renderHelp() {
     const body = $("#helpbody");
     if (body.dataset.built) return;
@@ -6241,6 +6526,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     });
   }
   window.__ultMakeEngine = createEngine;
+  window.__ultHarmony = { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS };
   window.__ultBounce = bounceScene;
 })();
 

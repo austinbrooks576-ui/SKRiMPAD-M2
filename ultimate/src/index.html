@@ -200,6 +200,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
 #swing{width:46px;}
 #bpm:focus,#swing:focus{color:var(--acc);}
 .blab{font-size:var(--fs-xs);color:var(--dim);}
+/* A transport button carrying TEXT rather than a glyph. Auto width with a floor
+   so "A♯m" and "Cm" do not resize the bar as the key changes — a control that
+   moves its neighbours when you use it is a control people stop using. */
+.tb.wide{width:auto;min-width:38px;padding:0 8px;font-size:var(--fs-sm);
+  font-weight:600;letter-spacing:.02em;}
+.tb.wide.off{opacity:.55;}
 
 /* ---------- CELLS ---------------------------------------------------------
    The single repeated object of the whole app. It is a pad on the DECK, a node
@@ -688,6 +694,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     aria-labelledby="bpmlab" aria-label="Tempo, beats per minute">
   <span class="blab" id="swglab">SWING</span><input id="swing" type="number" min="0" max="60" step="2" value="0"
     aria-labelledby="swglab" aria-label="Swing, percent">
+  <button class="tb wide" id="keybtn" title="The key everything is in — and what your keyboard is allowed to play">Am</button>
   <button class="tb" id="dice" title="Make me a song — 34 genres, or surprise me"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/></svg></button>
   <button class="tb" id="libbtn" title="Sounds"><svg viewBox="0 0 24 24"><path d="M4 5h11l3 3v11H4z"/><path d="M9 12h6M9 15h6"/></svg></button>
   <button class="tb" id="panic" title="Silence everything"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -706,6 +713,7 @@ import { bounceScene, saveBlob } from './core/bounce.js';
 import { createFog, makeStars } from './core/fog.js';
 import { openMenu, closeMenu, onLongPress } from './core/menu.js';
 import { genreList, applyGenre, GENRES } from './core/genres.js';
+import { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS } from './core/harmony.js';
 
 const $ = (s) => document.querySelector(s);
 // setPointerCapture throws whenever the pointer it names is not currently
@@ -2600,6 +2608,7 @@ function applyGenreNow(id, fresh) {
   // up with the model.
   $('#bpm').value = song.bpm;
   $('#swing').value = Math.round(song.swing * 100);
+  paintKey();
   hist.push(song); saveSong(song); invalidateSheets();
   toast(done.label + ' — ' + done.bpm + ' BPM'
         + (done.swing ? ', ' + Math.round(done.swing * 100) + '% swing' : '')
@@ -2640,6 +2649,54 @@ function genreMenu() {
       run: () => applyGenreNow(lastGenre, true) },
   ];
 }
+
+// ---- THE KEY ---------------------------------------------------------------
+// One button, one word. Not a settings page, because a key is not a setting —
+// it is the single decision that makes every other note in the app land
+// somewhere sensible, and burying it three taps deep would mean nobody ever
+// makes it.
+//
+// The button also carries the state of the fold: dimmed means the fold is off
+// and your keyboard is chromatic again. That is one glance, and it is the
+// answer to the only question this feature can raise, which is "why did that
+// note sound different from the one I pressed".
+function paintKey() {
+  const b = $('#keybtn');
+  if (!b) return;
+  b.textContent = keyShort(song.key);
+  b.classList.toggle('off', song.key && song.key.fold === false);
+  b.setAttribute('aria-label', 'Key: ' + keyName(song.key)
+    + (song.key && song.key.fold === false ? ', notes not corrected' : ', notes corrected to the key'));
+}
+
+function setKey(patch) {
+  song.key = Object.assign({}, song.key, patch);
+  paintKey(); saveSong(song);
+}
+
+function keyMenu() {
+  const k = song.key || {};
+  return [
+    { head: 'Key — ' + keyName(k) },
+    { label: 'Correct my notes', hint: 'so nothing is out of key', on: k.fold !== false,
+      run: () => { setKey({ fold: k.fold === false }); toast(k.fold === false
+        ? 'notes corrected to ' + keyName(song.key)
+        : 'notes left exactly as played'); } },
+    { sep: 1 },
+    { label: 'Root', hint: ROOTS[(k.root | 0) % 12], items: () => ROOTS.map((r, i) => ({
+        label: r, on: (k.root | 0) % 12 === i,
+        run: () => { setKey({ root: i }); toast(keyName(song.key)); },
+      })) },
+    { label: 'Mode', hint: (MODES[k.mode] || {}).l || '', items: () => MODE_IDS.map((m) => ({
+        label: MODES[m].l, on: k.mode === m,
+        run: () => { setKey({ mode: m }); toast(keyName(song.key)); },
+      })) },
+  ];
+}
+$('#keybtn').addEventListener('click', (ev) => showMenu(ev, keyMenu(), 'Key'));
+onLongPress($('#keybtn'), 420, (ev, x, y) =>
+  openMenu({ x, y, items: keyMenu(), title: 'Key' }));
+paintKey();
 
 // A PLAIN TAP opens it. Right-click and hold do too, so the muscle memory the
 // rest of the app teaches still works here — but neither is required, because
@@ -2782,6 +2839,11 @@ let midiOpen = false, lastPorts = [], lastMsg = '';
 
 const keys = createKeys({
   engine: eng,
+  // The song's key, applied to every note the controller sends. This is the
+  // whole of "you cannot play a wrong note" — see core/harmony.js for why it is
+  // done to the incoming note rather than by drawing an instrument that has no
+  // wrong notes on it.
+  foldFor: (n) => foldNote(n, song.key),
   // Keys sound the cell you are looking at. There is no separate "instrument"
   // to select, because you already selected one by flying to it — the thing
   // under your attention is the thing under your hands.
@@ -3570,6 +3632,13 @@ const HELP = [
     ['Tab', 'Reaches every control in order. Focus is always visible.', []],
     ['M · S on a focused pad', 'Mute, solo.', []],
   ]],
+  ['THE KEY', [
+    ['The button', 'One word beside the tempo — the key everything is in. Tap it for the root, the mode, and the one switch that matters.', ['#keybtn']],
+    ['CORRECT MY NOTES', 'On by default. Every note your controller sends moves to the nearest note in the key before it reaches a sound, so a real keyboard cannot play a wrong one. You keep your velocity, your pitch bend, your wheel and your pedal — only the pitch is caught. The button dims when this is off, so you can always see which it is.', []],
+    ['Why it is done this way', 'Other apps solve this by drawing you an instrument with no wrong notes on it. There is no on-screen instrument here — the keys are on your desk and all twelve are real — so the notes are corrected on the way in instead. That is only possible in an app built around a controller, and it means you keep playing your own keyboard.', []],
+    ['Picking a genre sets it', 'Each genre brings its own mode and progression — Memphis is phrygian because the flat second is the whole sound, techno sits on one chord on purpose. Your ROOT is kept, so auditioning five genres gives you five genres rather than five keys.', []],
+    ['The chord is spread across the pads', 'A pad is one voice and cannot play a triad, but sixteen can. SUB and BASS take the root, STAB and ATMOS the fifth, BELL and PLUCK the third, and LEAD walks between them — so the chord is a property of the kit. Mute a pad and you hear which note it was holding.', []],
+  ]],
   ['GENRES', [
     ['Where they are', 'Right-click DICE, or press and hold it. Thirty-four of them in five families, each row saying what it feels like and what tempo it runs at — because "Hardstep" tells you nothing and "Menacing · 170-180" tells you whether it is the one you want.', []],
     ['What picking one does', 'Writes a whole song, not a loop. Scene 1 is the groove, scene 2 is a variation of it, scene 3 is the breakdown, scene 4 ends with a fill. It sets the tempo and the swing to match, and it all goes through undo as one step.', []],
@@ -3592,7 +3661,12 @@ const HELP = [
 ];
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
-const WHATS_NEW = ['1.0.17', [
+const WHATS_NEW = ['1.0.18', [
+  ['A key, and no wrong notes', 'One button beside the tempo. Every note your controller sends now lands on the nearest note in the song\u2019s key, so a real keyboard cannot play a wrong one \u2014 velocity, bend, wheel and pedal all untouched. Dim the button off if you would rather it left you alone.'],
+  ['Genres write notes, not just drums', 'Each of the thirty-four brings its own mode and chord progression, and the chord is voiced ACROSS the pads \u2014 the sub takes the root, the stab the fifth, the bell the third. A pad is one voice and cannot play a chord; sixteen of them can.'],
+  ['The genre list is findable', 'A plain tap on DICE opens it. It used to need a right-click on an unlabelled icon, which meant most people never knew it was there.'],
+]];
+const WHATS_NEW_0A = ['1.0.17', [
   ['Thirty-four genres', 'Right-click DICE, or hold it. Pick a genre and it writes a whole song — groove, variation, breakdown, and a bar that ends in a fill — at that genre’s tempo and swing. Every hit is weighted by where it falls in the bar, and the genres that swing get the quiet ghost notes between the hits, which is most of what makes a groove sound played rather than programmed.'],
   ['Another take', 'Pick the same genre twice and you get a different song in it, not the same bar back.'],
 ]];
@@ -3627,7 +3701,7 @@ const WHATS_NEW_OLDER = ['1.0.12', [
 // renaming four constants by hand is how you end up declaring the same one
 // twice — which is exactly what happened once. Adding a release is now
 // unshifting onto this list.
-const RELEASES = [WHATS_NEW, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
+const RELEASES = [WHATS_NEW, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
 
 function renderHelp() {
   const body = $('#helpbody');
@@ -3713,6 +3787,9 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 }
 
 window.__ultMakeEngine = createEngine;
+// The harmony module, so a test can sweep every note in every key rather than
+// poke three and believe it.
+window.__ultHarmony = { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS };
 // The same renderer the EXPORT WAV button calls. Exposed so a test can check
 // what came out of it — a bounce is the one feature whose output nobody can
 // see, so it is the one that most needs measuring rather than eyeballing.
