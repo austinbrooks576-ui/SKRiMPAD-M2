@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "FREEREEL — free, legal streaming finder for desktop",
   "main": "main.js",
+  "license": "MIT",
+  "author": {
+    "name": "austinbrooks576-ui",
+    "email": "austinbrooks576-ui@users.noreply.github.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/austinbrooks576-ui/SKRiMPAD-M2.git"
