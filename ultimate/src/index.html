@@ -712,6 +712,7 @@ import { createScope } from './core/wave.js';
 import { bounceScene, saveBlob } from './core/bounce.js';
 import { createFog, makeStars } from './core/fog.js';
 import { openMenu, closeMenu, onLongPress } from './core/menu.js';
+import { createBleDecoder } from './core/ble-midi.js';
 import { genreList, applyGenre, GENRES } from './core/genres.js';
 import { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS } from './core/harmony.js';
 
@@ -2903,6 +2904,16 @@ const io = createMidiIO({
     if (act) { fireTransport(act); return; }
     keys.handle(e.raw, (e.port && e.port.name) || '');
   },
+  // A controller has gone: unplugged, switched off, out of range. Its note-offs
+  // are never arriving, so release exactly what IT was holding — and nothing
+  // else, because a wireless keyboard dropping out must not cut the wired one
+  // your other hand is playing.
+  onGone: (port, why) => {
+    const n = keys.releasePort((port && port.name) || '');
+    if (midiOpen) { paintKeys(); renderPorts(); renderWhyNot(); }
+    if (n) toast((port && port.name ? port.name : 'controller') + ' ' + (why || 'gone')
+                 + ' — ' + n + ' note' + (n === 1 ? '' : 's') + ' released');
+  },
   onPorts: (ports) => {
     const s = $('#status');
     lastPorts = ports || [];
@@ -3210,9 +3221,22 @@ function renderWhyNot() {
       'Bluetooth state: the driver has published the port and the controller is not actually ' +
       'joined to it. Press CONNECT in the vendor panel, or use CONNECT BLUETOOTH below to have ' +
       'this app open the link itself.');
+  } else if (d.silentNames.length) {
+    // SOME ports are live and some are mute. This is the case a single "is any
+    // data arriving" flag got wrong for years: the working keyboard made the
+    // app report success while the wireless one sat there dead.
+    lines.push('<b>' + d.liveNames.length + ' of ' + d.inputs + ' ports are actually sending.</b> '
+      + esc(d.silentNames.join(', ')) + ' ' + (d.silentNames.length === 1 ? 'has' : 'have')
+      + ' never sent a byte — that port exists but the controller is not joined to it. '
+      + 'Press CONNECT in the vendor panel, or use CONNECT BLUETOOTH below to have this app '
+      + 'open the link itself.');
   } else {
     lines.push('<b>Receiving.</b> ' + d.bytes + ' message' + (d.bytes === 1 ? '' : 's') + ' so far.');
   }
+  // What went away, and what the app did about it. A controller that drops out
+  // mid-song is the commonest complaint there is, and "it stopped working" is
+  // much easier to act on when the app can say which one stopped and when.
+  if (d.lost) lines.push('Last to drop: ' + esc(d.lost) + '.');
   if (!d.sysex && d.mode === 'webmidi') {
     lines.push('SysEx was refused, so transport buttons that use MMC will not arrive. ' +
       'Everything else works; LEARN below binds them by hand.');
@@ -3615,6 +3639,7 @@ const HELP = [
     ['Plugging in', 'Nothing to set up. Plug a controller in and play it — notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.', ['#ports']],
     ['KEYS or PADS', 'The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here — or RELEARN to make it work it out again.', []],
     ['CONNECT BLUETOOTH', 'Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly. A controller you have already paired with this app is reopened on its own at startup \u2014 you should not have to press this twice.', ['#bleconnect']],
+    ['A controller that drops out', 'If a controller is switched off, unplugged or goes out of range while it is holding notes, its note-offs are never coming. The app releases exactly what THAT controller was holding — and nothing else, so a wireless keyboard dropping does not cut off the wired one your other hand is playing — lifts any sustain pedal it left down, and says what happened. Bluetooth then reconnects on its own.', []],
     ['Why it is not connecting', 'A plain answer instead of a shrug, with the names of every port the app can see, and RESCAN to look again without restarting. \u201cNo port visible\u201d, \u201caccess refused\u201d and \u201ca port exists but not one byte has arrived\u201d are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.', ['#whynot']],
     ['MAP PADS', 'Pads default to the standard drum notes from 36 up, which is right for many boards and wrong for the rest. Press MAP PADS and hit your pads in the order you want them \u2014 each takes the next sound, sixteen taps for the whole board. Hitting a pad twice moves it rather than binding it in two places, and RESET goes back to the default. While a mapping sweep is running, anything you play counts as a pad, so a board whose pads share a channel with its keys can still be mapped.', ['#padmap']],
     ['The keyboard', 'A display: it lights where the hardware is playing, so you can see the app hearing you. Touch it to audition the pad you are looking at across its range.', ['#keybed', '#midicell']],
@@ -3661,7 +3686,14 @@ const HELP = [
 ];
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
-const WHATS_NEW = ['1.0.18', [
+const WHATS_NEW = ['1.0.19', [
+  ['A note that never stops — fixed', 'A controller switched off, unplugged or carried out of range while holding a chord used to leave that chord ringing until PANIC. It now releases exactly what that controller was holding and lifts any pedal it left down, while every other controller keeps playing untouched.'],
+  ['A pedal that could latch forever', 'Losing a controller with its sustain pedal down left the pedal latched for the rest of the session, so every note after it \u2014 from any controller \u2014 stuck too. Found by playing 1200 notes at it and watching all of them stick.'],
+  ['Notes that never sounded', 'A MIDI message split across two Bluetooth packets used to be thrown away. Controllers split them constantly. It is now held and finished on the next packet.'],
+  ['Reconnecting no longer doubles everything', 'Each Bluetooth reconnect added another listener, so after five drops every note played five times. One listener per controller, reused.'],
+  ['A working keyboard no longer vouches for a dead one', 'Liveness is judged per port. A live USB keyboard beside a mute KORG bridge used to make the app declare success and skip the Bluetooth takeover that would have fixed the mute one.'],
+]];
+const WHATS_NEW_0B = ['1.0.18', [
   ['A key, and no wrong notes', 'One button beside the tempo. Every note your controller sends now lands on the nearest note in the song\u2019s key, so a real keyboard cannot play a wrong one \u2014 velocity, bend, wheel and pedal all untouched. Dim the button off if you would rather it left you alone.'],
   ['Genres write notes, not just drums', 'Each of the thirty-four brings its own mode and chord progression, and the chord is voiced ACROSS the pads \u2014 the sub takes the root, the stab the fifth, the bell the third. A pad is one voice and cannot play a chord; sixteen of them can.'],
   ['The genre list is findable', 'A plain tap on DICE opens it. It used to need a right-click on an unlabelled icon, which meant most people never knew it was there.'],
@@ -3701,7 +3733,7 @@ const WHATS_NEW_OLDER = ['1.0.12', [
 // renaming four constants by hand is how you end up declaring the same one
 // twice — which is exactly what happened once. Adding a release is now
 // unshifting onto this list.
-const RELEASES = [WHATS_NEW, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
+const RELEASES = [WHATS_NEW, WHATS_NEW_0B, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
 
 function renderHelp() {
   const body = $('#helpbody');
@@ -3789,6 +3821,9 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 window.__ultMakeEngine = createEngine;
 // The harmony module, so a test can sweep every note in every key rather than
 // poke three and believe it.
+// The BLE packet decoder on its own, so a test can feed it the malformed
+// packets real controllers send without needing a real controller.
+window.__ultBleDecoder = createBleDecoder;
 window.__ultHarmony = { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS };
 // The same renderer the EXPORT WAV button calls. Exposed so a test can check
 // what came out of it — a bounce is the one feature whose output nobody can

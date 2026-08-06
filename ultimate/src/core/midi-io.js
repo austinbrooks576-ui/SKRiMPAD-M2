@@ -4,7 +4,7 @@
 
 import { BLE_MIDI_SERVICE, BLE_MIDI_CHAR, createBleDecoder, looksLikeMidiName } from './ble-midi.js';
 
-export function createMidiIO({ onEvent, onPorts } = {}) {
+export function createMidiIO({ onEvent, onPorts, onGone } = {}) {
   let access = null;
   let bleStatus = 0; // BLE running-status latch
 
@@ -16,7 +16,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // been told to connect it. Those need four different things done about them,
   // and the app said the same sentence for all four. Nobody can act on that.
   const diag = { mode: 'starting', err: '', tried: 0, sysex: false,
-                 inputs: 0, outputs: 0, bytes: 0, at: 0, ble: 0, auto: '' };
+                 inputs: 0, outputs: 0, bytes: 0, at: 0, ble: 0, auto: '', lost: '' };
   let bleName = 'BLE MIDI'; // set on GATT connect so the board titles correctly
 
   // Has any real MIDI byte ever arrived? This distinguishes a LIVE port from a
@@ -25,6 +25,13 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
   // CONNECT in the KORG panel. Trusting the port's mere existence is what left
   // people staring at a dead keyboard.
   let lastDataAt = 0;
+  // PER PORT, not just globally. "Is a port live?" decides whether we leave a
+  // bridged controller alone or take it over via GATT, and one global flag
+  // answers that question for the wrong port the moment there are two: a live
+  // USB keyboard would vouch for a mute KORG bridge sitting beside it, and the
+  // Bluetooth takeover that fixes the mute one would never run.
+  const liveAt = new Map();
+  const portKey = (p) => (p && (p.id || p.name)) || 'unknown';
   const emit = (data, port) => {
     if (!data || data.length < 1) return;
     const [status, d1 = 0, d2 = 0] = data;
@@ -36,7 +43,7 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     // PLAY / STOP / REC buttons send, which is why they never did anything.
     if (status === 0xf8 || status === 0xf9 || status === 0xfd || status === 0xfe || status === 0xff) return;
 
-    const fire = (e) => { lastDataAt = Date.now(); diag.bytes++; diag.at = lastDataAt; onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port, raw: data }, e)); };
+    const fire = (e) => { lastDataAt = Date.now(); liveAt.set(portKey(port), lastDataAt); diag.bytes++; diag.at = lastDataAt; onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 0xf0, chan: status & 0x0f, port, raw: data }, e)); };
 
     // System Real-Time transport: Start / Continue / Stop
     if (status === 0xfa || status === 0xfb) { fire({ transport: 'play' }); return; }
@@ -57,6 +64,22 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
     fire();
   };
   const hasLiveData = () => lastDataAt > 0;
+  // Has THIS port ever sent a byte? A port that exists and has never spoken is
+  // the Windows KORG trap: the driver publishes it the moment the controller is
+  // paired and it stays mute until you press CONNECT in the vendor panel.
+  const portLive = (p) => (liveAt.get(portKey(p)) || 0) > 0;
+  const liveInputs = () => listInputs().filter(portLive);
+
+  // A controller has gone — unplugged, switched off, out of range, asleep. Its
+  // note-offs are never coming, so anything it was holding would ring until
+  // PANIC. This is the single most common way a wireless keyboard ruins a take,
+  // and nothing was listening for it.
+  const gone = (port, why) => {
+    if (!port) return;
+    liveAt.delete(portKey(port));
+    diag.lost = (port.name || 'a controller') + ' — ' + (why || 'disconnected');
+    onGone && onGone(port, why);
+  };
 
   // RAW BLE packets from our own Android GATT stack. They go through the very
   // same decoder the desktop Web Bluetooth path uses — one implementation of
@@ -231,17 +254,32 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       }
       const hook = () => access.inputs.forEach((inp) => { inp.onmidimessage = (e) => emit(e.data, inp); });
       hook();
-      access.onstatechange = () => { hook(); onPorts && onPorts(listInputs()); };
+      access.onstatechange = (ev) => {
+        // A USB cable pulled out mid-chord is the wired version of a Bluetooth
+        // drop: the note-offs are not coming. Release what that port was
+        // holding before rebuilding the list.
+        const p = ev && ev.port;
+        if (p && p.type === 'input' && p.state === 'disconnected') gone(p, 'unplugged');
+        hook(); onPorts && onPorts(listInputs());
+      };
       onPorts && onPorts(listInputs());
       // Belt and braces: some Windows/driver combinations never fire
       // onstatechange, leaving a controller plugged in but invisible. Re-hook and
       // re-report whenever the set of ports actually changes.
-      let seen = [...access.inputs.keys()].join('|');
+      let seen = new Map([...access.inputs].map(([k, v]) => [k, v]));
       setInterval(() => {
         if (!access) return;
-        const nowKeys = [...access.inputs.keys()].join('|');
-        if (nowKeys !== seen) { seen = nowKeys; hook(); onPorts && onPorts(listInputs()); }
-        else hook();   // cheap: re-assert handlers in case a port was re-opened
+        const now = new Map([...access.inputs].map(([k, v]) => [k, v]));
+        let changed = now.size !== seen.size;
+        // Ports that were there and are not any more. onstatechange is supposed
+        // to report these and on several Windows driver stacks simply does not,
+        // which is the whole reason this poll exists — so the release has to
+        // happen here too, or an unplug that the event missed leaves a note on.
+        for (const [k, v] of seen) if (!now.has(k)) { changed = true; gone(v, 'unplugged'); }
+        for (const k of now.keys()) if (!seen.has(k)) changed = true;
+        seen = now;
+        hook();                       // cheap: re-assert handlers either way
+        if (changed) onPorts && onPorts(listInputs());
       }, 3000);
       diag.mode = 'webmidi';
       return { mode: 'webmidi', access };
@@ -294,16 +332,23 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       await start(); // Web MIDI is pre-granted in Electron → bridged ports already hooked
     }
     const n = inputCount();
-    if (n > 0 && hasLiveData()) {
-      // a port that has actually delivered MIDI — the ideal path, leave GATT alone
+    // PER PORT. The question is not "has any MIDI arrived" but "is every port we
+    // can see actually carrying data" — a live USB keyboard next to a mute KORG
+    // bridge used to vouch for the bridge, so the takeover that fixes the mute
+    // one never ran and the wireless controller stayed dead with a green light.
+    const liveN = liveInputs().length;
+    if (n > 0 && liveN >= n) {
       onStatus && onStatus({ mode: 'port', count: n, hint: n + ' MIDI port(s) connected and live.' });
       return { mode: 'port', count: n };
     }
     // No ports, or ports that have never made a sound: connect it ourselves.
     if (typeof navigator !== 'undefined' && navigator.bluetooth) {
       if (n > 0) {
-        onStatus && onStatus({ mode: 'silent-port', count: n,
-          hint: 'A MIDI port exists but has sent nothing — connecting over Bluetooth directly…' });
+        const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || '?');
+        onStatus && onStatus({ mode: 'silent-port', count: n, silent: mute,
+          hint: (mute.length === 1 ? mute[0] + ' exists but has sent nothing'
+                                   : mute.length + ' MIDI ports exist but have sent nothing')
+                + ' — connecting over Bluetooth directly…' });
       }
       try {
         const dev = await connectBLE({ onStatus });
@@ -353,22 +398,48 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       status: 0,
       port: { id: 'ble:' + (dev.id || dev.name || Math.random().toString(36).slice(2)), name: dev.name || 'BLE MIDI', ble: true },
     };
+    // ONE handler per device, created once and reused. attach() runs again on
+    // every reconnect, and addEventListener with a fresh arrow each time is
+    // additive: after five reconnects every incoming packet was decoded five
+    // times, so every note played five times, each one stealing the last. A
+    // controller that drops a lot — which is every wireless controller — got
+    // audibly worse the longer you used it.
+    ctx.onValue = ctx.onValue || ((e) => parseBLE(e.target.value, ctx));
     const attach = async () => {
       const server = await dev.gatt.connect();
       const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
       const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
       await ch.startNotifications();
-      ch.addEventListener('characteristicvaluechanged', (e) => parseBLE(e.target.value, ctx));
+      // Remove from whatever we were subscribed to before — the same object on
+      // a re-subscribe, a new one after a reconnect. Removing a listener that
+      // was never added is a no-op, so this is safe on the first attach.
+      if (ctx.char) { try { ctx.char.removeEventListener('characteristicvaluechanged', ctx.onValue); } catch (e) {} }
+      ch.addEventListener('characteristicvaluechanged', ctx.onValue);
+      ctx.char = ch;
+      ctx.retrying = false;
       onStatus && onStatus({ mode: 'gatt', connected: true, name: dev.name });
     };
     if (!bound.has(dev)) {
       bound.add(dev);
       dev.addEventListener('gattserverdisconnected', () => {
         onStatus && onStatus({ mode: 'gatt', connected: false, name: dev.name });
+        // Whatever it was holding is never getting a note-off. Release it here
+        // rather than leaving a chord ringing over the next twenty minutes.
+        gone(ctx.port, 'bluetooth link dropped');
+        // ONE retry chain. A controller that flaps — and they all flap — used to
+        // start a fresh chain on every disconnect, so a device that dropped six
+        // times had six chains racing to reconnect it, each adding its own
+        // backoff and its own listener.
+        if (ctx.retrying) return;
+        ctx.retrying = true;
         let tries = 0;
         const retry = () => {
-          if (dev.gatt.connected) return;
-          attach().catch(() => { if (++tries < 8) setTimeout(retry, Math.min(1000 * 2 ** tries, 20000)); });
+          if (!ctx.retrying) return;
+          if (dev.gatt && dev.gatt.connected) { ctx.retrying = false; return; }
+          attach().catch(() => {
+            if (++tries < 8) setTimeout(retry, Math.min(1000 * 2 ** tries, 20000));
+            else ctx.retrying = false;
+          });
         };
         setTimeout(retry, 600);
       });
@@ -434,7 +505,10 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
 
   return {
     start, keepLooking, rescan, listInputs, inputCount, connectBluetooth, connectBLE, autoReconnect,
-    hasLiveData, access: () => access, _emit: emit,
+    hasLiveData, portLive, liveInputs, access: () => access, _emit: emit,
+    // Test seam: pretend a port vanished, so the note-release path can be
+    // exercised without unplugging real hardware.
+    _gone: gone,
     // Everything the app knows about why MIDI is or is not working. Read by the
     // MIDI window, so a controller that will not connect produces a specific
     // sentence instead of a shrug.
@@ -446,6 +520,8 @@ export function createMidiIO({ onEvent, onPorts } = {}) {
       return Object.assign({}, diag, {
         names: ins.map((p) => p.name || '?'),
         live: lastDataAt > 0,
+        liveNames: liveInputs().map((p) => p.name || '?'),
+        silentNames: listInputs().filter((p) => !portLive(p)).map((p) => p.name || '?'),
         webBluetooth: !!(typeof navigator !== 'undefined' && navigator.bluetooth),
         canReopen: !!(typeof navigator !== 'undefined' && navigator.bluetooth
                       && navigator.bluetooth.getDevices),

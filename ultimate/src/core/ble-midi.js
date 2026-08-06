@@ -45,12 +45,40 @@ export function createBleDecoder(onMessage) {
   let runningStatus = 0;
   let sysex = null;                                  // accumulating F0 … F7
   let sysexLost = false;                             // over the cap: swallow to F7
+  // A message whose data bytes ran off the end of a packet. The spec says a
+  // message should not be split, and real controllers split them anyway — a
+  // note-on whose velocity byte lands in the next notification used to be
+  // DROPPED here, which is a note that never sounds, or worse, a note-off that
+  // never arrives and leaves the note ringing until PANIC. Holding the partial
+  // and finishing it on the next packet costs three variables.
+  let pend = null;                                   // { msg, need }
+
+  // Collect data bytes for a message, up to `need`. Returns true when complete.
+  // Stopping at a byte with bit 7 set is what keeps a truncated message from
+  // eating the timestamp that follows it.
+  function fill(state, bytes, from) {
+    let i = from;
+    while (state.msg.length < state.need + 1 && i < bytes.length && !(bytes[i] & 0x80)) {
+      state.msg.push(bytes[i++]);
+    }
+    return i;
+  }
 
   return function decode(bytes) {
     if (!bytes || bytes.length < 1) return;
     // A packet with only a header carries nothing.
     if (bytes.length < 2) return;
     let i = 1;                                       // skip header
+
+    // Finish anything the previous packet left half-said, BEFORE the header's
+    // timestamp is skipped past — the continuation bytes are the first thing in
+    // the new packet, with no timestamp of their own.
+    if (pend) {
+      i = fill(pend, bytes, i);
+      if (pend.msg.length === pend.need + 1) { onMessage(pend.msg); pend = null; }
+      else if (i >= bytes.length) return;             // still short: wait for more
+      else pend = null;                               // a status byte arrived: abandon it
+    }
 
     while (i < bytes.length) {
       const b = bytes[i];
@@ -98,27 +126,27 @@ export function createBleDecoder(onMessage) {
           if (s === 0xf0) { sysex = [0xf0]; continue; }
           if (s >= 0xf8) { onMessage([s]); continue; } // system real-time: no data
           runningStatus = s < 0xf0 ? s : 0;           // system common clears running status
-          const need = dataLenFor(s);
-          const msg = [s];
-          for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
-          if (msg.length === need + 1) onMessage(msg);
+          const st = { msg: [s], need: dataLenFor(s) };
+          i = fill(st, bytes, i);
+          if (st.msg.length === st.need + 1) onMessage(st.msg);
+          else if (i >= bytes.length) pend = st;       // ran off the end — finish next packet
           continue;
         }
         // running status: timestamp then data bytes, no status repeated
         if (!runningStatus) { continue; }
-        const need = dataLenFor(runningStatus);
-        const msg = [runningStatus];
-        for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
-        if (msg.length === need + 1) onMessage(msg);
+        const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+        i = fill(st, bytes, i);
+        if (st.msg.length === st.need + 1) onMessage(st.msg);
+        else if (i >= bytes.length) pend = st;
         continue;
       }
 
       // A bare data byte with no preceding timestamp — running status continued.
       if (runningStatus) {
-        const need = dataLenFor(runningStatus);
-        const msg = [runningStatus];
-        for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 0x80); k++) msg.push(bytes[i++]);
-        if (msg.length === need + 1) { onMessage(msg); continue; }
+        const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+        i = fill(st, bytes, i);
+        if (st.msg.length === st.need + 1) { onMessage(st.msg); continue; }
+        if (i >= bytes.length) { pend = st; continue; }
       }
       i++;                                            // unparseable: skip
     }

@@ -101,7 +101,7 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
   for (let i = 0; i < 16; i++) {
     ch.push({
       bend: 0, range: 2, mod: 0, press: 0, timbre: 0, level: 1,
-      pedal: false, rpn: -1, rpnMsb: 0,
+      pedal: false, pedalPort: '', rpn: -1, rpnMsb: 0,
     });
   }
 
@@ -148,6 +148,10 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
       const h = held.get(k);
       if (h) { h.steal(); held.delete(k); }
       sustained.delete(k);
+      // The key display reads `down`, so a stolen voice that stayed in it left a
+      // key lit on screen with nothing sounding under it — the display claiming
+      // the app was hearing a note it had just thrown away.
+      down.delete(+k.split(':')[1]);
     }
   }
 
@@ -172,6 +176,11 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
     // sounding note would kill the other one too.
     const sound = foldFor ? foldFor(n) : n;
     const h = engine.hold(voice, sound, vel, 0);
+    // Remember WHICH controller is holding this. When one goes away — a
+    // Bluetooth link drops, a USB cable comes out — its note-offs are never
+    // coming, and without this the only way to stop the ringing is PANIC, which
+    // also silences the controller that is still working.
+    h.__port = port;
     held.set(k, h); order.push(k);
     sustained.delete(k);
 
@@ -219,6 +228,33 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
     live.notes = 0; announce();
   }
 
+  // Everything one controller is holding, released. Used when that controller
+  // disappears. Notes from any OTHER controller are left exactly as they are:
+  // a wireless keyboard dropping out must not cut off the wired one someone is
+  // playing with their other hand.
+  function releasePort(name) {
+    let n = 0;
+    for (const [k, h] of held) {
+      if (name && h.__port && h.__port !== name) continue;
+      h.off(); held.delete(k); sustained.delete(k);
+      const i = order.indexOf(k); if (i >= 0) order.splice(i, 1);
+      sawNote(+k.split(':')[1], false);
+      n++;
+    }
+    // Lift any pedal this controller was holding down. Found by a test that
+    // played 1200 notes after a controller vanished mid-pedal and watched every
+    // one of them stick: the note-offs arrived, saw a pedal that was still
+    // latched, and filed each note under "sustained" forever until the
+    // polyphony cap was the only thing stopping it.
+    for (const st of ch) {
+      if (st.pedal && (!name || !st.pedalPort || st.pedalPort === name)) {
+        st.pedal = false; st.pedalPort = '';
+      }
+    }
+    live.notes = held.size; announce();
+    return n;
+  }
+
   function cc(c, num, val) {
     const s = ch[c], v = val / 127;
     switch (num) {
@@ -233,7 +269,14 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
       case 64: {                                  // sustain pedal
         const down = val >= 64;
         if (down === s.pedal) break;
-        s.pedal = down; sawExpressive(port);
+        s.pedal = down;
+        // WHOSE pedal this is. A controller that disappears with the pedal down
+        // can never lift it, and a latched pedal is not a stuck note — it is
+        // every future note stuck, from every controller on that channel, for
+        // the rest of the session. Recording the owner is what lets it be
+        // released when that controller goes.
+        s.pedalPort = down ? port : '';
+        sawExpressive(port);
         if (!down) {
           // Pedal up releases everything the pedal was holding — and ONLY that.
           // Keys still physically down must keep sounding, which is exactly the
@@ -286,7 +329,8 @@ export function createKeys({ engine, voiceFor, onPad, onActivity, onNote, onPick
     get role() { return role; },
     get live() { return live; },
     get voices() { return held.size; },
-    panic() { allOff(null, true); for (const s of ch) s.pedal = false; },
+    panic() { allOff(null, true); for (const s of ch) { s.pedal = false; s.pedalPort = ''; } },
+    releasePort,
     // Which notes are down right now. A snapshot, not the live Set — a display
     // that could mutate the instrument's state by accident is a bug waiting.
     notesDown() { return [...down]; },

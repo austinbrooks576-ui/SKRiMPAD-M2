@@ -1794,10 +1794,26 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     let runningStatus = 0;
     let sysex = null;
     let sysexLost = false;
+    let pend = null;
+    function fill2(state, bytes, from) {
+      let i = from;
+      while (state.msg.length < state.need + 1 && i < bytes.length && !(bytes[i] & 128)) {
+        state.msg.push(bytes[i++]);
+      }
+      return i;
+    }
     return function decode(bytes) {
       if (!bytes || bytes.length < 1) return;
       if (bytes.length < 2) return;
       let i = 1;
+      if (pend) {
+        i = fill2(pend, bytes, i);
+        if (pend.msg.length === pend.need + 1) {
+          onMessage(pend.msg);
+          pend = null;
+        } else if (i >= bytes.length) return;
+        else pend = null;
+      }
       while (i < bytes.length) {
         const b = bytes[i];
         if (sysex) {
@@ -1844,27 +1860,30 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
               continue;
             }
             runningStatus = s < 240 ? s : 0;
-            const need2 = dataLenFor(s);
-            const msg2 = [s];
-            for (let k = 0; k < need2 && i < bytes.length && !(bytes[i] & 128); k++) msg2.push(bytes[i++]);
-            if (msg2.length === need2 + 1) onMessage(msg2);
+            const st2 = { msg: [s], need: dataLenFor(s) };
+            i = fill2(st2, bytes, i);
+            if (st2.msg.length === st2.need + 1) onMessage(st2.msg);
+            else if (i >= bytes.length) pend = st2;
             continue;
           }
           if (!runningStatus) {
             continue;
           }
-          const need = dataLenFor(runningStatus);
-          const msg = [runningStatus];
-          for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 128); k++) msg.push(bytes[i++]);
-          if (msg.length === need + 1) onMessage(msg);
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill2(st, bytes, i);
+          if (st.msg.length === st.need + 1) onMessage(st.msg);
+          else if (i >= bytes.length) pend = st;
           continue;
         }
         if (runningStatus) {
-          const need = dataLenFor(runningStatus);
-          const msg = [runningStatus];
-          for (let k = 0; k < need && i < bytes.length && !(bytes[i] & 128); k++) msg.push(bytes[i++]);
-          if (msg.length === need + 1) {
-            onMessage(msg);
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill2(st, bytes, i);
+          if (st.msg.length === st.need + 1) {
+            onMessage(st.msg);
+            continue;
+          }
+          if (i >= bytes.length) {
+            pend = st;
             continue;
           }
         }
@@ -1874,7 +1893,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   }
 
   // ultimate/src/core/midi-io.js
-  function createMidiIO({ onEvent, onPorts } = {}) {
+  function createMidiIO({ onEvent, onPorts, onGone } = {}) {
     let access = null;
     let bleStatus = 0;
     const diag = {
@@ -1887,10 +1906,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       bytes: 0,
       at: 0,
       ble: 0,
-      auto: ""
+      auto: "",
+      lost: ""
     };
     let bleName = "BLE MIDI";
     let lastDataAt = 0;
+    const liveAt = /* @__PURE__ */ new Map();
+    const portKey = (p) => p && (p.id || p.name) || "unknown";
     const emit = (data, port) => {
       if (!data || data.length < 1) return;
       const [status, d1 = 0, d2 = 0] = data;
@@ -1898,6 +1920,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       if (status === 248 || status === 249 || status === 253 || status === 254 || status === 255) return;
       const fire = (e) => {
         lastDataAt = Date.now();
+        liveAt.set(portKey(port), lastDataAt);
         diag.bytes++;
         diag.at = lastDataAt;
         onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 240, chan: status & 15, port, raw: data }, e));
@@ -1922,6 +1945,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       fire();
     };
     const hasLiveData = () => lastDataAt > 0;
+    const portLive = (p) => (liveAt.get(portKey(p)) || 0) > 0;
+    const liveInputs = () => listInputs().filter(portLive);
+    const gone = (port, why) => {
+      if (!port) return;
+      liveAt.delete(portKey(port));
+      diag.lost = (port.name || "a controller") + " \u2014 " + (why || "disconnected");
+      onGone && onGone(port, why);
+    };
     const bleCtx = /* @__PURE__ */ new Map();
     window.onNativeMIDIDevices = (list) => {
       nativeDevices = (list || []).map((d) => ({
@@ -2070,20 +2101,26 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           inp.onmidimessage = (e) => emit(e.data, inp);
         });
         hook();
-        access.onstatechange = () => {
+        access.onstatechange = (ev) => {
+          const p = ev && ev.port;
+          if (p && p.type === "input" && p.state === "disconnected") gone(p, "unplugged");
           hook();
           onPorts && onPorts(listInputs());
         };
         onPorts && onPorts(listInputs());
-        let seen = [...access.inputs.keys()].join("|");
+        let seen = new Map([...access.inputs].map(([k, v]) => [k, v]));
         setInterval(() => {
           if (!access) return;
-          const nowKeys = [...access.inputs.keys()].join("|");
-          if (nowKeys !== seen) {
-            seen = nowKeys;
-            hook();
-            onPorts && onPorts(listInputs());
-          } else hook();
+          const now = new Map([...access.inputs].map(([k, v]) => [k, v]));
+          let changed = now.size !== seen.size;
+          for (const [k, v] of seen) if (!now.has(k)) {
+            changed = true;
+            gone(v, "unplugged");
+          }
+          for (const k of now.keys()) if (!seen.has(k)) changed = true;
+          seen = now;
+          hook();
+          if (changed) onPorts && onPorts(listInputs());
         }, 3e3);
         diag.mode = "webmidi";
         return { mode: "webmidi", access };
@@ -2115,16 +2152,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         await start();
       }
       const n = inputCount();
-      if (n > 0 && hasLiveData()) {
+      const liveN = liveInputs().length;
+      if (n > 0 && liveN >= n) {
         onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) connected and live." });
         return { mode: "port", count: n };
       }
       if (typeof navigator !== "undefined" && navigator.bluetooth) {
         if (n > 0) {
+          const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?");
           onStatus && onStatus({
             mode: "silent-port",
             count: n,
-            hint: "A MIDI port exists but has sent nothing \u2014 connecting over Bluetooth directly\u2026"
+            silent: mute,
+            hint: (mute.length === 1 ? mute[0] + " exists but has sent nothing" : mute.length + " MIDI ports exist but have sent nothing") + " \u2014 connecting over Bluetooth directly\u2026"
           });
         }
         try {
@@ -2177,23 +2217,40 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         status: 0,
         port: { id: "ble:" + (dev.id || dev.name || Math.random().toString(36).slice(2)), name: dev.name || "BLE MIDI", ble: true }
       };
+      ctx.onValue = ctx.onValue || ((e) => parseBLE(e.target.value, ctx));
       const attach = async () => {
         const server = await dev.gatt.connect();
         const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
         const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
         await ch.startNotifications();
-        ch.addEventListener("characteristicvaluechanged", (e) => parseBLE(e.target.value, ctx));
+        if (ctx.char) {
+          try {
+            ctx.char.removeEventListener("characteristicvaluechanged", ctx.onValue);
+          } catch (e) {
+          }
+        }
+        ch.addEventListener("characteristicvaluechanged", ctx.onValue);
+        ctx.char = ch;
+        ctx.retrying = false;
         onStatus && onStatus({ mode: "gatt", connected: true, name: dev.name });
       };
       if (!bound.has(dev)) {
         bound.add(dev);
         dev.addEventListener("gattserverdisconnected", () => {
           onStatus && onStatus({ mode: "gatt", connected: false, name: dev.name });
+          gone(ctx.port, "bluetooth link dropped");
+          if (ctx.retrying) return;
+          ctx.retrying = true;
           let tries = 0;
           const retry = () => {
-            if (dev.gatt.connected) return;
+            if (!ctx.retrying) return;
+            if (dev.gatt && dev.gatt.connected) {
+              ctx.retrying = false;
+              return;
+            }
             attach().catch(() => {
               if (++tries < 8) setTimeout(retry, Math.min(1e3 * 2 ** tries, 2e4));
+              else ctx.retrying = false;
             });
           };
           setTimeout(retry, 600);
@@ -2265,8 +2322,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       connectBLE,
       autoReconnect,
       hasLiveData,
+      portLive,
+      liveInputs,
       access: () => access,
       _emit: emit,
+      // Test seam: pretend a port vanished, so the note-release path can be
+      // exercised without unplugging real hardware.
+      _gone: gone,
       // Everything the app knows about why MIDI is or is not working. Read by the
       // MIDI window, so a controller that will not connect produces a specific
       // sentence instead of a shrug.
@@ -2278,6 +2340,8 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         return Object.assign({}, diag, {
           names: ins.map((p) => p.name || "?"),
           live: lastDataAt > 0,
+          liveNames: liveInputs().map((p) => p.name || "?"),
+          silentNames: listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?"),
           webBluetooth: !!(typeof navigator !== "undefined" && navigator.bluetooth),
           canReopen: !!(typeof navigator !== "undefined" && navigator.bluetooth && navigator.bluetooth.getDevices)
         });
@@ -2589,6 +2653,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         timbre: 0,
         level: 1,
         pedal: false,
+        pedalPort: "",
         rpn: -1,
         rpnMsb: 0
       });
@@ -2634,6 +2699,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           held.delete(k);
         }
         sustained.delete(k);
+        down.delete(+k.split(":")[1]);
       }
     }
     function noteOn(c, n, vel) {
@@ -2651,6 +2717,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       stealIfNeeded();
       const sound = foldFor ? foldFor(n) : n;
       const h = engine.hold(voice, sound, vel, 0);
+      h.__port = port;
       held.set(k, h);
       order.push(k);
       sustained.delete(k);
@@ -2696,6 +2763,28 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       live.notes = 0;
       announce();
     }
+    function releasePort(name) {
+      let n = 0;
+      for (const [k, h] of held) {
+        if (name && h.__port && h.__port !== name) continue;
+        h.off();
+        held.delete(k);
+        sustained.delete(k);
+        const i = order.indexOf(k);
+        if (i >= 0) order.splice(i, 1);
+        sawNote(+k.split(":")[1], false);
+        n++;
+      }
+      for (const st of ch) {
+        if (st.pedal && (!name || !st.pedalPort || st.pedalPort === name)) {
+          st.pedal = false;
+          st.pedalPort = "";
+        }
+      }
+      live.notes = held.size;
+      announce();
+      return n;
+    }
     function cc(c, num, val) {
       const s = ch[c], v = val / 127;
       switch (num) {
@@ -2720,6 +2809,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           const down2 = val >= 64;
           if (down2 === s.pedal) break;
           s.pedal = down2;
+          s.pedalPort = down2 ? port : "";
           sawExpressive(port);
           if (!down2) {
             for (const k of Array.from(sustained)) {
@@ -2814,8 +2904,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       },
       panic() {
         allOff(null, true);
-        for (const s of ch) s.pedal = false;
+        for (const s of ch) {
+          s.pedal = false;
+          s.pedalPort = "";
+        }
       },
+      releasePort,
       // Which notes are down right now. A snapshot, not the live Set — a display
       // that could mutate the instrument's state by accident is a bug waiting.
       notesDown() {
@@ -5710,6 +5804,19 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       }
       keys.handle(e.raw, e.port && e.port.name || "");
     },
+    // A controller has gone: unplugged, switched off, out of range. Its note-offs
+    // are never arriving, so release exactly what IT was holding — and nothing
+    // else, because a wireless keyboard dropping out must not cut the wired one
+    // your other hand is playing.
+    onGone: (port, why) => {
+      const n = keys.releasePort(port && port.name || "");
+      if (midiOpen) {
+        paintKeys();
+        renderPorts();
+        renderWhyNot();
+      }
+      if (n) toast((port && port.name ? port.name : "controller") + " " + (why || "gone") + " \u2014 " + n + " note" + (n === 1 ? "" : "s") + " released");
+    },
     onPorts: (ports) => {
       const s = $("#status");
       lastPorts = ports || [];
@@ -5959,9 +6066,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       lines.push("<b>No MIDI port is visible.</b> On Windows a Bluetooth controller only appears once its vendor panel (the KORG BLE-MIDI panel, for instance) has actually CONNECTED it \u2014 pairing it in Windows settings is not enough on its own.");
     } else if (!d.live) {
       lines.push("<b>" + d.inputs + " port" + (d.inputs === 1 ? "" : "s") + " visible, but not one byte has arrived.</b> That is the classic half-connected Bluetooth state: the driver has published the port and the controller is not actually joined to it. Press CONNECT in the vendor panel, or use CONNECT BLUETOOTH below to have this app open the link itself.");
+    } else if (d.silentNames.length) {
+      lines.push("<b>" + d.liveNames.length + " of " + d.inputs + " ports are actually sending.</b> " + esc(d.silentNames.join(", ")) + " " + (d.silentNames.length === 1 ? "has" : "have") + " never sent a byte \u2014 that port exists but the controller is not joined to it. Press CONNECT in the vendor panel, or use CONNECT BLUETOOTH below to have this app open the link itself.");
     } else {
       lines.push("<b>Receiving.</b> " + d.bytes + " message" + (d.bytes === 1 ? "" : "s") + " so far.");
     }
+    if (d.lost) lines.push("Last to drop: " + esc(d.lost) + ".");
     if (!d.sysex && d.mode === "webmidi") {
       lines.push("SysEx was refused, so transport buttons that use MMC will not arrive. Everything else works; LEARN below binds them by hand.");
     }
@@ -6343,6 +6453,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["Plugging in", "Nothing to set up. Plug a controller in and play it \u2014 notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.", ["#ports"]],
       ["KEYS or PADS", "The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here \u2014 or RELEARN to make it work it out again.", []],
       ["CONNECT BLUETOOTH", "Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly. A controller you have already paired with this app is reopened on its own at startup \u2014 you should not have to press this twice.", ["#bleconnect"]],
+      ["A controller that drops out", "If a controller is switched off, unplugged or goes out of range while it is holding notes, its note-offs are never coming. The app releases exactly what THAT controller was holding \u2014 and nothing else, so a wireless keyboard dropping does not cut off the wired one your other hand is playing \u2014 lifts any sustain pedal it left down, and says what happened. Bluetooth then reconnects on its own.", []],
       ["Why it is not connecting", "A plain answer instead of a shrug, with the names of every port the app can see, and RESCAN to look again without restarting. \u201CNo port visible\u201D, \u201Caccess refused\u201D and \u201Ca port exists but not one byte has arrived\u201D are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.", ["#whynot"]],
       ["MAP PADS", "Pads default to the standard drum notes from 36 up, which is right for many boards and wrong for the rest. Press MAP PADS and hit your pads in the order you want them \u2014 each takes the next sound, sixteen taps for the whole board. Hitting a pad twice moves it rather than binding it in two places, and RESET goes back to the default. While a mapping sweep is running, anything you play counts as a pad, so a board whose pads share a channel with its keys can still be mapped.", ["#padmap"]],
       ["The keyboard", "A display: it lights where the hardware is playing, so you can see the app hearing you. Touch it to audition the pad you are looking at across its range.", ["#keybed", "#midicell"]],
@@ -6387,7 +6498,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["START OVER", "Throws away the song, the sounds and every remembered setting. There is no undo for it, so it asks twice.", ["#resetall"]]
     ]]
   ];
-  var WHATS_NEW = ["1.0.18", [
+  var WHATS_NEW = ["1.0.19", [
+    ["A note that never stops \u2014 fixed", "A controller switched off, unplugged or carried out of range while holding a chord used to leave that chord ringing until PANIC. It now releases exactly what that controller was holding and lifts any pedal it left down, while every other controller keeps playing untouched."],
+    ["A pedal that could latch forever", "Losing a controller with its sustain pedal down left the pedal latched for the rest of the session, so every note after it \u2014 from any controller \u2014 stuck too. Found by playing 1200 notes at it and watching all of them stick."],
+    ["Notes that never sounded", "A MIDI message split across two Bluetooth packets used to be thrown away. Controllers split them constantly. It is now held and finished on the next packet."],
+    ["Reconnecting no longer doubles everything", "Each Bluetooth reconnect added another listener, so after five drops every note played five times. One listener per controller, reused."],
+    ["A working keyboard no longer vouches for a dead one", "Liveness is judged per port. A live USB keyboard beside a mute KORG bridge used to make the app declare success and skip the Bluetooth takeover that would have fixed the mute one."]
+  ]];
+  var WHATS_NEW_0B = ["1.0.18", [
     ["A key, and no wrong notes", "One button beside the tempo. Every note your controller sends now lands on the nearest note in the song\u2019s key, so a real keyboard cannot play a wrong one \u2014 velocity, bend, wheel and pedal all untouched. Dim the button off if you would rather it left you alone."],
     ["Genres write notes, not just drums", "Each of the thirty-four brings its own mode and chord progression, and the chord is voiced ACROSS the pads \u2014 the sub takes the root, the stab the fifth, the bell the third. A pad is one voice and cannot play a chord; sixteen of them can."],
     ["The genre list is findable", "A plain tap on DICE opens it. It used to need a right-click on an unlabelled icon, which meant most people never knew it was there."]
@@ -6423,7 +6541,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     ["Scene actions", "CLEAR and COPY TO NEXT, both undoable."],
     ["This page", "Everything the app does, in one place, checked by a test."]
   ]];
-  var RELEASES = [WHATS_NEW, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
+  var RELEASES = [WHATS_NEW, WHATS_NEW_0B, WHATS_NEW_0A, WHATS_NEW_1A, WHATS_NEW_2, WHATS_NEW_3, WHATS_NEW_4, WHATS_NEW_OLDER];
   function renderHelp() {
     const body = $("#helpbody");
     if (body.dataset.built) return;
@@ -6526,6 +6644,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     });
   }
   window.__ultMakeEngine = createEngine;
+  window.__ultBleDecoder = createBleDecoder;
   window.__ultHarmony = { foldNote, keyShort, keyName, ROOTS, MODES, MODE_IDS };
   window.__ultBounce = bounceScene;
 })();
