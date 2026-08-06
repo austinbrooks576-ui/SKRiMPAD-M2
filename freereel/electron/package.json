@@ -1,0 +1,63 @@
+{
+  "name": "freereel",
+  "version": "1.0.0",
+  "description": "FREEREEL — free, legal streaming finder for desktop",
+  "main": "main.js",
+  "license": "MIT",
+  "author": {
+    "name": "austinbrooks576-ui",
+    "email": "austinbrooks576-ui@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austinbrooks576-ui/SKRiMPAD-M2.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64 --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --publish never"
+  },
+  "build": {
+    "appId": "com.firstriff.freereel",
+    "productName": "FREEREEL",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../app",
+        "to": "app-web"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "category": "public.app-category.entertainment"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "AudioVideo"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

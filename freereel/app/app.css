@@ -1,0 +1,428 @@
+/* FREEREEL — dark, dense, thumb-friendly. Built to read well on a phone,
+   a laptop and a TV browser without a separate layout for each. */
+
+:root {
+  --bg: #0a0b0f;
+  --bg-raised: #12141c;
+  --bg-card: #171a24;
+  --bg-hover: #1e222e;
+  --line: #262b38;
+  --line-soft: #1b1f2a;
+
+  --ink: #e8eaf0;
+  --ink-dim: #9aa1b2;
+  --ink-faint: #676e80;
+
+  --accent: #ff4d6d;
+  --accent-soft: rgba(255, 77, 109, 0.13);
+  --gold: #ffc857;
+  --gold-soft: rgba(255, 200, 87, 0.12);
+  --green: #3ddc97;
+  --green-soft: rgba(61, 220, 151, 0.12);
+  --blue: #5cc8ff;
+  --blue-soft: rgba(92, 200, 255, 0.12);
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+
+  --max: 1180px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+body { padding-bottom: 88px; }
+
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 16px; }
+
+/* ---------------------------------------------------------------- header */
+
+header.top {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: linear-gradient(180deg, #0a0b0f 72%, rgba(10, 11, 15, 0.9) 100%);
+  border-bottom: 1px solid var(--line-soft);
+  backdrop-filter: blur(10px);
+}
+
+.top-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 10px;
+}
+
+.brand {
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.brand span { color: var(--accent); }
+
+.brand-sub {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-left: -4px;
+  white-space: nowrap;
+}
+
+.spacer { flex: 1 1 auto; }
+
+.profile-pick {
+  display: flex;
+  gap: 3px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.profile-pick button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.profile-pick button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.gear {
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--ink-dim);
+  font-size: 17px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.gear:hover { color: var(--ink); background: var(--bg-hover); }
+.gear[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* A padlock on the profile the password actually guards, so the lock is
+   discoverable without a legend explaining it. */
+.profile-pick button.locked::after {
+  content: ' 🔒';
+  font-size: 10px;
+}
+
+/* search */
+.search-row { padding-bottom: 12px; }
+.search {
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  padding: 11px 18px;
+  outline: none;
+}
+.search:focus { border-color: var(--accent); }
+.search::placeholder { color: var(--ink-faint); }
+
+/* ---------------------------------------------------------------- tabs */
+
+nav.tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  background: rgba(14, 16, 22, 0.97);
+  border-top: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+nav.tabs button {
+  flex: 1 1 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 2px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-top: 2px solid transparent;
+  margin-top: -1px;
+}
+nav.tabs button .ico { font-size: 17px; line-height: 1; }
+nav.tabs button[aria-pressed='true'] {
+  color: var(--accent);
+  border-top-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- panels */
+
+.panel { display: none; padding-top: 18px; }
+.panel.on { display: block; }
+
+.panel-head { margin: 0 0 4px; font-size: 25px; font-weight: 800; letter-spacing: -0.02em; }
+.panel-lede { margin: 0 0 22px; color: var(--ink-dim); font-size: 15px; max-width: 68ch; }
+
+h3.sec {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 30px 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line-soft);
+}
+h3.sec:first-of-type { margin-top: 6px; }
+
+/* ---------------------------------------------------------------- chips */
+
+.chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
+.chip {
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chip:hover { background: var(--bg-hover); color: var(--ink); }
+.chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- cards */
+
+.grid { display: grid; gap: 13px; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 16px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.card.star { border-color: rgba(255, 200, 87, 0.4); background: linear-gradient(180deg, var(--gold-soft), var(--bg-card) 55%); }
+
+.card-top { display: flex; align-items: flex-start; gap: 10px; }
+.card-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; flex: 1 1 auto; }
+.card-meta { color: var(--ink-faint); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+.card p { margin: 0; font-size: 14px; color: var(--ink-dim); }
+.card p.why { color: var(--ink); }
+.card p.best { color: var(--ink); }
+
+.label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  color: var(--ink-faint);
+  border: 1px solid var(--line-soft);
+}
+.tag.pd { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.tag.solid { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+.tag.check { background: var(--gold-soft); color: var(--gold); border-color: transparent; }
+.tag.age { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.tag.adfree { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.tag.adlight { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+
+.where { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.where-pill {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.where-pill:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+
+.card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.btn {
+  border: 1px solid var(--line);
+  background: var(--bg-hover);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.btn.saved { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { color: #fff; opacity: 0.9; }
+
+/* ---------------------------------------------------------------- notes */
+
+.note {
+  border-left: 3px solid var(--gold);
+  background: var(--gold-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 13px 16px;
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.note strong { color: var(--gold); }
+
+.note.info { border-left-color: var(--blue); background: var(--blue-soft); }
+.note.info strong { color: var(--blue); }
+
+/* ---------------------------------------------------------------- tonight */
+
+.curator { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 22px; }
+.curator .q { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 9px; }
+.curator .q:not(:first-child) { margin-top: 18px; }
+.mood-hint { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); }
+.chip.mood { flex-direction: column; align-items: flex-start; text-align: left; padding: 8px 14px; }
+
+.pick-count { color: var(--ink-faint); font-size: 13px; margin: 0 0 14px; }
+
+/* ---------------------------------------------------------------- lists */
+
+.rows { display: flex; flex-direction: column; gap: 10px; }
+.row {
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 13px 15px;
+}
+.row.star { border-color: rgba(255, 200, 87, 0.4); background: linear-gradient(180deg, var(--gold-soft), var(--bg-card) 60%); }
+.row-title { font-weight: 700; font-size: 15px; margin: 0 0 3px; }
+.row p { margin: 0; font-size: 13.5px; color: var(--ink-dim); }
+
+ol.steps { margin: 8px 0 0; padding-left: 20px; font-size: 14px; color: var(--ink-dim); }
+ol.steps li { margin-bottom: 5px; }
+
+.empty { color: var(--ink-faint); font-size: 15px; padding: 34px 0; text-align: center; }
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 5, 8, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(3px);
+}
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  width: 100%;
+  max-width: 380px;
+}
+.modal h3 { margin: 0 0 6px; font-size: 19px; font-weight: 800; }
+.modal p { margin: 0 0 14px; color: var(--ink-dim); font-size: 14px; }
+.modal .card-actions { margin-top: 14px; }
+
+.lock-error {
+  margin: 10px 0 0;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+footer.foot {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 44px;
+  padding: 20px 0 10px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+/* ---------------------------------------------------------------- small */
+
+@media (max-width: 620px) {
+  .panel-head { font-size: 21px; }
+  .brand-sub { display: none; }
+  .grid { grid-template-columns: 1fr; }
+  .top-row { flex-wrap: wrap; }
+  .profile-pick button { padding: 5px 10px; font-size: 12px; }
+}
+
+/* At phone width the brand, the profile switch and the gear have to share one
+   line — letting the gear wrap onto a row of its own reads as a bug rather
+   than a layout. */
+@media (max-width: 430px) {
+  .top-row { gap: 8px; flex-wrap: nowrap; }
+  .brand { font-size: 16px; letter-spacing: 0.1em; }
+  .profile-pick { padding: 2px; }
+  .profile-pick button { padding: 5px 8px; font-size: 11.5px; }
+  .gear { width: 32px; height: 32px; font-size: 15px; }
+}
+
+/* Roku's browser and older TV webviews do not support gap in flex reliably —
+   this keeps the chips from collapsing into each other there. */
+@supports not (gap: 1px) {
+  .chips .chip, .where .where-pill, .card-actions .btn { margin: 0 6px 6px 0; }
+}

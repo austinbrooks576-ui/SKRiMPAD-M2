@@ -1,0 +1,9 @@
+# Electron
+electron/node_modules/
+electron/dist/
+
+# Android — build output and the generated copy of app/ that syncWebApp makes
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
