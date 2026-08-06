@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0b0f">
+<meta name="description" content="Free, legal streaming in the US — every no-subscription platform, a personalised watchlist, live TV and news, and a family section with parental-control setup.">
+<title>FREEREEL — free, legal streaming</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div>
+        <div class="brand">FREE<span>REEL</span></div>
+        <div class="brand-sub">free &middot; legal &middot; no subscription</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="profile-pick" role="group" aria-label="Who is watching">
+        <button data-profile="adult" aria-pressed="true">Adults</button>
+        <button data-profile="teen" aria-pressed="false">Teen</button>
+        <button data-profile="kid" aria-pressed="false">Kids</button>
+      </div>
+    </div>
+    <div class="search-row">
+      <input id="search" class="search" type="search" autocomplete="off"
+             placeholder="Search titles, genres, platforms…" aria-label="Search">
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="panels"></main>
+
+<footer class="wrap foot">
+  <p>
+    Catalogue current as of <span id="updated">—</span>. Free libraries rotate constantly,
+    so every title carries a live “Free right now?” lookup — trust that over this list.
+  </p>
+  <p>
+    Everything listed is a legal, rights-holder-sanctioned way to watch at no cost:
+    ad-supported services, public broadcasters, public-domain films, official studio channels,
+    and your public library card. Nothing here links to piracy.
+  </p>
+</footer>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button data-tab="tonight"   aria-pressed="true"><span class="ico">🌙</span>Tonight</button>
+  <button data-tab="watch"     aria-pressed="false"><span class="ico">★</span>List</button>
+  <button data-tab="platforms" aria-pressed="false"><span class="ico">▦</span>Platforms</button>
+  <button data-tab="hidden"    aria-pressed="false"><span class="ico">◈</span>Hidden</button>
+  <button data-tab="live"      aria-pressed="false"><span class="ico">◉</span>Live</button>
+  <button data-tab="family"    aria-pressed="false"><span class="ico">☗</span>Family</button>
+</nav>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

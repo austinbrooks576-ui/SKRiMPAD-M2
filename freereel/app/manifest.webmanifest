@@ -1,0 +1,20 @@
+{
+  "name": "FREEREEL — free, legal streaming",
+  "short_name": "FREEREEL",
+  "description": "Every free and legal way to watch in the US: platforms, a personalised watchlist, live TV and news, and a family section with parental-control setup.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0b0f",
+  "theme_color": "#0a0b0f",
+  "categories": ["entertainment", "lifestyle"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

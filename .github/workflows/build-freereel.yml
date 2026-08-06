@@ -1,0 +1,109 @@
+name: Build FREEREEL
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'freereel/**'
+      - '.github/workflows/build-freereel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x freereel/android/gradlew
+
+      # The web app in freereel/app is copied into the APK by the syncWebApp
+      # gradle task, so there is no separate asset-staging step here.
+      - name: Build APK
+        run: |
+          cd freereel/android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the download file
+        run: cp freereel/android/app/build/outputs/apk/debug/app-debug.apk "FREEREEL ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freereel-android-${{ github.run_number }}
+          path: FREEREEL ${{ github.run_number }}.apk
+
+  desktop:
+    name: Desktop (Windows + Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd freereel/electron
+          npm install
+
+      # Linux build only — a Windows NSIS installer needs wine on a Linux
+      # runner, which is slow and flaky. Run this workflow's win job on
+      # windows-latest if a signed .exe is wanted.
+      - name: Build Linux packages
+        run: |
+          cd freereel/electron
+          npm run build:linux
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: freereel-linux-${{ github.run_number }}
+          path: |
+            freereel/electron/dist/*.AppImage
+            freereel/electron/dist/*.deb
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd freereel/electron
+          npm install
+
+      - name: Build Windows installer
+        run: |
+          cd freereel/electron
+          npm run build:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: freereel-windows-${{ github.run_number }}
+          path: freereel/electron/dist/*.exe

@@ -1,0 +1,63 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// The web app in ../../app is the single source of truth for all three
+// platforms. Rather than keeping a second copy under src/main/assets (which
+// would drift the moment anyone edited one and not the other), it is copied
+// into a generated directory at build time and registered as an extra asset
+// source.
+def webAppSrc = file("$rootDir/../app")
+def webAppOut = layout.buildDirectory.dir("generated/webapp")
+
+tasks.register('syncWebApp', Copy) {
+    from webAppSrc
+    into webAppOut
+}
+
+android {
+    namespace 'com.firstriff.freereel'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.firstriff.freereel"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += [webAppOut]
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+tasks.named('preBuild') { dependsOn 'syncWebApp' }
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
+}
