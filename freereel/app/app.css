@@ -410,6 +410,17 @@ footer.foot {
   .profile-pick button { padding: 5px 10px; font-size: 12px; }
 }
 
+/* At phone width the brand, the profile switch and the gear have to share one
+   line — letting the gear wrap onto a row of its own reads as a bug rather
+   than a layout. */
+@media (max-width: 430px) {
+  .top-row { gap: 8px; flex-wrap: nowrap; }
+  .brand { font-size: 16px; letter-spacing: 0.1em; }
+  .profile-pick { padding: 2px; }
+  .profile-pick button { padding: 5px 8px; font-size: 11.5px; }
+  .gear { width: 32px; height: 32px; font-size: 15px; }
+}
+
 /* Roku's browser and older TV webviews do not support gap in flex reliably —
    this keeps the chips from collapsing into each other there. */
 @supports not (gap: 1px) {
