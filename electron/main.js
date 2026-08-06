@@ -64,19 +64,51 @@ function createWindow() {
   // (which was often a phone/headset). If none is named within a few seconds we
   // fall back to the first device found; if the list is still empty, cancel.
   const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon|jam\s?jum|jp-?1\b|jp-?mini|kuwee/i;
+  //
+  // AND IT REPORTS WHAT IT IS DOING. Suppressing Electron's own chooser is the
+  // right call for this app — the person already knows which controller they
+  // own and picking it out of a list of headsets is not a decision worth
+  // making — but it left the whole scan invisible. Someone pressing CONNECT
+  // BLUETOOTH got eight seconds of nothing, then eight more for the name-prefix
+  // attempt, then eight more for accept-all, and finally a failure with no
+  // explanation. "It does not connect and I cannot tell why" is that silence.
+  // Every scan tick is now pushed to the renderer, so the MIDI window can say
+  // how many devices are in range and what they are called.
   let btCb = null, btDevs = [], btTimer = null;
+  const btSay = (state, extra) => {
+    try {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('bt:scan', Object.assign({
+          state,
+          seen: btDevs.map((d) => d.deviceName || '(unnamed)'),
+        }, extra || {}));
+      }
+    } catch (e) {}
+  };
   win.webContents.on('select-bluetooth-device', (event, devices, callback) => {
     event.preventDefault();
     btDevs = devices; btCb = callback;
     const midi = devices.find(d => MIDI_RE.test(d.deviceName || ''));
-    if (midi) { if (btTimer) { clearTimeout(btTimer); btTimer = null; } btCb = null; callback(midi.deviceId); return; }
-    // no MIDI-named device yet — keep scanning; take the first found after 8s
+    if (midi) {
+      if (btTimer) { clearTimeout(btTimer); btTimer = null; }
+      btCb = null;
+      btSay('picked', { name: midi.deviceName });
+      callback(midi.deviceId);
+      return;
+    }
+    btSay('scanning');
+    // No MIDI-named device yet — keep scanning. Four seconds, not eight: this
+    // fires again on every discovery, so the timer only actually expires when
+    // the radio has gone quiet, and by then waiting longer finds nothing. Three
+    // attempts at eight seconds each was twenty-four seconds of silence.
     if (btTimer) clearTimeout(btTimer);
     btTimer = setTimeout(() => {
       btTimer = null; if (!btCb) return;
       const cb = btCb; btCb = null;
-      cb(btDevs[0] ? btDevs[0].deviceId : '');
-    }, 8000);
+      const first = btDevs[0];
+      btSay(first ? 'fallback' : 'nothing', { name: first && first.deviceName });
+      cb(first ? first.deviceId : '');
+    }, 4000);
   });
 
   const htmlPath = app.isPackaged

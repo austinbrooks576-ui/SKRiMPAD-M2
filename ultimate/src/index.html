@@ -3199,11 +3199,47 @@ $('#tlearn').addEventListener('click', (ev) => {
 // WHY IT IS NOT WORKING, in a sentence, from what the MIDI stack actually
 // knows. Each branch is a different thing to go and do — which is the whole
 // reason for having it, because "no controller yet" covered all of them.
+// THE BLUETOOTH SCAN, AS IT HAPPENS.
+//
+// The desktop app suppresses Electron's own device chooser — it already knows
+// what it is looking for, and picking a controller out of a list of headsets is
+// not a decision worth making. But that made the scan silent, and a silent scan
+// is indistinguishable from a broken one. main.js now reports every tick, and
+// this is where it becomes a sentence.
+let btScan = null;
+if (typeof window !== 'undefined' && window.skrimpadBluetooth) {
+  window.skrimpadBluetooth.onScan((info) => {
+    btScan = Object.assign({ at: Date.now() }, info);
+    if (midiOpen) renderWhyNot();
+    if (info.state === 'picked') toast('found ' + (info.name || 'a controller') + ' — connecting');
+    else if (info.state === 'nothing') toast('nothing in range — is the controller switched on?');
+  });
+}
+function btScanLine() {
+  if (!btScan || Date.now() - btScan.at > 30000) return '';
+  const seen = btScan.seen || [];
+  if (btScan.state === 'picked') return 'Found <b>' + esc(btScan.name || '?') + '</b> and connecting.';
+  if (btScan.state === 'fallback') {
+    return 'Nothing in range was named like a MIDI controller, so it is trying <b>'
+      + esc(btScan.name || '?') + '</b>.';
+  }
+  if (btScan.state === 'nothing') {
+    return '<b>Nothing at all is in range.</b> Switch the controller on and put it in pairing mode — '
+      + 'most hold a button for a few seconds and flash.';
+  }
+  return 'Scanning\u2026 ' + (seen.length
+    ? seen.length + ' device' + (seen.length === 1 ? '' : 's') + ' in range: ' + esc(seen.join(', '))
+      + '. None named like a MIDI controller yet.'
+    : 'nothing in range yet.');
+}
+
 function renderWhyNot() {
   const host = $('#whynot');
   if (!host) return;
   const d = io.diagnostics();
   const lines = [];
+  const scan = btScanLine();
+  if (scan) lines.push(scan);
   if (d.mode === 'unsupported') {
     lines.push('<b>This build has no MIDI support at all.</b> Nothing plugged in can be seen. ' +
       'If this is the desktop app, it is a build problem rather than anything you have done.');
@@ -3639,6 +3675,7 @@ const HELP = [
     ['Plugging in', 'Nothing to set up. Plug a controller in and play it — notes, velocity, pitch bend at whatever range the controller says it uses, mod wheel, aftertouch both kinds, sustain pedal, expression, breath and timbre are all honoured, because those are what the MIDI spec says those controls mean.', ['#ports']],
     ['KEYS or PADS', 'The one thing the app has to guess: a pad bank should fire cells, a keyboard should sound pitches. It works it out from the port name and from what the first few notes do. If it guesses wrong, overrule it here — or RELEARN to make it work it out again.', []],
     ['CONNECT BLUETOOTH', 'Pair the controller in your system settings first, then use this. On Android it hands over to the system MIDI service; on desktop it opens the BLE-MIDI link directly. A controller you have already paired with this app is reopened on its own at startup \u2014 you should not have to press this twice.', ['#bleconnect']],
+    ['Watching it search', 'On the desktop, CONNECT BLUETOOTH shows what the radio can actually see while it looks — how many devices are in range and what they are called. A scan you can watch is the difference between "it is not working" and "it can see my keyboard but the name does not match", and those need completely different things done about them.', []],
     ['A controller that drops out', 'If a controller is switched off, unplugged or goes out of range while it is holding notes, its note-offs are never coming. The app releases exactly what THAT controller was holding — and nothing else, so a wireless keyboard dropping does not cut off the wired one your other hand is playing — lifts any sustain pedal it left down, and says what happened. Bluetooth then reconnects on its own.', []],
     ['Why it is not connecting', 'A plain answer instead of a shrug, with the names of every port the app can see, and RESCAN to look again without restarting. \u201cNo port visible\u201d, \u201caccess refused\u201d and \u201ca port exists but not one byte has arrived\u201d are three different problems with three different fixes, and the last one is the usual Windows Bluetooth trap: the driver publishes a port as soon as the controller is paired, but nothing comes through it until the vendor panel has actually CONNECTED it.', ['#whynot']],
     ['MAP PADS', 'Pads default to the standard drum notes from 36 up, which is right for many boards and wrong for the rest. Press MAP PADS and hit your pads in the order you want them \u2014 each takes the next sound, sixteen taps for the whole board. Hitting a pad twice moves it rather than binding it in two places, and RESET goes back to the default. While a mapping sweep is running, anything you play counts as a pad, so a board whose pads share a channel with its keys can still be mapped.', ['#padmap']],
@@ -3687,6 +3724,7 @@ const HELP = [
 // What changed, most recent first. The rule the user set: a new feature is not
 // finished until it is explained here.
 const WHATS_NEW = ['1.0.19', [
+  ['You can watch it search', 'Press CONNECT BLUETOOTH on the desktop and the MIDI window now shows what the radio sees while it looks — how many devices are in range and what they are called. It used to be twenty-four seconds of silence and then a failure.'],
   ['A note that never stops — fixed', 'A controller switched off, unplugged or carried out of range while holding a chord used to leave that chord ringing until PANIC. It now releases exactly what that controller was holding and lifts any pedal it left down, while every other controller keeps playing untouched.'],
   ['A pedal that could latch forever', 'Losing a controller with its sustain pedal down left the pedal latched for the rest of the session, so every note after it \u2014 from any controller \u2014 stuck too. Found by playing 1200 notes at it and watching all of them stick.'],
   ['Notes that never sounded', 'A MIDI message split across two Bluetooth packets used to be thrown away. Controllers split them constantly. It is now held and finished on the next packet.'],
