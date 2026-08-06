@@ -1,0 +1,132 @@
+name: Build Windows (ULTIMATE)
+
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    # ULTIMATE is built from source, so the app's own tree has to be a trigger.
+    # Watching only electron/** would mean a change to the actual application
+    # never produced a desktop build.
+    paths:
+      - 'ultimate/**'
+      - 'electron/**'
+      - 'scripts/prep-electron-release.js'
+      - '.github/workflows/build-windows-ultimate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the ULTIMATE bundle
+        run: node ultimate/tools/bundle.js
+
+      # Straight from dist, not from android/assets. The APK job happens to put
+      # the same file there, but depending on that would couple two independent
+      # pipelines and break this one the moment the other changes.
+      - name: Stage the app
+        shell: bash
+        run: |
+          mkdir -p electron/app
+          cp ultimate/dist/index.html electron/app/index.html
+
+      # Same guard as the APK build: Electron loads this over file:// as well,
+      # so a bundle that still points at ./core/*.js produces a green build and
+      # a blank window. Cheaper to catch here than after electron-builder runs.
+      - name: Verify the bundle is self-contained
+        shell: bash
+        run: |
+          f=electron/app/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="deck"' "$f" || { echo "bundle has no deck — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      # Sets version, the latest-ultimate update channel, the ULTIMATE appId and
+      # product name, the Windows icon, and drops M2's layout.json from
+      # extraResources — ULTIMATE has no window manager to lay out.
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json ultimate ${{ github.run_number }}
+
+      # electron-builder resolves win.icon relative to electron/, and silently
+      # falls back to the stock Electron icon if it cannot find the file — so
+      # the failure mode is a shipped installer wearing someone else's logo
+      # rather than a red build. Check it directly.
+      - name: Verify the Windows icon is present
+        shell: bash
+        run: |
+          test -f ultimate/brand/icon.ico || { echo "icon.ico missing — run ultimate/tools/icon.js"; exit 1; }
+          node -e "
+            const b = require('fs').readFileSync('ultimate/brand/icon.ico');
+            if (b.readUInt16LE(0) !== 0 || b.readUInt16LE(2) !== 1) throw new Error('not an ICO');
+            const n = b.readUInt16LE(4);
+            // A 256px entry records its size as 0 — the byte cannot hold 256.
+            const big = Array.from({ length: n }, (_, i) => b[6 + i * 16]).some((w) => w === 0);
+            if (!big) throw new Error('ICO has no 256px entry; electron-builder requires one');
+            console.log('icon.ico ok — ' + n + ' sizes, 256px present');
+          "
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          npm install
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-ultimate-setup-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
+
+      # Ship the installer AND the electron-updater metadata (latest-ultimate.yml
+      # + .blockmap) so the in-app updater can pull future builds. Do NOT rename
+      # the .exe — its name must match the yml or the updater 404s.
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ultimate-win-v1.0.${{ github.run_number }}
+          name: SKRiMPAD ULTIMATE Windows — Setup ${{ github.run_number }}
+          body: |
+            SKRiMPAD **ULTIMATE** for Windows (v1.0.${{ github.run_number }})
+
+            One continuous depth instead of screens. Scroll or ctrl+scroll to fly
+            from the CONSTELLATION — the whole song at once — down through the
+            DECK, a CELL, its VOICE, and finally the GRAIN, the signal itself.
+
+            - **`SKRiMPAD ULTIMATE Setup 1.0.${{ github.run_number }}.exe`** — installs with shortcuts
+            - **`SKRiMPAD ULTIMATE 1.0.${{ github.run_number }}.exe`** — portable, runs from anywhere
+
+            **Plug a controller in and play it.** No on-screen keyboard and
+            nothing to configure — velocity, pitch bend at your keyboard's own
+            range, mod wheel, aftertouch, sustain pedal and expression all just
+            work, over USB or Bluetooth. The wavelength monitor shows the sound
+            answering your hands.
+
+            Installs **alongside** SKRiMPAD M2 rather than replacing it, and
+            updates on its own channel — the two will never cross-serve each
+            other a build.
+
+            **Requirements:** Windows 10+ (64-bit)
+          files: |
+            electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

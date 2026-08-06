@@ -1,0 +1,115 @@
+name: Build APK (ULTIMATE)
+
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    # ULTIMATE is built from source rather than shipped as a checked-in asset,
+    # so the trigger has to watch the source tree too — watching android/**
+    # alone would mean a change to the app itself never produced a build.
+    paths:
+      - 'ultimate/**'
+      - 'android/**'
+      - '.github/workflows/build-apk-ultimate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the ULTIMATE bundle
+        run: node ultimate/tools/bundle.js
+
+      # The bundle is the app. Copying it into assets is what makes the APK
+      # ULTIMATE rather than M2 — there is no edition flag to flip here,
+      # because this edition is a different application, not a mode.
+      - name: Install the bundle as the app
+        run: |
+          cp ultimate/dist/index.html android/app/src/main/assets/index.html
+          ls -la android/app/src/main/assets/index.html
+
+      # Fail loudly rather than shipping an APK that opens to a blank screen.
+      - name: Verify the bundle is self-contained
+        run: |
+          f=android/app/src/main/assets/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="deck"' "$f" || { echo "bundle has no deck — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD ULTIMATE Setup ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-ultimate-setup-${{ github.run_number }}
+          path: SKRiMPAD ULTIMATE Setup ${{ github.run_number }}.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ultimate-v1.0.${{ github.run_number }}
+          name: SKRiMPAD ULTIMATE — Setup ${{ github.run_number }}
+          body: |
+            SKRiMPAD **ULTIMATE** (Android APK)
+
+            One continuous depth instead of screens. Pinch or scroll to fly from
+            the CONSTELLATION — the whole song at once — down through the DECK,
+            a CELL, its VOICE, and finally the GRAIN, the signal itself.
+
+            **The constellation is an instrument.** How busy a part is decides how
+            far in it sits, so the silhouette of the field is the arrangement.
+            Drag a body inward to fill a pattern, outward to thin it, tap to
+            audition, double-tap to mute.
+
+            **Your own sounds.** Drop in WAVs, MP3s or FLACs; they stay on the
+            device and survive a restart. Arm a sound and tap a cell, or drag it
+            straight on.
+
+            **Plug a controller in and play it.** No on-screen keyboard, no
+            MIDI-learn, nothing to configure — the instrument does the playing
+            and all the modulation. Velocity, pitch bend at your keyboard's own
+            range, mod wheel, aftertouch, sustain pedal and expression all just
+            work, over USB or Bluetooth. The wavelength monitor shows the sound
+            answering your hands.
+
+            Installs alongside the other editions.
+
+            Download **`SKRiMPAD ULTIMATE Setup ${{ github.run_number }}.apk`**,
+            enable "Install unknown apps" in Android settings, then open to install.
+          files: SKRiMPAD ULTIMATE Setup ${{ github.run_number }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

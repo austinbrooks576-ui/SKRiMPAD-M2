@@ -14,6 +14,19 @@ const REPO_RELEASES = 'https://github.com/austinbrooks576-ui/SKRiMPAD-M2/release
 // audio clock, and the catch-up burst on restore froze the app.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// WEB BLUETOOTH, THE PART THAT WAS MISSING.
+// navigator.bluetooth.getDevices() — the call that lets an app silently reopen
+// a controller it has already been granted — lives behind this feature flag.
+// Without it the function is simply UNDEFINED, so the auto-reconnect path can
+// never run on desktop and every session starts with the controller
+// disconnected no matter how many times it has been paired before.
+//
+// The same backend is what makes a granted device PERSIST across restarts.
+// Without it, "pair once" is not a thing that exists: every launch is a first
+// launch, which is exactly what a Bluetooth controller that will not stay
+// connected looks like from the outside.
+app.commandLine.appendSwitch('enable-features', 'WebBluetoothNewPermissionsBackend');
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -50,20 +63,52 @@ function createWindow() {
   // WAIT for a MIDI-named controller rather than grabbing whatever appears first
   // (which was often a phone/headset). If none is named within a few seconds we
   // fall back to the first device found; if the list is still empty, cancel.
-  const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon/i;
+  const MIDI_RE = /midi|korg|nanokey|microkey|nanokontrol|nanopad|keystage|smk|worlde|akai|mpk|mpd|launchkey|launchpad|arturia|keystep|keylab|novation|seaboard|roli|yamaha|casio|donner|alesis|m-?wave|m-?audio|nektar|icon|jam\s?jum|jp-?1\b|jp-?mini|kuwee/i;
+  //
+  // AND IT REPORTS WHAT IT IS DOING. Suppressing Electron's own chooser is the
+  // right call for this app — the person already knows which controller they
+  // own and picking it out of a list of headsets is not a decision worth
+  // making — but it left the whole scan invisible. Someone pressing CONNECT
+  // BLUETOOTH got eight seconds of nothing, then eight more for the name-prefix
+  // attempt, then eight more for accept-all, and finally a failure with no
+  // explanation. "It does not connect and I cannot tell why" is that silence.
+  // Every scan tick is now pushed to the renderer, so the MIDI window can say
+  // how many devices are in range and what they are called.
   let btCb = null, btDevs = [], btTimer = null;
+  const btSay = (state, extra) => {
+    try {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('bt:scan', Object.assign({
+          state,
+          seen: btDevs.map((d) => d.deviceName || '(unnamed)'),
+        }, extra || {}));
+      }
+    } catch (e) {}
+  };
   win.webContents.on('select-bluetooth-device', (event, devices, callback) => {
     event.preventDefault();
     btDevs = devices; btCb = callback;
     const midi = devices.find(d => MIDI_RE.test(d.deviceName || ''));
-    if (midi) { if (btTimer) { clearTimeout(btTimer); btTimer = null; } btCb = null; callback(midi.deviceId); return; }
-    // no MIDI-named device yet — keep scanning; take the first found after 8s
+    if (midi) {
+      if (btTimer) { clearTimeout(btTimer); btTimer = null; }
+      btCb = null;
+      btSay('picked', { name: midi.deviceName });
+      callback(midi.deviceId);
+      return;
+    }
+    btSay('scanning');
+    // No MIDI-named device yet — keep scanning. Four seconds, not eight: this
+    // fires again on every discovery, so the timer only actually expires when
+    // the radio has gone quiet, and by then waiting longer finds nothing. Three
+    // attempts at eight seconds each was twenty-four seconds of silence.
     if (btTimer) clearTimeout(btTimer);
     btTimer = setTimeout(() => {
       btTimer = null; if (!btCb) return;
       const cb = btCb; btCb = null;
-      cb(btDevs[0] ? btDevs[0].deviceId : '');
-    }, 8000);
+      const first = btDevs[0];
+      btSay(first ? 'fallback' : 'nothing', { name: first && first.deviceName });
+      cb(first ? first.deviceId : '');
+    }, 4000);
   });
 
   const htmlPath = app.isPackaged
@@ -80,6 +125,14 @@ function createWindow() {
 // to surface it (auto-update ON/OFF ghosted window) via the preload bridge.
 function wireUpdater(win) {
   if (!autoUpdater) return;
+  // macOS is DELIBERATELY excluded. Squirrel.Mac refuses to apply an update to
+  // an app that is not code-signed, and there is no Apple Developer identity
+  // behind these builds — so on a Mac the updater cannot do anything except
+  // download a few hundred megabytes in the background and then report an
+  // error the person can do nothing about. Better to be honestly manual: the
+  // Mac release page tells you to download the new .dmg, which is a step that
+  // actually works.
+  if (process.platform === 'darwin') return;
   // Per-edition channel so the three editions in one repo never cross-serve:
   // an SE build only reads latest-se.yml, VGA latest-vga.yml, consumer latest.yml.
   try { const ch = require('./package.json').skrimpadChannel; if (ch) autoUpdater.channel = ch; } catch (e) {}
@@ -118,7 +171,11 @@ app.whenReady().then(() => {
   // Grant mic (voice/hum-to-notes) AND MIDI — Chromium gates Web MIDI behind a
   // permission, so requestMIDIAccess() rejects without this and hardware
   // controllers never connect on Windows.
-  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex'];
+  // 'bluetooth' was missing, and setPermissionCheckHandler DENIES anything not
+  // on this list. So navigator.bluetooth.requestDevice() was being refused
+  // before the chooser could ever open — the select-bluetooth-device handler
+  // below is correct and was simply never reached.
+  const GRANTED = ['media', 'microphone', 'audioCapture', 'midi', 'midiSysex', 'bluetooth'];
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
     callback(GRANTED.includes(permission));
   });

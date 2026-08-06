@@ -1,10 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">#0A0B0F</item>
-        <item name="android:statusBarColor">#0A0B0F</item>
-        <item name="android:navigationBarColor">#0A0B0F</item>
+        <item name="android:windowBackground">@color/void_bg</item>
+        <item name="android:statusBarColor">@color/void_bg</item>
+        <item name="android:navigationBarColor">@color/void_bg</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+    <!-- The launch theme. The activity STARTS in this one, so the window is
+         already painted with the mark before a single line of our code runs;
+         onCreate then swaps to AppTheme so the splash art is not left sitting
+         behind the WebView for the rest of the session. A WebView app has a
+         real gap between process start and first paint, and with nothing here
+         the user stares at a blank window and assumes it hung. -->
+    <style name="AppTheme.Splash" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splash</item>
     </style>
 </resources>

@@ -440,6 +440,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Drop the splash theme before the window is created. The activity is
+        // declared with AppTheme.Splash so the launcher mark is already painted
+        // during process start; leaving it on would keep that art sitting behind
+        // the WebView for the whole session.
+        setTheme(R.style.AppTheme)
         super.onCreate(savedInstanceState)
 
         // Keep screen on
