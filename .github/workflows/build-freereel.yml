@@ -6,6 +6,15 @@ on:
     paths:
       - 'freereel/**'
       - '.github/workflows/build-freereel.yml'
+  # Also build on PRs that touch the app. None of these jobs publish a release
+  # — they only upload artifacts — so running them pre-merge is safe, and it
+  # means the APK and installers are proven before the branch lands rather
+  # than after.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'freereel/**'
+      - '.github/workflows/build-freereel.yml'
   workflow_dispatch:
 
 permissions:
