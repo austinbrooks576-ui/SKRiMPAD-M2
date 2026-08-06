@@ -28,6 +28,7 @@
         <button data-profile="teen" aria-pressed="false">Teen</button>
         <button data-profile="kid" aria-pressed="false">Kids</button>
       </div>
+      <button id="gear" class="gear" data-gear="1" aria-pressed="false" aria-label="Options">⚙</button>
     </div>
     <div class="search-row">
       <input id="search" class="search" type="search" autocomplete="off"
@@ -37,6 +38,7 @@
 </header>
 
 <main class="wrap" id="panels"></main>
+<div id="modal-host"></div>
 
 <footer class="wrap foot">
   <p>
@@ -50,14 +52,7 @@
   </p>
 </footer>
 
-<nav class="tabs" role="tablist" aria-label="Sections">
-  <button data-tab="tonight"   aria-pressed="true"><span class="ico">🌙</span>Tonight</button>
-  <button data-tab="watch"     aria-pressed="false"><span class="ico">★</span>List</button>
-  <button data-tab="platforms" aria-pressed="false"><span class="ico">▦</span>Platforms</button>
-  <button data-tab="hidden"    aria-pressed="false"><span class="ico">◈</span>Hidden</button>
-  <button data-tab="live"      aria-pressed="false"><span class="ico">◉</span>Live</button>
-  <button data-tab="family"    aria-pressed="false"><span class="ico">☗</span>Family</button>
-</nav>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
 
 <script src="data.js"></script>
 <script src="app.js"></script>

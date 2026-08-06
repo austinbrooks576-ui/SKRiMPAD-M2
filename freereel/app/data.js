@@ -424,6 +424,16 @@ const PLATFORMS = [
   },
 ];
 
+/* Genuinely ad-free. Free streaming is overwhelmingly ad-supported — ads are
+ * the reason it is free — so this list is short, and it is almost entirely the
+ * library-card and public-broadcaster tier. If you want free AND no ads, these
+ * five are the whole answer in the US. */
+const AD_FREE = ['kanopy', 'hoopla', 'pbskids', 'nasa', 'archive'];
+
+/* Brief underwriting spots rather than mid-roll ad breaks — not ad-free, but
+ * not comparable to Tubi either, so it is worth separating. */
+const AD_LIGHT = ['pbs'];
+
 /* Retired services people still search for — worth stating plainly so you do
  * not waste an evening hunting for an app that no longer exists. */
 const RETIRED = [
@@ -731,6 +741,141 @@ const TITLES = [
     age: 13,
     mood: ['fried', 'wired', 'company'],
     why: 'Surprisingly large and properly licensed — long-running shonen, older Toei catalogue, and a rotating set of films. The best free anime breadth in the US even though nobody thinks of Tubi first.',
+  },
+
+  /* ---------------- adult animation ----------------
+   * Animation made for adults — the [adult swim] / Bakshi / seinen-OVA lane,
+   * not children's cartoons with a swear word in them. Most of this rotates
+   * through the free services, so check before you commit an evening. */
+  {
+    id: 'akira',
+    title: 'Akira',
+    year: 1988,
+    kind: 'film',
+    mins: 124,
+    genres: ['adult-animation', 'anime', 'scifi'],
+    where: ['tubi', 'plex'],
+    confidence: 'check',
+    age: 16,
+    mood: ['awe', 'wired'],
+    why: 'The film that made Western distributors understand animation could be adult. Still the high-water mark for hand-drawn animation, and the reason half the anime on this list got licensed at all.',
+  },
+  {
+    id: 'perfectblue',
+    title: 'Perfect Blue',
+    year: 1997,
+    kind: 'film',
+    mins: 81,
+    genres: ['adult-animation', 'anime', 'horror'],
+    where: ['kanopy'],
+    confidence: 'check',
+    age: 17,
+    mood: ['creeped', 'wired'],
+    why: 'Satoshi Kon\'s psychological thriller about a pop idol losing the thread between performance and self. Aronofsky bought the remake rights just to reuse one shot. Genuinely disturbing, and not remotely a cartoon.',
+  },
+  {
+    id: 'ninjascroll',
+    title: 'Ninja Scroll',
+    year: 1993,
+    kind: 'film',
+    mins: 94,
+    genres: ['adult-animation', 'anime', 'action'],
+    where: ['tubi', 'retrocrush'],
+    confidence: 'check',
+    age: 17,
+    mood: ['wired'],
+    why: 'Kawajiri at full throttle — the 90s OVA aesthetic in its most-imitated form. Extremely violent, beautifully drawn, and one of the three tapes that built the Western adult-anime market.',
+  },
+  {
+    id: 'vhd',
+    title: 'Vampire Hunter D: Bloodlust',
+    year: 2000,
+    kind: 'film',
+    mins: 103,
+    genres: ['adult-animation', 'anime', 'horror'],
+    where: ['tubi', 'retrocrush'],
+    confidence: 'check',
+    age: 16,
+    mood: ['awe', 'creeped'],
+    why: 'Gothic vampire western, and arguably the best-looking traditionally animated film on this whole list. Kawajiri again, with the budget he deserved.',
+  },
+  {
+    id: 'wickedcity',
+    title: 'Wicked City',
+    year: 1987,
+    kind: 'film',
+    mins: 82,
+    genres: ['adult-animation', 'anime', 'horror'],
+    where: ['retrocrush', 'midnightpulp'],
+    confidence: 'check',
+    age: 18,
+    mood: ['creeped', 'wired'],
+    why: 'The other Kawajiri. Body-horror noir that is genuinely nasty in places — this is the one that gave 80s adult anime its reputation, for better and worse.',
+  },
+  {
+    id: 'heavymetal',
+    title: 'Heavy Metal',
+    year: 1981,
+    kind: 'film',
+    mins: 90,
+    genres: ['adult-animation', 'scifi', 'cult'],
+    where: ['tubi', 'plex'],
+    confidence: 'check',
+    age: 17,
+    mood: ['wired', 'laughs'],
+    why: 'Rotoscoped sci-fi anthology built around the magazine, with a soundtrack doing most of the heavy lifting. Wildly uneven and completely of its moment — the definitional adult-animation cult object in the West.',
+  },
+  {
+    id: 'fritzthecat',
+    title: 'Fritz the Cat',
+    year: 1972,
+    kind: 'film',
+    mins: 78,
+    genres: ['adult-animation', 'cult', 'comedy'],
+    where: ['tubi', 'kinocult'],
+    confidence: 'check',
+    age: 18,
+    mood: ['wired', 'laughs'],
+    why: 'The first X-rated animated feature, and the film that proved animation did not have to be for children. Bakshi at his most abrasive; Crumb hated it. Historically important, frequently unpleasant.',
+  },
+  {
+    id: 'wizards',
+    title: 'Wizards',
+    year: 1977,
+    kind: 'film',
+    mins: 80,
+    genres: ['adult-animation', 'scifi', 'cult'],
+    where: ['tubi', 'plex'],
+    confidence: 'check',
+    age: 14,
+    mood: ['awe', 'wired'],
+    why: 'Bakshi\'s post-apocalyptic fantasy — rotoscope, stock footage and open contempt for fascism, made two years before he took a run at Tolkien. The most watchable entry point to his catalogue.',
+  },
+  {
+    id: 'aeonflux',
+    title: 'Æon Flux',
+    year: 1991,
+    kind: 'series',
+    mins: 25,
+    genres: ['adult-animation', 'scifi'],
+    where: ['tubi', 'plex'],
+    confidence: 'check',
+    age: 16,
+    mood: ['wired', 'awe'],
+    why: 'Peter Chung\'s MTV series — dialogue-free in its first run, anatomically strange, and structurally willing to kill its protagonist every episode. Nothing else on television looked like it.',
+  },
+  {
+    id: 'berserk97',
+    title: 'Berserk',
+    year: 1997,
+    kind: 'series',
+    mins: 25,
+    genres: ['adult-animation', 'anime', 'horror'],
+    where: ['tubi'],
+    confidence: 'check',
+    age: 17,
+    mood: ['wired', 'creeped'],
+    why: 'The 1997 series, not the later CG attempts. Brutal medieval fantasy with one of the most-discussed endings in the medium. Adult in the sense of genuinely bleak, not merely gory.',
   },
 
   /* ---------------- comedy / unscripted ---------------- */

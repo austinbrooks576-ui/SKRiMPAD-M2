@@ -114,6 +114,28 @@ header.top {
   color: #fff;
 }
 
+.gear {
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--ink-dim);
+  font-size: 17px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.gear:hover { color: var(--ink); background: var(--bg-hover); }
+.gear[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* A padlock on the profile the password actually guards, so the lock is
+   discoverable without a legend explaining it. */
+.profile-pick button.locked::after {
+  content: ' 🔒';
+  font-size: 10px;
+}
+
 /* search */
 .search-row { padding-bottom: 12px; }
 .search {
@@ -259,6 +281,8 @@ h3.sec:first-of-type { margin-top: 6px; }
 .tag.solid { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
 .tag.check { background: var(--gold-soft); color: var(--gold); border-color: transparent; }
 .tag.age { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.tag.adfree { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.tag.adlight { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
 
 .where { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .where-pill {
@@ -334,6 +358,39 @@ ol.steps { margin: 8px 0 0; padding-left: 20px; font-size: 14px; color: var(--in
 ol.steps li { margin-bottom: 5px; }
 
 .empty { color: var(--ink-faint); font-size: 15px; padding: 34px 0; text-align: center; }
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 5, 8, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(3px);
+}
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  width: 100%;
+  max-width: 380px;
+}
+.modal h3 { margin: 0 0 6px; font-size: 19px; font-weight: 800; }
+.modal p { margin: 0 0 14px; color: var(--ink-dim); font-size: 14px; }
+.modal .card-actions { margin-top: 14px; }
+
+.lock-error {
+  margin: 10px 0 0;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+}
 
 footer.foot {
   border-top: 1px solid var(--line-soft);
