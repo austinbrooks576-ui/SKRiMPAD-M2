@@ -631,10 +631,14 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     <div class="consbot" id="consbot">
       <div class="scenepick" id="scenepick"></div>
       <div class="sceneops" id="sceneops">
+        <!-- CLEAR, COPY TO NEXT and EXPORT WAV used to sit here, three buttons
+             across two more rows, permanently on screen for things you do to a
+             scene occasionally. They are under the scene pill now — which is
+             both less to look at AND more than they could do before, because
+             holding SCENE 3 clears scene 3 rather than whichever one happens to
+             be live. The view button stays: it is about the picture, not the
+             scene, and it was the odd one out in that row all along. -->
         <button class="sop" id="sview" aria-pressed="false">COLUMN</button>
-        <button class="sop" id="sclear">CLEAR</button>
-        <button class="sop" id="scopy">COPY TO NEXT</button>
-        <button class="sop" id="sbounce">EXPORT WAV</button>
       </div>
     </div></div></div>
   <div class="layer" data-alt="1"><div class="pane"><div class="grid" id="deck"></div></div></div>
@@ -4431,6 +4435,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       b.className = "spill" + (s === song.scene ? " on" : "");
       b.textContent = song.scenes[s].name;
       b.addEventListener("click", () => setScene(s));
+      b.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        showMenu(ev, sceneMenu(s), song.scenes[s].name);
+      });
+      onLongPress(b, 420, (ev, x, y) => openMenu({ x, y, items: sceneMenu(s), title: song.scenes[s].name }));
       host.appendChild(b);
     }
   }
@@ -4533,42 +4542,43 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     const y = ev.clientY != null ? ev.clientY : 0;
     openMenu({ x, y, items, title });
   }
-  $("#sclear").addEventListener("click", () => {
-    const cells = liveCells(song);
+  function sceneClear(si) {
+    const cells = song.scenes[si].cells;
     if (!cells.some((c) => c.steps.some((v) => v > 0))) {
       toast("already empty");
       return;
     }
     cells.forEach((c, i) => {
       c.steps.fill(0);
-      syncRibbon(i);
+      if (si === song.scene) syncRibbon(i);
     });
     hist.push(song);
     saveSong(song);
     invalidateSheets();
-    toast("scene cleared \u2014 ctrl+Z to undo");
-  });
-  $("#scopy").addEventListener("click", () => {
-    const to = (song.scene + 1) % SCENES;
-    song.scenes[to].cells = JSON.parse(JSON.stringify(liveCells(song)));
+    toast(song.scenes[si].name + " cleared \u2014 ctrl+Z to undo");
+  }
+  function sceneCopy(si) {
+    const to = (si + 1) % SCENES;
+    song.scenes[to].cells = JSON.parse(JSON.stringify(song.scenes[si].cells));
     hist.push(song);
     saveSong(song);
-    toast("copied to " + song.scenes[to].name);
-  });
-  $("#sbounce").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    if (btn.disabled) return;
-    const cells = liveCells(song);
+    invalidateSheets();
+    toast(song.scenes[si].name + " copied to " + song.scenes[to].name);
+  }
+  var bouncing = false;
+  async function sceneBounce(si) {
+    if (bouncing) return;
+    const cells = song.scenes[si].cells;
     if (!cells.some((c) => c.steps.some((v) => v > 0))) {
       toast("nothing to export");
       return;
     }
-    btn.disabled = true;
-    btn.textContent = "RENDERING\u2026";
+    bouncing = true;
+    toast("rendering " + song.scenes[si].name + "\u2026");
     try {
       const out = await bounceScene({
         song,
-        sceneIndex: song.scene,
+        sceneIndex: si,
         makeEngine: createEngine,
         // The bounce needs the same decoded samples the live engine uses. An
         // AudioBuffer is not bound to the context that made it, so the warm map
@@ -4581,15 +4591,33 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         return;
       }
       const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace(/[:T]/g, "-");
-      saveBlob(out.blob, "SKRiMPAD " + liveScene(song).name + " " + stamp + ".wav");
+      saveBlob(out.blob, "SKRiMPAD " + song.scenes[si].name + " " + stamp + ".wav");
       toast("exported " + out.seconds.toFixed(1) + "s");
     } catch (err) {
       toast("export failed");
     } finally {
-      btn.disabled = false;
-      btn.textContent = "EXPORT WAV";
+      bouncing = false;
     }
-  });
+  }
+  function sceneMenu(si) {
+    const cells = song.scenes[si].cells;
+    const empty = !cells.some((c) => c.steps.some((v) => v > 0));
+    const next = song.scenes[(si + 1) % SCENES].name;
+    return [
+      { head: song.scenes[si].name },
+      { label: "Play this one", on: song.scene === si, run: () => setScene(si) },
+      { sep: 1 },
+      { label: "Copy it to " + next, disabled: empty, run: () => sceneCopy(si) },
+      {
+        label: "Export it as a WAV",
+        hint: "four bars",
+        disabled: empty,
+        run: () => sceneBounce(si)
+      },
+      { sep: 1 },
+      { label: "Clear it", danger: 1, disabled: empty, run: () => sceneClear(si) }
+    ];
+  }
   var lastE = new Float32Array(CELLS).fill(-1);
   var frameMs = 16;
   var lastFrameAt = 0;
@@ -6454,11 +6482,11 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       ["The field", "The whole song at once. Each body is a pad; its angle never moves, its distance from the centre is how busy it is. A tight bright core is a full section, a wide sparse ring is a breakdown.", ["#nebula"]],
       ["Drag a body in or out", "Fills or thins that pad's pattern, landing on beats before offbeats so it stays playable at every density.", []],
       ["Tap \xB7 double-tap", "Audition it, or mute it.", []],
-      ["The scene rings", "All four scenes are drawn at once. Tap a pill to switch.", [".spill", "#scenepick"]],
+      ["The scene rings", "All four scenes are drawn at once. Tap a pill to switch to it; hold one \u2014 or right-click it \u2014 for everything you can do TO it: copy it to the next scene, export it as a WAV, or clear it. It acts on the scene you held, so you can clear scene 3 while scene 1 is playing.", [".spill", "#scenepick"]],
       ["The view button", "Cycles FIELD \u2192 COLUMN \u2192 OORT \u2192 NEBULA. It always shows the view you are in, and its tooltip names the one it will take you to next. Same song every time \u2014 what changes is which question the picture answers.", ["#sview"]],
-      ["CLEAR", "Empties the scene. It goes through undo, so an hour of work is one ctrl+Z away.", ["#sclear"]],
-      ["COPY TO NEXT", "Duplicates this scene's pattern into the next one, which keeps its own name.", ["#scopy"]],
-      ["EXPORT WAV", "Renders four bars of the scene to a stereo 44.1k WAV and saves it. It goes through the same engine as playback, so the file sounds like what you heard, and it leaves a tail on the end so ambient voices are not chopped off.", ["#sbounce"]]
+      ["Clear it", "Empties that scene. It goes through undo, so an hour of work is one ctrl+Z away.", []],
+      ["Copy it to the next", "Duplicates that scene's pattern into the one after it, which keeps its own name.", []],
+      ["Export it as a WAV", "Renders four bars of that scene to a stereo 44.1k WAV and saves it. It goes through the same engine as playback, so the file sounds like what you heard, and it leaves a tail on the end so ambient voices are not chopped off. You no longer have to switch to a scene to export it.", []]
     ]],
     ["THE COLUMN", [
       ["What it is", "The bar stood on end and seen from the side. Time runs top to bottom, one shell per step, and the cells sit on four nested orbits like an atom.", []],
@@ -6643,6 +6671,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     get lastGenre() {
       return lastGenre;
     },
+    // The three scene actions, so a test can prove they act on the scene it names
+    // rather than on whichever one happens to be playing.
+    sceneClear,
+    sceneCopy,
+    sceneBounce,
+    sceneMenu,
     focusCell: (i) => selectCell(i, "test"),
     get keyCell() {
       return keyCell;

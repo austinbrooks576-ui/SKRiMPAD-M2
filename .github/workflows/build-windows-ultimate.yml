@@ -30,6 +30,17 @@ jobs:
       - name: Build the ULTIMATE bundle
         run: node ultimate/tools/bundle.js
 
+      # The tests run BEFORE the build. A build that reaches a device and then
+      # turns out to be broken has already cost somebody an install; a red job
+      # costs nobody anything. The suite lives in the repo now — the last one
+      # lived in a scratch directory and a machine restart took all of it.
+      - name: Test it
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund playwright-core
+          npx --yes playwright install --with-deps chromium
+          node ultimate/test/ultimate.cjs
+
       # Straight from dist, not from android/assets. The APK job happens to put
       # the same file there, but depending on that would couple two independent
       # pipelines and break this one the moment the other changes.
