@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1OF1 · studio</title>
+<style>
+  :root{
+    --ink:#0B0B0C; --board:#141416; --board-2:#1D1D20; --rule:#2A2A2E;
+    --chalk:#EDEBE6; --quiet:#8A8A90; --faint:#5A5A61;
+    --ok:#4ADE9B; --bad:#FF6B6B; --warn:#FFC24A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ink); color:var(--chalk); overflow:hidden;
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+  #app{display:flex;flex-direction:column;height:100%}
+
+  /* ---------- stage ---------- */
+  #stage{
+    flex:1; position:relative; display:flex; align-items:center; justify-content:center;
+    padding:22px 22px 10px; min-height:0;
+  }
+  #single{display:flex;align-items:center;justify-content:center;height:100%;width:100%}
+  #canvasWrap{position:relative;height:100%;display:flex;align-items:center;justify-content:center}
+  #view{
+    max-height:100%; max-width:100%; height:auto; width:auto;
+    border-radius:10px; box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px var(--rule);
+    background:#000; display:block;
+  }
+  /* device furniture overlay so quiet zones are judged honestly */
+  #furniture{position:absolute;inset:0;pointer-events:none;display:none}
+  #furniture.on{display:block}
+  #furniture .zone{position:absolute;left:0;right:0;border:1px dashed rgba(255,255,255,.20)}
+  #furniture .zTop{top:0;height:22%}
+  #furniture .zBot{bottom:0;height:18%}
+  #furniture .clock{
+    position:absolute;left:0;right:0;top:7%;text-align:center;color:#fff;
+    font-weight:300;font-size:clamp(24px,7cqw,54px);letter-spacing:-.02em;
+    text-shadow:0 2px 18px rgba(0,0,0,.45);line-height:1
+  }
+  #furniture .date{
+    position:absolute;left:0;right:0;top:15.5%;text-align:center;color:#fff;opacity:.9;
+    font-size:clamp(9px,2.2cqw,15px);text-shadow:0 2px 14px rgba(0,0,0,.45)
+  }
+  #furniture .dock{
+    position:absolute;left:12%;right:12%;bottom:7%;height:0;display:flex;
+    justify-content:space-between;align-items:center
+  }
+  #furniture .dot{
+    width:clamp(18px,7cqw,44px);aspect-ratio:1;border-radius:24%;
+    background:rgba(255,255,255,.24);box-shadow:0 2px 14px rgba(0,0,0,.35)
+  }
+  #canvasWrap{container-type:inline-size}
+
+  /* ---------- contact sheet ---------- */
+  #sheet{display:none;height:100%;width:100%;overflow-y:auto;padding:4px 2px}
+  #sheet.on{display:block}
+  #single.off{display:none}
+  #grid{
+    display:grid; gap:12px;
+    grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
+  }
+  .cell{position:relative;cursor:pointer;border-radius:7px;overflow:hidden;background:#000;
+    box-shadow:0 0 0 1px var(--rule); transition:box-shadow .12s, transform .12s}
+  .cell:hover{transform:translateY(-2px);box-shadow:0 0 0 1px #55555E,0 10px 24px rgba(0,0,0,.5)}
+  .cell canvas{display:block;width:100%;height:auto}
+  .cell .tag{
+    position:absolute;left:0;right:0;bottom:0;padding:5px 7px;
+    background:linear-gradient(transparent,rgba(0,0,0,.86));
+    font-size:9.5px;letter-spacing:.09em;display:flex;justify-content:space-between;gap:6px
+  }
+  .cell .tag b{font-weight:600;color:#fff;opacity:.92}
+  .cell.rejected{opacity:.34}
+  .cell.rejected::after{
+    content:"REJECTED";position:absolute;top:7px;left:7px;font-size:8.5px;letter-spacing:.14em;
+    background:var(--bad);color:#210;padding:2px 5px;border-radius:3px;font-weight:800
+  }
+  .cell .keep{
+    position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;
+    background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center;
+    font-size:11px;line-height:1;color:#fff
+  }
+  .cell.kept .keep{background:var(--ok);border-color:var(--ok);color:#052}
+  .cell.kept{box-shadow:0 0 0 2px var(--ok)}
+
+  /* ---------- bars ---------- */
+  .bar{
+    flex:none; background:var(--board); border-top:1px solid var(--rule);
+    padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  }
+  #topbar{
+    border-top:none; border-bottom:1px solid var(--rule); background:var(--board);
+    padding:9px 16px;
+  }
+  .brand{font-weight:800;letter-spacing:-.02em;font-size:15px}
+  .brand span{color:var(--faint);font-weight:500}
+  .sp{flex:1}
+
+  button,select,input[type=text]{
+    font:inherit; color:var(--chalk); background:var(--board-2);
+    border:1px solid var(--rule); border-radius:7px; padding:7px 11px; cursor:pointer;
+    transition:border-color .12s, background .12s;
+  }
+  button:hover,select:hover{border-color:#4A4A52}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--chalk);color:#111;border-color:var(--chalk);font-weight:700}
+  button.primary:hover{background:#fff}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  input[type=text]{cursor:text;min-width:190px}
+  label.chk{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--quiet);font-size:12.5px;user-select:none}
+  input[type=checkbox]{accent-color:var(--chalk);cursor:pointer;width:15px;height:15px}
+  .lab{color:var(--faint);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+
+  /* serial line — the museum placard */
+  #serial{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--quiet);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #serial b{color:var(--chalk);font-weight:600}
+
+  #scorebox{display:flex;gap:9px;align-items:center;font-size:11px}
+  .pill{
+    font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.08em;
+    padding:3px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--quiet)
+  }
+  .pill b{color:var(--chalk)}
+  .pill.good{border-color:rgba(74,222,155,.45);color:var(--ok)}
+  .pill.poor{border-color:rgba(255,107,107,.45);color:var(--bad)}
+
+  #prog{
+    position:absolute;left:0;right:0;bottom:0;height:2px;background:transparent;overflow:hidden
+  }
+  #prog i{display:block;height:100%;width:0;background:var(--chalk);transition:width .1s linear}
+
+  #hint{color:var(--faint);font-size:11.5px}
+  kbd{
+    font-family:ui-monospace,monospace;font-size:10px;background:var(--board-2);
+    border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--quiet)
+  }
+  @media (max-width:820px){ #hint{display:none} }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="bar" id="topbar">
+    <div class="brand">1OF1 <span>/ studio</span></div>
+    <div class="lab">field · go-no-go</div>
+    <div class="sp"></div>
+    <div id="hint">
+      <kbd>R</kbd> reroll &nbsp; <kbd>S</kbd> sheet &nbsp; <kbd>K</kbd> keep &nbsp;
+      <kbd>D</kbd> download &nbsp; <kbd>F</kbd> full-res &nbsp; <kbd>G</kbd> furniture
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="single">
+      <div id="canvasWrap">
+        <canvas id="view"></canvas>
+        <div id="furniture">
+          <div class="zone zTop"></div>
+          <div class="zone zBot"></div>
+          <div class="clock">9:41</div>
+          <div class="date">Wednesday, 12 August</div>
+          <div class="dock"><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+        </div>
+      </div>
+    </div>
+    <div id="sheet"><div id="grid"></div></div>
+    <div id="prog"><i></i></div>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="bReroll">Reroll</button>
+    <button id="bSheet">Contact sheet</button>
+    <span class="lab">seed</span>
+    <input type="text" class="mono" id="seedIn" spellcheck="false">
+    <select id="palIn"><option value="-1">palette: from seed</option></select>
+    <label class="chk"><input type="checkbox" id="autoRej" checked> auto-reject &lt; <span id="passLbl">0.68</span></label>
+    <label class="chk"><input type="checkbox" id="furnOn" checked> furniture</label>
+    <div class="sp"></div>
+    <div id="scorebox"></div>
+    <button id="bKeep">Keep</button>
+    <button id="bFull">Full res</button>
+    <button id="bDown">PNG</button>
+  </div>
+
+  <div class="bar" style="padding-top:7px;padding-bottom:9px">
+    <div id="serial">—</div>
+    <div class="sp"></div>
+    <div class="lab" id="stats"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   1OF1 — art engine, go/no-go prototype
+   Series: FIELD (curl-noise flow field)
+
+   Everything is deterministic from a 64-bit seed. Same seed + same pixel
+   dimensions => byte-identical image, forever. That property is what lets the
+   real app store 8 bytes per piece instead of 8 megabytes.
+   ========================================================================== */
+
+/* ---------- palettes: generated from skins/*.json by build.mjs ------------ */
+const PALETTES = /*__PALETTES__*/{};
+const PALETTE_NAMES = Object.keys(PALETTES);
+
+/* ---------- 1. deterministic randomness --------------------------------- */
+
+// splitmix64 — turns a seed into well-distributed 64-bit values.
+const M64 = (1n << 64n) - 1n;
+function splitmix64(state){
+  state = (state + 0x9E3779B97F4A7C15n) & M64;
+  let z = state;
+  z = ((z ^ (z >> 30n)) * 0xBF58476D1CE4E5B9n) & M64;
+  z = ((z ^ (z >> 27n)) * 0x94D049BB133111EBn) & M64;
+  return { state, value: z ^ (z >> 31n) };
+}
+
+// mulberry32 — fast 32-bit stream for the millions of draws per piece.
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomSeed64(){
+  const a = new Uint32Array(2);
+  crypto.getRandomValues(a);
+  return ((BigInt(a[0]) << 32n) | BigInt(a[1])) & M64;
+}
+const hex64  = s => s.toString(16).padStart(16,"0").toUpperCase();
+const bits   = (s, lo, n) => Number((s >> BigInt(lo)) & ((1n << BigInt(n)) - 1n));
+const lerp   = (a,b,t) => a + (b-a)*t;
+const clamp  = (v,a,b) => v<a?a:v>b?b:v;
+const clamp01= v => clamp(v,0,1);
+
+/* ---------- 2. colour ---------------------------------------------------- */
+
+function hexToRgb(h){
+  h = h.replace("#","");
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n = parseInt(h,16);
+  return [ (n>>16)&255, (n>>8)&255, n&255 ];
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx-mn;
+  let h = 0;
+  if (d){
+    if (mx===r)      h = ((g-b)/d + (g<b?6:0));
+    else if (mx===g) h = ((b-r)/d + 2);
+    else             h = ((r-g)/d + 4);
+    h *= 60;
+  }
+  const l = (mx+mn)/2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2*l - 1));
+  return [h, s, l];
+}
+function hslToRgb(h,s,l){
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2*l - 1)) * s;
+  const x = c * (1 - Math.abs(((h/60) % 2) - 1));
+  const m = l - c/2;
+  let r,g,b;
+  if (h<60)       [r,g,b]=[c,x,0];
+  else if (h<120) [r,g,b]=[x,c,0];
+  else if (h<180) [r,g,b]=[0,c,x];
+  else if (h<240) [r,g,b]=[0,x,c];
+  else if (h<300) [r,g,b]=[x,0,c];
+  else            [r,g,b]=[c,0,x];
+  return [ Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255) ];
+}
+const relLum = (r,g,b) => 0.2126*(r/255) + 0.7152*(g/255) + 0.0722*(b/255);
+
+// The 21 tokens in a skin that carry hue. --bg/--surf/--txt are structural.
+const ACCENT_KEYS = ["--red","--orange","--yellow","--green","--teal","--blue",
+  "--purple","--pink","--lime","--kick","--snare","--hhat","--clap","--tom1",
+  "--tom2","--ride","--crash","--perc1","--perc2","--bass","--fx1","--fx2",
+  "--fx3","--fx4","--fx5"];
+
+const HARMONY = ["ANALOGOUS","DUO","MONO","SPREAD"];
+
+/**
+ * Pull a harmonised ink set out of one of the 50 skins.
+ * Colour is the hard part of generative art; this is where the taste already
+ * banked in skins/*.json gets spent.
+ */
+function buildPalette(skinName, harmonyIdx, rand, additive){
+  const skin = PALETTES[skinName];
+  const bg   = hexToRgb(skin["--bg"]   || "#0A0A0C");
+  const surf = hexToRgb(skin["--surf"] || skin["--bg"] || "#141416");
+
+  // unique accents, brightest-first, discarding anything too close to the bg
+  const seen = new Set(), pool = [];
+  for (const k of ACCENT_KEYS){
+    const hx = skin[k]; if (!hx) continue;
+    const key = hx.toLowerCase(); if (seen.has(key)) continue;
+    seen.add(key);
+    const rgb = hexToRgb(hx), hsl = rgbToHsl(...rgb);
+    if (Math.abs(relLum(...rgb) - relLum(...bg)) < 0.045) continue; // invisible on ground
+    pool.push({ rgb, h: hsl[0], s: hsl[1], l: hsl[2] });
+  }
+  if (!pool.length) pool.push({ rgb:[220,220,220], h:0, s:0, l:.86 });
+
+  const harmony = HARMONY[harmonyIdx % HARMONY.length];
+
+  // Collapse near-identical hues into one rung. A skin's 21 accents are often
+  // five hues repeated; picking three of the same hue reads as one muddy ink.
+  const sortedHue = [...pool].sort((a,b) => a.h - b.h);
+  const byHue = [];
+  for (const c of sortedHue){
+    const near = byHue.find(o => {
+      let d = Math.abs(o.h - c.h); if (d > 180) d = 360 - d;
+      return d < 16;
+    });
+    if (!near) byHue.push(c);
+    else if (c.s > near.s) Object.assign(near, c);   // keep the more saturated
+  }
+  let inks = [];
+
+  if (harmony === "ANALOGOUS"){
+    const i = (rand() * byHue.length) | 0;
+    for (let k = 0; k < 3; k++) inks.push(byHue[(i + k) % byHue.length]);
+
+  } else if (harmony === "DUO"){
+    const a = byHue[(rand() * byHue.length) | 0];
+    let best = null, bestD = -1;
+    for (const c of byHue){
+      let d = Math.abs(c.h - a.h); if (d > 180) d = 360 - d;
+      if (d > bestD){ bestD = d; best = c; }
+    }
+    inks = [a, best || a];
+
+  } else if (harmony === "MONO"){
+    const a = pool[(rand() * pool.length) | 0];
+    inks = [
+      a,
+      { rgb: hslToRgb(a.h, a.s * .82, clamp01(a.l + .16)), h:a.h, s:a.s, l:a.l+.16 },
+      { rgb: hslToRgb(a.h, a.s * .55, clamp01(a.l - .16)), h:a.h, s:a.s, l:a.l-.16 },
+    ];
+
+  } else { // SPREAD — maximally separated hues
+    const step = Math.max(1, Math.floor(byHue.length / 4));
+    const off  = (rand() * byHue.length) | 0;
+    for (let k = 0; k < 4; k++) inks.push(byHue[(off + k*step) % byHue.length]);
+  }
+
+  inks = inks.filter(Boolean);
+  if (!inks.length) inks = [{ rgb:[220,220,220], h:0, s:0, l:.86 }];
+
+  // These tokens were authored as UI accents on dark chrome — a different job.
+  // As ink they need more chroma, and on source-over they need enough
+  // lightness to register against the ground at 6% alpha.
+  const floorL = additive ? 0.42 : 0.58;
+  const lifted = inks.map(c => {
+    const hsl = (c.h === undefined) ? rgbToHsl(...c.rgb) : [c.h, c.s, c.l];
+    const s = clamp01(hsl[1] * 1.18 + 0.06);
+    const l = Math.max(hsl[2], floorL);
+    return hslToRgb(hsl[0], s, l);
+  });
+  return { name: skinName, harmony, bg, surf, inks: lifted };
+}
+
+/* ---------- 3. simplex noise (Gustavson 2D) ------------------------------ */
+
+const GRAD2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[1,0],[-1,0],[0,1],[0,-1],[0,1],[0,-1]];
+const F2 = 0.5 * (Math.sqrt(3) - 1);
+const G2 = (3 - Math.sqrt(3)) / 6;
+
+function makeNoise2D(rand){
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--){                 // seeded Fisher–Yates
+    const j = (rand() * (i + 1)) | 0;
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint8Array(512), pm12 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++){ perm[i] = p[i & 255]; pm12[i] = perm[i] % 12; }
+
+  return function noise2(xin, yin){
+    const s = (xin + yin) * F2;
+    let i = Math.floor(xin + s), j = Math.floor(yin + s);
+    const t = (i + j) * G2;
+    const x0 = xin - (i - t), y0 = yin - (j - t);
+    const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+    const x1 = x0 - i1 + G2,      y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2*G2,     y2 = y0 - 1 + 2*G2;
+    i &= 255; j &= 255;
+    let n = 0;
+    let tt = 0.5 - x0*x0 - y0*y0;
+    if (tt > 0){ const g = GRAD2[pm12[i + perm[j]]];             tt *= tt; n += tt*tt*(g[0]*x0 + g[1]*y0); }
+    tt = 0.5 - x1*x1 - y1*y1;
+    if (tt > 0){ const g = GRAD2[pm12[i + i1 + perm[j + j1]]];   tt *= tt; n += tt*tt*(g[0]*x1 + g[1]*y1); }
+    tt = 0.5 - x2*x2 - y2*y2;
+    if (tt > 0){ const g = GRAD2[pm12[i + 1 + perm[j + 1]]];     tt *= tt; n += tt*tt*(g[0]*x2 + g[1]*y2); }
+    return 70 * n;                                // ~[-1,1]
+  };
+}
+
+function makeFbm(noise2, octaves, lacunarity, gain){
+  return function(x, y){
+    let a = 1, f = 1, sum = 0, norm = 0;
+    for (let o = 0; o < octaves; o++){
+      sum  += a * noise2(x * f, y * f);
+      norm += a; a *= gain; f *= lacunarity;
+    }
+    return sum / (norm || 1);
+  };
+}
+
+/* ---------- 4. seed -> parameters ---------------------------------------
+   Bit layout (documented in docs/product/1OF1.md §03):
+     0-7   series      8-15  palette      16-23 palette subset
+     24-47 series params            48-55 finish        56-63 composition
+   ------------------------------------------------------------------------ */
+
+const SERIES = ["FIELD"];   // the other seven land in weeks 3-4
+const SEEDING = ["UNIFORM","GRID","BAND","RING"];
+const COLORMODE = ["INDEX","ANGLE","POSITION"];
+
+function decode(seed, opts){
+  const sp = bits(seed, 24, 24);
+  const cp = bits(seed, 56, 8);
+  const fp = bits(seed, 48, 8);
+  const rand = mulberry32(Number(splitmix64(seed).value & 0xFFFFFFFFn));
+
+  const palIdx = (opts && opts.paletteOverride >= 0)
+    ? opts.paletteOverride
+    : bits(seed, 8, 8) % PALETTE_NAMES.length;
+
+  const additive = (((sp >> 22) & 1) === 1);
+
+  const p = {
+    seed, additive,
+    series:   SERIES[bits(seed, 0, 8) % SERIES.length],
+    palette:  buildPalette(PALETTE_NAMES[palIdx], bits(seed, 16, 8), rand, additive),
+    rand,
+
+    // --- flow ---
+    noiseScale:  lerp(0.55, 2.30, ((sp        ) & 63) / 63),   // field frequency
+    octaves:     2 + (((sp >>  6) & 3)),                       // 2..5
+    warp:        lerp(0.0,  1.35, ((sp >>  8) & 15) / 15),     // domain warp
+
+    // Streamline length as a FRACTION of the canvas, not a step count. Step
+    // size is then fixed in device pixels, so a 240px thumbnail and a 1440px
+    // render trace the same paths at different sampling rates — which is what
+    // makes the thumbnail an honest preview, and therefore what makes scoring
+    // and rejection mean anything at all.
+    pathFrac:    lerp(0.18, 0.78, ((sp >> 12) & 15) / 15),
+    density:     lerp(0.60, 1.85, ((sp >> 20) & 3) / 3),
+
+    // --- ink ---
+    strokeW:     lerp(0.50, 2.20, ((cp      ) & 7) / 7),
+    alpha:       lerp(0.045, 0.150, ((cp >> 3) & 7) / 7),
+    seeding:     SEEDING[(cp >> 6) & 3],
+    colorMode:   COLORMODE[((sp >> 18) & 3) % COLORMODE.length],
+
+    // --- finish ---
+    grain:       lerp(0.012, 0.042, ((fp      ) & 7) / 7),
+    vignette:    lerp(0.08,  0.30,  ((fp >> 3) & 3) / 3),
+    aberration:  lerp(0.0,   1.6,   ((fp >> 5) & 7) / 7),
+  };
+
+  // Additive accumulation blows out fast — pull the per-stroke alpha back.
+  if (p.additive) p.alpha *= 0.55;
+  return p;
+}
+
+// Step size in device pixels. Constant across every render size.
+const STEP_PX = 1.35;
+// Streamlines at density 1.0. Not scaled by area — see pathFrac above.
+const BASE_LINES = 9000;
+
+/* ---------- 5. FIELD ------------------------------------------------------
+   Curl of an fBm potential gives a divergence-free field: streamlines swirl
+   and never converge to points, which is what reads as smoke or ink rather
+   than as "particles".
+   -------------------------------------------------------------------------*/
+
+// Quiet zones: the top 22% and bottom 18% sit under the clock and the dock.
+// Bias seeding away from them so the composition leaves room for the UI,
+// rather than fixing it later with a scrim.
+const Q_TOP = 0.22, Q_BOT = 0.18;
+function zoneWeight(ny){
+  if (ny < Q_TOP)     return lerp(0.28, 1.0, ny / Q_TOP);
+  if (ny > 1 - Q_BOT) return lerp(1.0, 0.30, (ny - (1 - Q_BOT)) / Q_BOT);
+  return 1.0;
+}
+
+function paintGround(ctx, p, w, h){
+  const [br,bg,bb] = p.palette.bg, [sr,sg,sb] = p.palette.surf;
+  const grd = ctx.createLinearGradient(0, 0, w * 0.35, h);
+  grd.addColorStop(0, `rgb(${br},${bg},${bb})`);
+  grd.addColorStop(1, `rgb(${Math.round((br+sr)/2)},${Math.round((bg+sg)/2)},${Math.round((bb+sb)/2)})`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+}
+
+/** Returns a stepper that draws `batch` streamlines per call. */
+function fieldRenderer(ctx, p, w, h){
+  const noise2 = makeNoise2D(p.rand);
+  const fbm    = makeFbm(noise2, p.octaves, 2.02, 0.55);
+  const warpN  = makeNoise2D(p.rand);
+
+  const mn     = Math.min(w, h);
+  const scale  = p.noiseScale / mn * 2.2;
+  const eps    = 1.0;
+  const step   = STEP_PX;                              // device px, size-invariant
+  const pathPx = p.pathFrac * mn;                      // streamline length in px
+  const baseSteps = Math.max(10, Math.round(pathPx / step));
+  // Sub-pixel strokes vanish at thumbnail size, which would break the preview
+  // contract, so the width has a hard floor in device pixels.
+  const swidth = Math.max(0.62, p.strokeW * (mn / 720));
+
+  const total = Math.round(BASE_LINES * p.density);
+
+  function potential(x, y){
+    if (p.warp > 0.001){
+      const wx = warpN(x * scale * 0.55, y * scale * 0.55) * p.warp * 90;
+      const wy = warpN(x * scale * 0.55 + 31.7, y * scale * 0.55 - 12.3) * p.warp * 90;
+      x += wx; y += wy;
+    }
+    return fbm(x * scale, y * scale);
+  }
+  function flow(x, y){
+    const n1 = potential(x, y + eps), n2 = potential(x, y - eps);
+    const n3 = potential(x + eps, y), n4 = potential(x - eps, y);
+    let vx = (n1 - n2), vy = -(n3 - n4);
+    const m = Math.hypot(vx, vy) || 1;
+    return [vx / m, vy / m];
+  }
+
+  function spawn(i){
+    const r = p.rand;
+    let x, y;
+    switch (p.seeding){
+      case "GRID": {
+        const cols = Math.ceil(Math.sqrt(total * (w / h)));
+        const rows = Math.ceil(total / cols);
+        x = ((i % cols) + 0.5) / cols * w + (r() - 0.5) * (w / cols);
+        y = ((Math.floor(i / cols) % rows) + 0.5) / rows * h + (r() - 0.5) * (h / rows);
+        break;
+      }
+      case "BAND": {
+        const c = 0.5 + (r() - 0.5) * 0.18;
+        x = r() * w;
+        y = (c + (r() - 0.5) * 0.42) * h;
+        break;
+      }
+      case "RING": {
+        // A radial bloom, dense at the core and thinning outward — not an
+        // annulus. A hard inner radius reads as a donut hole, which looks
+        // like a mistake rather than a composition.
+        const a  = r() * Math.PI * 2;
+        const rr = Math.pow(r(), 0.55) * 0.52 * Math.min(w, h);
+        x = w / 2 + Math.cos(a) * rr;
+        y = h * 0.47 + Math.sin(a) * rr * 1.35;
+        break;
+      }
+      default:
+        x = r() * w; y = r() * h;
+    }
+    return [x, y];
+  }
+
+  const inks = p.palette.inks;
+  ctx.lineCap  = "round";
+  ctx.lineJoin = "round";
+  ctx.globalCompositeOperation = p.additive ? "lighter" : "source-over";
+
+  let i = 0;
+  return {
+    total,
+    done(){ return i >= total; },
+    progress(){ return i / total; },
+    step(batch){
+      const end = Math.min(total, i + batch);
+      for (; i < end; i++){
+        let [x, y] = spawn(i);
+
+        // Rejection-sample against the quiet-zone weighting.
+        let guard = 0;
+        while (p.rand() > zoneWeight(y / h) && guard++ < 4){ [x, y] = spawn(i); }
+
+        let ink;
+        if (p.colorMode === "INDEX")        ink = inks[i % inks.length];
+        else if (p.colorMode === "POSITION")ink = inks[Math.floor((y / h) * inks.length) % inks.length];
+        else                                ink = inks[0];
+
+        const steps = Math.round(baseSteps * (0.45 + p.rand() * 0.55));
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        let drawn = 0;
+
+        for (let s = 0; s < steps; s++){
+          const [vx, vy] = flow(x, y);
+          x += vx * step; y += vy * step;
+          if (x < -40 || y < -40 || x > w + 40 || y > h + 40) break;
+          ctx.lineTo(x, y);
+          drawn++;
+        }
+        // A round cap on a 2-segment path is a dot, and a field full of dots
+        // reads as sensor dust. Only stroke paths long enough to be a line.
+        if (drawn < 8) continue;
+
+        if (p.colorMode === "ANGLE"){
+          const [vx, vy] = flow(x, y);
+          const a = (Math.atan2(vy, vx) + Math.PI) / (Math.PI * 2);
+          ink = inks[Math.floor(a * inks.length) % inks.length];
+        }
+        // Taper alpha toward the quiet zones as well as the seeding bias.
+        const zw = zoneWeight(y / h);
+        ctx.strokeStyle = `rgba(${ink[0]},${ink[1]},${ink[2]},${p.alpha * (0.55 + 0.45 * zw)})`;
+        ctx.lineWidth   = swidth * (0.6 + p.rand() * 0.8);
+        ctx.stroke();
+      }
+      if (i >= total) ctx.globalCompositeOperation = "source-over";
+    }
+  };
+}
+
+/* ---------- 6. finish pass -----------------------------------------------
+   Raw algorithmic output looks like a screensaver. This is the difference
+   between "generated" and "printed".
+   -------------------------------------------------------------------------*/
+
+// 8x8 ordered Bayer, normalised to [-0.5, 0.5] — kills OLED gradient banding.
+const BAYER8 = (() => {
+  const m = [
+    [ 0,32, 8,40, 2,34,10,42],[48,16,56,24,50,18,58,26],
+    [12,44, 4,36,14,46, 6,38],[60,28,52,20,62,30,54,22],
+    [ 3,35,11,43, 1,33, 9,41],[51,19,59,27,49,17,57,25],
+    [15,47, 7,39,13,45, 5,37],[63,31,55,23,61,29,53,21]];
+  const out = new Float32Array(64);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y*8+x] = m[y][x] / 64 - 0.5;
+  return out;
+})();
+
+function finish(ctx, p, w, h){
+  const img  = ctx.getImageData(0, 0, w, h);
+  const d    = img.data;
+  const src  = p.aberration > 0.02 ? new Uint8ClampedArray(d) : null;
+  const rand = mulberry32(Number(splitmix64(p.seed ^ 0xABCDn).value & 0xFFFFFFFFn));
+
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.hypot(cx, cy);
+  const ab = p.aberration * (Math.min(w, h) / 720);
+
+  for (let y = 0; y < h; y++){
+    const row = y * w;
+    const dy  = (y - cy) / maxR;
+
+    // Quiet-zone falloff. Biasing where streamlines *start* isn't enough —
+    // a long streamline wanders into the clock afterwards. This is the
+    // guarantee: the top and bottom always fall away, so a white clock and a
+    // row of icons always have somewhere to sit. Reads as natural falloff
+    // rather than as a scrim because it multiplies into an already-dark ground.
+    const ny = y / h;
+    let scrim = 1;
+    if (ny < Q_TOP){
+      const t = ny / Q_TOP;              scrim = lerp(0.24, 1.00, t*t*(3-2*t));
+    } else if (ny > 1 - Q_BOT){
+      const t = (ny - (1 - Q_BOT)) / Q_BOT; scrim = lerp(1.00, 0.36, t*t*(3-2*t));
+    }
+
+    for (let x = 0; x < w; x++){
+      const i  = (row + x) * 4;
+      const dx = (x - cx) / maxR;
+      const r2 = dx*dx + dy*dy;
+
+      let R = d[i], G = d[i+1], B = d[i+2];
+
+      // chromatic aberration — radial, strongest at the corners
+      if (src){
+        const off = ab * r2;
+        const rx = clamp(Math.round(x + dx * off * maxR / 40), 0, w-1);
+        const ry = clamp(Math.round(y + dy * off * maxR / 40), 0, h-1);
+        const bx = clamp(Math.round(x - dx * off * maxR / 40), 0, w-1);
+        const by = clamp(Math.round(y - dy * off * maxR / 40), 0, h-1);
+        R = src[(ry * w + rx) * 4];
+        B = src[(by * w + bx) * 4 + 2];
+      }
+
+      // vignette — off-centre, so it reads as a lens not a filter
+      const v = (1 - p.vignette * clamp01((r2 - 0.10) / 0.90)) * scrim;
+      R *= v; G *= v; B *= v;
+
+      // grain
+      const g = (rand() - 0.5) * 255 * p.grain;
+      R += g; G += g; B += g;
+
+      // dither before the implicit 8-bit quantise
+      const bd = BAYER8[((y & 7) << 3) | (x & 7)];
+      d[i]   = clamp(R + bd, 0, 255);
+      d[i+1] = clamp(G + bd, 0, 255);
+      d[i+2] = clamp(B + bd, 0, 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/* ---------- 7. scoring ---------------------------------------------------
+   The user should never be shown a bad one. Score small, reject, reroll.
+   -------------------------------------------------------------------------*/
+
+function score(ctx, w, h){
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let sum = 0, sum2 = 0, n = 0;
+  let qSum = 0, qSum2 = 0, qN = 0;
+  const topEnd = Math.floor(h * Q_TOP), botStart = Math.floor(h * (1 - Q_BOT));
+
+  for (let y = 0; y < h; y++){
+    const inQuiet = (y < topEnd || y >= botStart);
+    for (let x = 0; x < w; x++){
+      const i = (y * w + x) * 4;
+      const L = relLum(d[i], d[i+1], d[i+2]);
+      sum += L; sum2 += L*L; n++;
+      if (inQuiet){ qSum += L; qSum2 += L*L; qN++; }
+    }
+  }
+  const mean  = sum / n;
+  const std   = Math.sqrt(Math.max(0, sum2/n - mean*mean));
+  const qMean = qSum / (qN || 1);
+  const qStd  = Math.sqrt(Math.max(0, qSum2/(qN||1) - qMean*qMean));
+
+  // interest: is anything happening at all?
+  const interest = clamp01(std / 0.140);
+  // calm: can a white clock sit on the top and icons on the bottom?
+  // Weighted toward how BRIGHT the quiet zones are, not how busy. White text
+  // with a shadow sits happily over dark texture; it dies over a pale wash.
+  // Scoring busyness first was rejecting pieces that read perfectly well.
+  const calm     = 0.62 * clamp01(1 - qMean / 0.26)
+                 + 0.38 * clamp01(1 - qStd  / 0.130);
+  // exposure: a phone wallpaper wants to be dark — an OLED panel and a
+  // legible home screen both want it. Black and blown-out are the failures,
+  // not "not bright enough". Target sits low deliberately.
+  const exposure = clamp01(1 - Math.abs(mean - 0.16) / 0.22);
+
+  const total = 0.35*interest + 0.45*calm + 0.20*exposure;
+  return { total, interest, calm, exposure, mean, std, qStd, qMean };
+}
+
+/* ---------- 8. orchestration --------------------------------------------- */
+
+const PRESETS = { thumb:[240,520], preview:[720,1560], full:[1440,3120] };
+
+// Rejection threshold. Calibrated against a 48-piece sample: mean score 0.745,
+// so 0.55 passed 98% and gated nothing. 0.68 rejects roughly the bottom
+// quartile — the murky, low-contrast ones. Re-derive this whenever the art
+// changes; a gate tuned to the old output is not a gate.
+const PASS = 0.68;
+
+function renderSync(canvas, seed, w, h, opts){
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  const p = decode(seed, opts);
+  paintGround(ctx, p, w, h);
+  const r = fieldRenderer(ctx, p, w, h);
+  r.step(r.total);
+  finish(ctx, p, w, h);
+  return p;
+}
+
+function renderProgressive(canvas, seed, w, h, opts, onProgress){
+  return new Promise(resolve => {
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    const p = decode(seed, opts);
+    paintGround(ctx, p, w, h);
+    const r = fieldRenderer(ctx, p, w, h);
+    // Keep each frame under ~16ms of work so the UI stays alive.
+    const batch = Math.max(12, Math.round(1400 / Math.sqrt(p.maxSteps)));
+    function tick(){
+      const t0 = performance.now();
+      while (!r.done() && performance.now() - t0 < 14) r.step(batch);
+      onProgress && onProgress(r.progress());
+      if (!r.done()) requestAnimationFrame(tick);
+      else { finish(ctx, p, w, h); onProgress && onProgress(1); resolve(p); }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+/* ---------- 9. UI --------------------------------------------------------- */
+
+const $ = s => document.querySelector(s);
+const view = $("#view"), grid = $("#grid");
+const scratch = document.createElement("canvas");
+
+let current = { seed: randomSeed64(), params: null, score: null };
+let kept = JSON.parse(localStorage.getItem("1of1.kept") || "[]");
+let busy = false;
+
+for (let i = 0; i < PALETTE_NAMES.length; i++){
+  const o = document.createElement("option");
+  o.value = i; o.textContent = "palette: " + PALETTE_NAMES[i];
+  $("#palIn").appendChild(o);
+}
+
+const paletteOverride = () => parseInt($("#palIn").value, 10);
+const opts = () => ({ paletteOverride: paletteOverride() });
+
+function setProgress(t){ $("#prog i").style.width = (t*100).toFixed(1) + "%"; }
+
+function scoreSeed(seed){
+  const [tw, th] = PRESETS.thumb;
+  renderSync(scratch, seed, tw, th, opts());
+  return score(scratch.getContext("2d", { willReadFrequently:true }), tw, th);
+}
+
+/** The real app's issue() — reroll until something passes, then show it. */
+function issueSeed(maxTries){
+  if (!$("#autoRej").checked) {
+    const s = randomSeed64();
+    return { seed: s, score: null, tries: 1 };
+  }
+  let best = null, bestSeed = null;
+  for (let t = 1; t <= maxTries; t++){
+    const s  = randomSeed64();
+    const sc = scoreSeed(s);
+    if (!best || sc.total > best.total){ best = sc; bestSeed = s; }
+    if (sc.total >= PASS) return { seed: s, score: sc, tries: t };
+  }
+  return { seed: bestSeed, score: best, tries: maxTries };
+}
+
+function paintSerial(p, sc){
+  const bitsStr = hex64(p.seed);
+  $("#serial").innerHTML =
+    `1OF1 · <b>#${bitsStr.slice(0,8)}</b>·${bitsStr.slice(8)} · <b>${p.series}</b> · ` +
+    `${p.palette.name.toUpperCase()} · ${p.palette.harmony} · ${p.seeding} · ` +
+    `${p.colorMode}${p.additive ? " · ADD" : ""} · ${view.width}×${view.height}`;
+
+  const box = $("#scorebox");
+  if (!sc){ box.innerHTML = ""; return; }
+  const cls = sc.total >= PASS ? "good" : "poor";
+  box.innerHTML =
+    `<span class="pill ${cls}">SCORE <b>${sc.total.toFixed(2)}</b></span>` +
+    `<span class="pill">calm <b>${sc.calm.toFixed(2)}</b></span>` +
+    `<span class="pill">interest <b>${sc.interest.toFixed(2)}</b></span>` +
+    `<span class="pill">exposure <b>${sc.exposure.toFixed(2)}</b></span>`;
+}
+
+async function showSeed(seed, res){
+  if (busy) return;
+  busy = true;
+  $("#bReroll").disabled = true;
+  const [w, h] = PRESETS[res || "preview"];
+  const t0 = performance.now();
+  const p = await renderProgressive(view, seed, w, h, opts(), setProgress);
+  const ms = Math.round(performance.now() - t0);
+
+  const sc = score(view.getContext("2d", { willReadFrequently:true }), w, h);
+  current = { seed, params: p, score: sc };
+  paintSerial(p, sc);
+  $("#stats").textContent =
+    `${w}×${h} · ${ms}ms · ${kept.length} kept`;
+  $("#bKeep").textContent = kept.includes(hex64(seed)) ? "Kept ✓" : "Keep";
+  setProgress(0);
+  $("#bReroll").disabled = false;
+  busy = false;
+  $("#seedIn").value = hex64(seed);
+}
+
+function reroll(){
+  if (busy) return;
+  const r = issueSeed(12);
+  if (r.tries > 1) console.log(`issued after ${r.tries} attempts`);
+  showSeed(r.seed);
+}
+
+function toggleKeep(){
+  const k = hex64(current.seed);
+  const i = kept.indexOf(k);
+  if (i >= 0) kept.splice(i, 1); else kept.push(k);
+  localStorage.setItem("1of1.kept", JSON.stringify(kept));
+  $("#bKeep").textContent = kept.includes(k) ? "Kept ✓" : "Keep";
+  $("#stats").textContent = $("#stats").textContent.replace(/\d+ kept/, kept.length + " kept");
+}
+
+/* ---- contact sheet: the actual go/no-go instrument ---------------------- */
+
+let sheetOn = false;
+async function buildSheet(n){
+  sheetOn = true;
+  $("#sheet").classList.add("on");
+  $("#single").classList.add("off");
+  grid.innerHTML = "";
+  const [w, h] = PRESETS.thumb;
+  let passed = 0;
+
+  for (let i = 0; i < n; i++){
+    const seed = randomSeed64();
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const c = document.createElement("canvas");
+    cell.appendChild(c);
+    grid.appendChild(cell);
+
+    const p  = renderSync(c, seed, w, h, opts());
+    const sc = score(c.getContext("2d", { willReadFrequently:true }), w, h);
+    if (sc.total >= PASS) passed++; else cell.classList.add("rejected");
+
+    const k = hex64(seed);
+    if (kept.includes(k)) cell.classList.add("kept");
+
+    const tag = document.createElement("div");
+    tag.className = "tag mono";
+    tag.innerHTML = `<span>${k.slice(0,6)}</span><b>${sc.total.toFixed(2)}</b>`;
+    cell.appendChild(tag);
+
+    const keepBtn = document.createElement("div");
+    keepBtn.className = "keep"; keepBtn.textContent = "✓";
+    keepBtn.onclick = e => {
+      e.stopPropagation();
+      const idx = kept.indexOf(k);
+      if (idx >= 0) kept.splice(idx, 1); else kept.push(k);
+      localStorage.setItem("1of1.kept", JSON.stringify(kept));
+      cell.classList.toggle("kept");
+      $("#stats").textContent = `sheet of ${n} · ${passed} passed (${Math.round(passed/n*100)}%) · ${kept.length} kept`;
+    };
+    cell.appendChild(keepBtn);
+
+    cell.onclick = () => { closeSheet(); showSeed(seed); };
+
+    $("#stats").textContent = `sheet ${i+1}/${n} · ${passed} passed · ${kept.length} kept`;
+    if (i % 3 === 2) await new Promise(r => setTimeout(r, 0));   // keep the tab alive
+  }
+  $("#stats").textContent =
+    `sheet of ${n} · ${passed} passed (${Math.round(passed/n*100)}%) · ${kept.length} kept`;
+}
+function closeSheet(){
+  sheetOn = false;
+  $("#sheet").classList.remove("on");
+  $("#single").classList.remove("off");
+}
+
+/* ---- actions ------------------------------------------------------------ */
+
+$("#bReroll").onclick = reroll;
+$("#bKeep").onclick   = toggleKeep;
+$("#bSheet").onclick  = () => sheetOn ? closeSheet() : buildSheet(24);
+$("#bFull").onclick   = () => showSeed(current.seed, "full");
+$("#bDown").onclick   = () => {
+  view.toBlob(b => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = `1of1-${hex64(current.seed)}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
+};
+$("#seedIn").onchange = e => {
+  const v = e.target.value.trim().replace(/^0x/i, "");
+  if (/^[0-9a-f]{1,16}$/i.test(v)) showSeed(BigInt("0x" + v) & M64);
+};
+$("#palIn").onchange  = () => showSeed(current.seed);
+$("#furnOn").onchange = e => $("#furniture").classList.toggle("on", e.target.checked);
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "r"){ e.preventDefault(); reroll(); }
+  if (k === "s"){ e.preventDefault(); sheetOn ? closeSheet() : buildSheet(24); }
+  if (k === "k"){ e.preventDefault(); toggleKeep(); }
+  if (k === "d"){ e.preventDefault(); $("#bDown").click(); }
+  if (k === "f"){ e.preventDefault(); $("#bFull").click(); }
+  if (k === "g"){ e.preventDefault(); $("#furnOn").click(); }
+});
+
+/* ---- go ------------------------------------------------------------------ */
+$("#passLbl").textContent = PASS.toFixed(2);
+$("#furniture").classList.add("on");
+showSeed(current.seed);
+</script>
+</body>
+</html>

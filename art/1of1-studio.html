@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>1OF1 · studio</title>
+<style>
+  :root{
+    --ink:#0B0B0C; --board:#141416; --board-2:#1D1D20; --rule:#2A2A2E;
+    --chalk:#EDEBE6; --quiet:#8A8A90; --faint:#5A5A61;
+    --ok:#4ADE9B; --bad:#FF6B6B; --warn:#FFC24A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ink); color:var(--chalk); overflow:hidden;
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+  #app{display:flex;flex-direction:column;height:100%}
+
+  /* ---------- stage ---------- */
+  #stage{
+    flex:1; position:relative; display:flex; align-items:center; justify-content:center;
+    padding:22px 22px 10px; min-height:0;
+  }
+  #single{display:flex;align-items:center;justify-content:center;height:100%;width:100%}
+  #canvasWrap{position:relative;height:100%;display:flex;align-items:center;justify-content:center}
+  #view{
+    max-height:100%; max-width:100%; height:auto; width:auto;
+    border-radius:10px; box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px var(--rule);
+    background:#000; display:block;
+  }
+  /* device furniture overlay so quiet zones are judged honestly */
+  #furniture{position:absolute;inset:0;pointer-events:none;display:none}
+  #furniture.on{display:block}
+  #furniture .zone{position:absolute;left:0;right:0;border:1px dashed rgba(255,255,255,.20)}
+  #furniture .zTop{top:0;height:22%}
+  #furniture .zBot{bottom:0;height:18%}
+  #furniture .clock{
+    position:absolute;left:0;right:0;top:7%;text-align:center;color:#fff;
+    font-weight:300;font-size:clamp(24px,7cqw,54px);letter-spacing:-.02em;
+    text-shadow:0 2px 18px rgba(0,0,0,.45);line-height:1
+  }
+  #furniture .date{
+    position:absolute;left:0;right:0;top:15.5%;text-align:center;color:#fff;opacity:.9;
+    font-size:clamp(9px,2.2cqw,15px);text-shadow:0 2px 14px rgba(0,0,0,.45)
+  }
+  #furniture .dock{
+    position:absolute;left:12%;right:12%;bottom:7%;height:0;display:flex;
+    justify-content:space-between;align-items:center
+  }
+  #furniture .dot{
+    width:clamp(18px,7cqw,44px);aspect-ratio:1;border-radius:24%;
+    background:rgba(255,255,255,.24);box-shadow:0 2px 14px rgba(0,0,0,.35)
+  }
+  #canvasWrap{container-type:inline-size}
+
+  /* ---------- contact sheet ---------- */
+  #sheet{display:none;height:100%;width:100%;overflow-y:auto;padding:4px 2px}
+  #sheet.on{display:block}
+  #single.off{display:none}
+  #grid{
+    display:grid; gap:12px;
+    grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
+  }
+  .cell{position:relative;cursor:pointer;border-radius:7px;overflow:hidden;background:#000;
+    box-shadow:0 0 0 1px var(--rule); transition:box-shadow .12s, transform .12s}
+  .cell:hover{transform:translateY(-2px);box-shadow:0 0 0 1px #55555E,0 10px 24px rgba(0,0,0,.5)}
+  .cell canvas{display:block;width:100%;height:auto}
+  .cell .tag{
+    position:absolute;left:0;right:0;bottom:0;padding:5px 7px;
+    background:linear-gradient(transparent,rgba(0,0,0,.86));
+    font-size:9.5px;letter-spacing:.09em;display:flex;justify-content:space-between;gap:6px
+  }
+  .cell .tag b{font-weight:600;color:#fff;opacity:.92}
+  .cell.rejected{opacity:.34}
+  .cell.rejected::after{
+    content:"REJECTED";position:absolute;top:7px;left:7px;font-size:8.5px;letter-spacing:.14em;
+    background:var(--bad);color:#210;padding:2px 5px;border-radius:3px;font-weight:800
+  }
+  .cell .keep{
+    position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;
+    background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center;
+    font-size:11px;line-height:1;color:#fff
+  }
+  .cell.kept .keep{background:var(--ok);border-color:var(--ok);color:#052}
+  .cell.kept{box-shadow:0 0 0 2px var(--ok)}
+
+  /* ---------- bars ---------- */
+  .bar{
+    flex:none; background:var(--board); border-top:1px solid var(--rule);
+    padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  }
+  #topbar{
+    border-top:none; border-bottom:1px solid var(--rule); background:var(--board);
+    padding:9px 16px;
+  }
+  .brand{font-weight:800;letter-spacing:-.02em;font-size:15px}
+  .brand span{color:var(--faint);font-weight:500}
+  .sp{flex:1}
+
+  button,select,input[type=text]{
+    font:inherit; color:var(--chalk); background:var(--board-2);
+    border:1px solid var(--rule); border-radius:7px; padding:7px 11px; cursor:pointer;
+    transition:border-color .12s, background .12s;
+  }
+  button:hover,select:hover{border-color:#4A4A52}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--chalk);color:#111;border-color:var(--chalk);font-weight:700}
+  button.primary:hover{background:#fff}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  input[type=text]{cursor:text;min-width:190px}
+  label.chk{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--quiet);font-size:12.5px;user-select:none}
+  input[type=checkbox]{accent-color:var(--chalk);cursor:pointer;width:15px;height:15px}
+  .lab{color:var(--faint);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+
+  /* serial line — the museum placard */
+  #serial{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--quiet);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #serial b{color:var(--chalk);font-weight:600}
+
+  #scorebox{display:flex;gap:9px;align-items:center;font-size:11px}
+  .pill{
+    font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.08em;
+    padding:3px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--quiet)
+  }
+  .pill b{color:var(--chalk)}
+  .pill.good{border-color:rgba(74,222,155,.45);color:var(--ok)}
+  .pill.poor{border-color:rgba(255,107,107,.45);color:var(--bad)}
+
+  #prog{
+    position:absolute;left:0;right:0;bottom:0;height:2px;background:transparent;overflow:hidden
+  }
+  #prog i{display:block;height:100%;width:0;background:var(--chalk);transition:width .1s linear}
+
+  #hint{color:var(--faint);font-size:11.5px}
+  kbd{
+    font-family:ui-monospace,monospace;font-size:10px;background:var(--board-2);
+    border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--quiet)
+  }
+  @media (max-width:820px){ #hint{display:none} }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="bar" id="topbar">
+    <div class="brand">1OF1 <span>/ studio</span></div>
+    <div class="lab">field · go-no-go</div>
+    <div class="sp"></div>
+    <div id="hint">
+      <kbd>R</kbd> reroll &nbsp; <kbd>S</kbd> sheet &nbsp; <kbd>K</kbd> keep &nbsp;
+      <kbd>D</kbd> download &nbsp; <kbd>F</kbd> full-res &nbsp; <kbd>G</kbd> furniture
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="single">
+      <div id="canvasWrap">
+        <canvas id="view"></canvas>
+        <div id="furniture">
+          <div class="zone zTop"></div>
+          <div class="zone zBot"></div>
+          <div class="clock">9:41</div>
+          <div class="date">Wednesday, 12 August</div>
+          <div class="dock"><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+        </div>
+      </div>
+    </div>
+    <div id="sheet"><div id="grid"></div></div>
+    <div id="prog"><i></i></div>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="bReroll">Reroll</button>
+    <button id="bSheet">Contact sheet</button>
+    <span class="lab">seed</span>
+    <input type="text" class="mono" id="seedIn" spellcheck="false">
+    <select id="palIn"><option value="-1">palette: from seed</option></select>
+    <label class="chk"><input type="checkbox" id="autoRej" checked> auto-reject &lt; <span id="passLbl">0.68</span></label>
+    <label class="chk"><input type="checkbox" id="furnOn" checked> furniture</label>
+    <div class="sp"></div>
+    <div id="scorebox"></div>
+    <button id="bKeep">Keep</button>
+    <button id="bFull">Full res</button>
+    <button id="bDown">PNG</button>
+  </div>
+
+  <div class="bar" style="padding-top:7px;padding-bottom:9px">
+    <div id="serial">—</div>
+    <div class="sp"></div>
+    <div class="lab" id="stats"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   1OF1 — art engine, go/no-go prototype
+   Series: FIELD (curl-noise flow field)
+
+   Everything is deterministic from a 64-bit seed. Same seed + same pixel
+   dimensions => byte-identical image, forever. That property is what lets the
+   real app store 8 bytes per piece instead of 8 megabytes.
+   ========================================================================== */
+
+/* ---------- palettes: generated from skins/*.json by build.mjs ------------ */
+const PALETTES = {"arctic-fox":{"--bg":"#0C1014","--surf":"#161A1E","--surf2":"#212529","--surf3":"#2E3134","--bdr":"#46494C","--txt":"#F0F5FA","--mute":"#7A8590","--red":"#ECEFF1","--orange":"#B0BEC5","--yellow":"#CFD8DC","--green":"#90CAF9","--teal":"#E3F2FD","--blue":"#81D4FA","--purple":"#FFFFFF","--pink":"#64B5F6","--lime":"#BBDEFB","--kick":"#B0BEC5","--snare":"#E3F2FD","--hhat":"#64B5F6","--clap":"#ECEFF1","--tom1":"#90CAF9","--tom2":"#FFFFFF","--ride":"#42A5F5","--crash":"#CFD8DC","--perc1":"#81D4FA","--perc2":"#BBDEFB","--bass":"#B0BEC5","--fx1":"#CFD8DC","--fx2":"#E3F2FD","--fx3":"#FFFFFF","--fx4":"#BBDEFB","--fx5":"#ECEFF1"},"black-gold":{"--bg":"#0C0A06","--surf":"#161511","--surf2":"#21201C","--surf3":"#2E2C28","--bdr":"#464441","--txt":"#F5EFE0","--mute":"#877E64","--red":"#FFD700","--orange":"#C9A227","--yellow":"#FFDF4F","--green":"#A08419","--teal":"#FFE87C","--blue":"#8C7415","--purple":"#FFD024","--pink":"#DFB931","--lime":"#6E5A0E","--kick":"#C9A227","--snare":"#FFE87C","--hhat":"#DFB931","--clap":"#FFD700","--tom1":"#A08419","--tom2":"#FFD024","--ride":"#FFC700","--crash":"#FFDF4F","--perc1":"#8C7415","--perc2":"#6E5A0E","--bass":"#C9A227","--fx1":"#FFDF4F","--fx2":"#FFE87C","--fx3":"#FFD024","--fx4":"#6E5A0E","--fx5":"#FFD700"},"blood-moon":{"--bg":"#100404","--surf":"#1A0F0F","--surf2":"#251A1A","--surf3":"#312727","--bdr":"#494040","--txt":"#F5E0E0","--mute":"#8F5A5A","--red":"#B71C1C","--orange":"#FF5252","--yellow":"#7F0000","--green":"#FF8A80","--teal":"#D50000","--blue":"#C62828","--purple":"#FF1744","--pink":"#E53935","--lime":"#930000","--kick":"#FF5252","--snare":"#D50000","--hhat":"#E53935","--clap":"#B71C1C","--tom1":"#FF8A80","--tom2":"#FF1744","--ride":"#FF6659","--crash":"#7F0000","--perc1":"#C62828","--perc2":"#930000","--bass":"#FF5252","--fx1":"#7F0000","--fx2":"#D50000","--fx3":"#FF1744","--fx4":"#930000","--fx5":"#B71C1C"},"bubblegum-pop":{"--bg":"#160B14","--surf":"#20151E","--surf2":"#2A2029","--surf3":"#362D34","--bdr":"#4D454C","--txt":"#FAE8F2","--mute":"#95687F","--red":"#FF80AB","--orange":"#FF4081","--yellow":"#EA80FC","--green":"#F48FB1","--teal":"#FF94C2","--blue":"#CE93D8","--purple":"#F06292","--pink":"#FFB2DD","--lime":"#BA68C8","--kick":"#FF4081","--snare":"#FF94C2","--hhat":"#FFB2DD","--clap":"#FF80AB","--tom1":"#F48FB1","--tom2":"#F06292","--ride":"#FF5C9E","--crash":"#EA80FC","--perc1":"#CE93D8","--perc2":"#BA68C8","--bass":"#FF4081","--fx1":"#EA80FC","--fx2":"#FF94C2","--fx3":"#F06292","--fx4":"#BA68C8","--fx5":"#FF80AB"},"cherry-cola":{"--bg":"#140808","--surf":"#1E1313","--surf2":"#291E1E","--surf3":"#342A2A","--bdr":"#4C4343","--txt":"#F5E8E4","--mute":"#8A6A62","--red":"#D32F2F","--orange":"#FF5252","--yellow":"#8D2F23","--green":"#FFAB91","--teal":"#BF360C","--blue":"#FF7043","--purple":"#A52714","--pink":"#FF8A65","--lime":"#E64A19","--kick":"#FF5252","--snare":"#BF360C","--hhat":"#FF8A65","--clap":"#D32F2F","--tom1":"#FFAB91","--tom2":"#A52714","--ride":"#C62828","--crash":"#8D2F23","--perc1":"#FF7043","--perc2":"#E64A19","--bass":"#FF5252","--fx1":"#8D2F23","--fx2":"#BF360C","--fx3":"#A52714","--fx4":"#E64A19","--fx5":"#D32F2F"},"chrome-dreams":{"--bg":"#0A0C0E","--surf":"#151618","--surf2":"#202123","--surf3":"#2C2E2F","--bdr":"#444647","--txt":"#EEF2F5","--mute":"#77828C","--red":"#B0BEC5","--orange":"#E1E7EA","--yellow":"#90A4AE","--green":"#CFD8DC","--teal":"#78909C","--blue":"#ECEFF1","--purple":"#607D8B","--pink":"#F5F7F8","--lime":"#546E7A","--kick":"#E1E7EA","--snare":"#78909C","--hhat":"#F5F7F8","--clap":"#B0BEC5","--tom1":"#CFD8DC","--tom2":"#607D8B","--ride":"#A7B8C2","--crash":"#90A4AE","--perc1":"#ECEFF1","--perc2":"#546E7A","--bass":"#E1E7EA","--fx1":"#90A4AE","--fx2":"#78909C","--fx3":"#607D8B","--fx4":"#546E7A","--fx5":"#B0BEC5"},"cool-colors":{"--bg":"#060B14","--surf":"#0C1422","--surf2":"#121D30","--surf3":"#19273E","--bdr":"#22334F","--txt":"#E4EFFA","--mute":"#5A7089","--red":"#4D7CFF","--orange":"#3FA0E8","--yellow":"#57D8E8","--green":"#3EE6C4","--teal":"#2EE8E8","--blue":"#4D7CFF","--purple":"#8A6CFF","--pink":"#B07CFF","--lime":"#6FE8D8","--kick":"#3EE6C4","--snare":"#4D7CFF","--hhat":"#57D8E8","--clap":"#2EB8E8","--tom1":"#3F8CE8","--tom2":"#5A6CFF","--ride":"#8A6CFF","--crash":"#B07CFF","--perc1":"#48C8D8","--perc2":"#3FA0E8","--bass":"#6D5CFF","--fx1":"#57D8E8","--fx2":"#4D7CFF","--fx3":"#3EE6C4","--fx4":"#8A6CFF","--fx5":"#3FA0E8"},"coral-reef":{"--bg":"#061012","--surf":"#111A1C","--surf2":"#1C2527","--surf3":"#283133","--bdr":"#41494A","--txt":"#E4F5F2","--mute":"#5A8580","--red":"#FF7043","--orange":"#26A69A","--yellow":"#FFA270","--green":"#4DB6AC","--teal":"#FF5722","--blue":"#80CBC4","--purple":"#FF8A65","--pink":"#00897B","--lime":"#FFAB91","--kick":"#26A69A","--snare":"#FF5722","--hhat":"#00897B","--clap":"#FF7043","--tom1":"#4DB6AC","--tom2":"#FF8A65","--ride":"#009688","--crash":"#FFA270","--perc1":"#80CBC4","--perc2":"#FFAB91","--bass":"#26A69A","--fx1":"#FFA270","--fx2":"#FF5722","--fx3":"#FF8A65","--fx4":"#FFAB91","--fx5":"#FF7043"},"cotton-candy":{"--bg":"#100C14","--surf":"#1A161E","--surf2":"#252129","--surf3":"#312E34","--bdr":"#49464C","--txt":"#FAF0FA","--mute":"#8F7A8F","--red":"#F8BBD0","--orange":"#B3E5FC","--yellow":"#F48FB1","--green":"#81D4FA","--teal":"#FCE4EC","--blue":"#E1F5FE","--purple":"#FF80AB","--pink":"#4FC3F7","--lime":"#F06292","--kick":"#B3E5FC","--snare":"#FCE4EC","--hhat":"#4FC3F7","--clap":"#F8BBD0","--tom1":"#81D4FA","--tom2":"#FF80AB","--ride":"#B2EBF2","--crash":"#F48FB1","--perc1":"#E1F5FE","--perc2":"#F06292","--bass":"#B3E5FC","--fx1":"#F48FB1","--fx2":"#FCE4EC","--fx3":"#FF80AB","--fx4":"#F06292","--fx5":"#F8BBD0"},"cyberpunk-alley":{"--bg":"#0D0614","--surf":"#17111E","--surf2":"#221C29","--surf3":"#2E2834","--bdr":"#47414C","--txt":"#F2E4FA","--mute":"#7A5C8F","--red":"#FF1493","--orange":"#00FFFF","--yellow":"#FFE500","--green":"#FF00FF","--teal":"#00E5FF","--blue":"#FF3D77","--purple":"#C6FF00","--pink":"#E040FB","--lime":"#00B8D4","--kick":"#00FFFF","--snare":"#00E5FF","--hhat":"#E040FB","--clap":"#FF1493","--tom1":"#FF00FF","--tom2":"#C6FF00","--ride":"#FF80AB","--crash":"#FFE500","--perc1":"#FF3D77","--perc2":"#00B8D4","--bass":"#00FFFF","--fx1":"#FFE500","--fx2":"#00E5FF","--fx3":"#C6FF00","--fx4":"#00B8D4","--fx5":"#FF1493"},"deep-sea":{"--bg":"#02060C","--surf":"#051019","--surf2":"#081826","--surf3":"#0C2233","--bdr":"#14384F","--txt":"#D8F0FA","--mute":"#4A6E82","--red":"#FF5C8A","--orange":"#FF9E4D","--yellow":"#F2E85C","--green":"#3DF2B8","--teal":"#2ED8E8","--blue":"#3D8AF2","--purple":"#8A5CF2","--pink":"#E85CC8","--lime":"#8AF25C","--kick":"#2ED8E8","--snare":"#3DF2B8","--hhat":"#F2E85C","--clap":"#3D8AF2","--tom1":"#5CE8D8","--tom2":"#4D6AF2","--ride":"#8A5CF2","--crash":"#E85CC8","--perc1":"#5CF29E","--perc2":"#2EA8C8","--bass":"#6A5CF2","--fx1":"#3DF2B8","--fx2":"#2ED8E8","--fx3":"#8A5CF2","--fx4":"#E85CC8","--fx5":"#3D8AF2"},"deep-space":{"--bg":"#04040C","--surf":"#0F0F16","--surf2":"#1A1A21","--surf3":"#27272E","--bdr":"#404046","--txt":"#E0E4F5","--mute":"#5A6080","--red":"#3D5AFE","--orange":"#651FFF","--yellow":"#00B0FF","--green":"#304FFE","--teal":"#7C4DFF","--blue":"#0091EA","--purple":"#536DFE","--pink":"#6200EA","--lime":"#2962FF","--kick":"#651FFF","--snare":"#7C4DFF","--hhat":"#6200EA","--clap":"#3D5AFE","--tom1":"#304FFE","--tom2":"#536DFE","--ride":"#AA00FF","--crash":"#00B0FF","--perc1":"#0091EA","--perc2":"#2962FF","--bass":"#651FFF","--fx1":"#00B0FF","--fx2":"#7C4DFF","--fx3":"#536DFE","--fx4":"#2962FF","--fx5":"#3D5AFE"},"desert-sunset":{"--bg":"#160D08","--surf":"#201713","--surf2":"#2A221E","--surf3":"#362E2A","--bdr":"#4D4743","--txt":"#F7EDE0","--mute":"#8A7460","--red":"#FF7043","--orange":"#FFB74D","--yellow":"#F4511E","--green":"#FFCC80","--teal":"#E64A19","--blue":"#FFA726","--purple":"#BF360C","--pink":"#FFE0B2","--lime":"#FF8A50","--kick":"#FFB74D","--snare":"#E64A19","--hhat":"#FFE0B2","--clap":"#FF7043","--tom1":"#FFCC80","--tom2":"#BF360C","--ride":"#D84315","--crash":"#F4511E","--perc1":"#FFA726","--perc2":"#FF8A50","--bass":"#FFB74D","--fx1":"#F4511E","--fx2":"#E64A19","--fx3":"#BF360C","--fx4":"#FF8A50","--fx5":"#FF7043"},"disco-inferno":{"--bg":"#120806","--surf":"#1C1311","--surf2":"#271E1C","--surf3":"#332A28","--bdr":"#4A4341","--txt":"#FAEEE0","--mute":"#8F7660","--red":"#FF6D00","--orange":"#FFD600","--yellow":"#FF3D00","--green":"#FFAB00","--teal":"#FF9100","--blue":"#FFEA00","--purple":"#DD2C00","--pink":"#FFC400","--lime":"#FF5722","--kick":"#FFD600","--snare":"#FF9100","--hhat":"#FFC400","--clap":"#FF6D00","--tom1":"#FFAB00","--tom2":"#DD2C00","--ride":"#FFCA28","--crash":"#FF3D00","--perc1":"#FFEA00","--perc2":"#FF5722","--bass":"#FFD600","--fx1":"#FF3D00","--fx2":"#FF9100","--fx3":"#DD2C00","--fx4":"#FF5722","--fx5":"#FF6D00"},"electric-lemonade":{"--bg":"#0D1204","--surf":"#171C0F","--surf2":"#22271A","--surf3":"#2E3327","--bdr":"#474A40","--txt":"#F5FADC","--mute":"#82905A","--red":"#EEFF41","--orange":"#00E5FF","--yellow":"#C6FF00","--green":"#18FFFF","--teal":"#F4FF81","--blue":"#84FFFF","--purple":"#AEEA00","--pink":"#00B8D4","--lime":"#FFFF00","--kick":"#00E5FF","--snare":"#F4FF81","--hhat":"#00B8D4","--clap":"#EEFF41","--tom1":"#18FFFF","--tom2":"#AEEA00","--ride":"#64FFDA","--crash":"#C6FF00","--perc1":"#84FFFF","--perc2":"#FFFF00","--bass":"#00E5FF","--fx1":"#C6FF00","--fx2":"#F4FF81","--fx3":"#AEEA00","--fx4":"#FFFF00","--fx5":"#EEFF41"},"firefly-summer":{"--bg":"#0A0E04","--surf":"#15180F","--surf2":"#20231A","--surf3":"#2C2F27","--bdr":"#444740","--txt":"#F0F5DC","--mute":"#78805A","--red":"#EEFF41","--orange":"#C6FF00","--yellow":"#F4FF81","--green":"#AEEA00","--teal":"#FFFF8D","--blue":"#B2FF59","--purple":"#FFFF00","--pink":"#CCFF90","--lime":"#DCE775","--kick":"#C6FF00","--snare":"#FFFF8D","--hhat":"#CCFF90","--clap":"#EEFF41","--tom1":"#AEEA00","--tom2":"#FFFF00","--ride":"#9CCC65","--crash":"#F4FF81","--perc1":"#B2FF59","--perc2":"#DCE775","--bass":"#C6FF00","--fx1":"#F4FF81","--fx2":"#FFFF8D","--fx3":"#FFFF00","--fx4":"#DCE775","--fx5":"#EEFF41"},"forest-witch":{"--bg":"#0A0F08","--surf":"#151913","--surf2":"#20241E","--surf3":"#2C302A","--bdr":"#444843","--txt":"#E8F2E0","--mute":"#6E8060","--red":"#7CB342","--orange":"#558B2F","--yellow":"#AED581","--green":"#33691E","--teal":"#9CCC65","--blue":"#689F38","--purple":"#C5E1A5","--pink":"#4CAF50","--lime":"#8BC34A","--kick":"#558B2F","--snare":"#9CCC65","--hhat":"#4CAF50","--clap":"#7CB342","--tom1":"#33691E","--tom2":"#C5E1A5","--ride":"#2E7D32","--crash":"#AED581","--perc1":"#689F38","--perc2":"#8BC34A","--bass":"#558B2F","--fx1":"#AED581","--fx2":"#9CCC65","--fx3":"#C5E1A5","--fx4":"#8BC34A","--fx5":"#7CB342"},"galaxy-brain":{"--bg":"#080614","--surf":"#13111E","--surf2":"#1E1C29","--surf3":"#2A2834","--bdr":"#43414C","--txt":"#EAE6FA","--mute":"#6E668F","--red":"#7C4DFF","--orange":"#E040FB","--yellow":"#536DFE","--green":"#B388FF","--teal":"#3D5AFE","--blue":"#EA80FC","--purple":"#8C9EFF","--pink":"#D500F9","--lime":"#651FFF","--kick":"#E040FB","--snare":"#3D5AFE","--hhat":"#D500F9","--clap":"#7C4DFF","--tom1":"#B388FF","--tom2":"#8C9EFF","--ride":"#448AFF","--crash":"#536DFE","--perc1":"#EA80FC","--perc2":"#651FFF","--bass":"#E040FB","--fx1":"#536DFE","--fx2":"#3D5AFE","--fx3":"#8C9EFF","--fx4":"#651FFF","--fx5":"#7C4DFF"},"glacier-melt":{"--bg":"#061014","--surf":"#111A1E","--surf2":"#1C2529","--surf3":"#283134","--bdr":"#41494C","--txt":"#E4F2F7","--mute":"#5C8290","--red":"#84FFFF","--orange":"#A7FFEB","--yellow":"#18FFFF","--green":"#64FFDA","--teal":"#E0F7FA","--blue":"#1DE9B6","--purple":"#B2EBF2","--pink":"#00BFA5","--lime":"#00E5FF","--kick":"#A7FFEB","--snare":"#E0F7FA","--hhat":"#00BFA5","--clap":"#84FFFF","--tom1":"#64FFDA","--tom2":"#B2EBF2","--ride":"#26C6DA","--crash":"#18FFFF","--perc1":"#1DE9B6","--perc2":"#00E5FF","--bass":"#A7FFEB","--fx1":"#18FFFF","--fx2":"#E0F7FA","--fx3":"#B2EBF2","--fx4":"#00E5FF","--fx5":"#84FFFF"},"golden-hour":{"--bg":"#141006","--surf":"#1E1A11","--surf2":"#29251C","--surf3":"#343128","--bdr":"#4C4941","--txt":"#FAF2E0","--mute":"#8F8060","--red":"#FFD740","--orange":"#FFAB40","--yellow":"#FFC400","--green":"#FF9100","--teal":"#FFE57F","--blue":"#FFB300","--purple":"#FF6F00","--pink":"#FFECB3","--lime":"#FFA000","--kick":"#FFAB40","--snare":"#FFE57F","--hhat":"#FFECB3","--clap":"#FFD740","--tom1":"#FF9100","--tom2":"#FF6F00","--ride":"#FFCA28","--crash":"#FFC400","--perc1":"#FFB300","--perc2":"#FFA000","--bass":"#FFAB40","--fx1":"#FFC400","--fx2":"#FFE57F","--fx3":"#FF6F00","--fx4":"#FFA000","--fx5":"#FFD740"},"grape-soda":{"--bg":"#0E0714","--surf":"#18121E","--surf2":"#231D29","--surf3":"#2F2934","--bdr":"#47424C","--txt":"#F0E8FA","--mute":"#7A6A95","--red":"#B388FF","--orange":"#7C4DFF","--yellow":"#E1BEE7","--green":"#651FFF","--teal":"#CE93D8","--blue":"#9575CD","--purple":"#D1C4E9","--pink":"#8E24AA","--lime":"#B39DDB","--kick":"#7C4DFF","--snare":"#CE93D8","--hhat":"#8E24AA","--clap":"#B388FF","--tom1":"#651FFF","--tom2":"#D1C4E9","--ride":"#6200EA","--crash":"#E1BEE7","--perc1":"#9575CD","--perc2":"#B39DDB","--bass":"#7C4DFF","--fx1":"#E1BEE7","--fx2":"#CE93D8","--fx3":"#D1C4E9","--fx4":"#B39DDB","--fx5":"#B388FF"},"haunted-house":{"--bg":"#0B0810","--surf":"#15131A","--surf2":"#201E25","--surf3":"#2D2A31","--bdr":"#454349","--txt":"#EAE4F0","--mute":"#6F6580","--red":"#7E57C2","--orange":"#4E342E","--yellow":"#9575CD","--green":"#5D4037","--teal":"#673AB7","--blue":"#8D6E63","--purple":"#B39DDB","--pink":"#3E2723","--lime":"#512DA8","--kick":"#4E342E","--snare":"#673AB7","--hhat":"#3E2723","--clap":"#7E57C2","--tom1":"#5D4037","--tom2":"#B39DDB","--ride":"#A1887F","--crash":"#9575CD","--perc1":"#8D6E63","--perc2":"#512DA8","--bass":"#4E342E","--fx1":"#9575CD","--fx2":"#673AB7","--fx3":"#B39DDB","--fx4":"#512DA8","--fx5":"#7E57C2"},"hot-colors":{"--bg":"#140505","--surf":"#221009","--surf2":"#301710","--surf3":"#3E1E14","--bdr":"#553022","--txt":"#FAEDE4","--mute":"#8A6A5A","--red":"#FF3B2E","--orange":"#FF7A1F","--yellow":"#FFC61F","--green":"#FF9E3B","--teal":"#FF5C4D","--blue":"#FF4D7C","--purple":"#C8102E","--pink":"#FF2E7A","--lime":"#FFB347","--kick":"#FF3B2E","--snare":"#FF7A1F","--hhat":"#FFC61F","--clap":"#FF5C4D","--tom1":"#FF9E3B","--tom2":"#E8442E","--ride":"#FF2E7A","--crash":"#FF6A00","--perc1":"#FFB347","--perc2":"#E85C1F","--bass":"#C8102E","--fx1":"#FF7A1F","--fx2":"#FF3B2E","--fx3":"#FFC61F","--fx4":"#FF2E7A","--fx5":"#FF9E3B"},"ice-palace":{"--bg":"#080E16","--surf":"#131820","--surf2":"#1E232A","--surf3":"#2A2F36","--bdr":"#43474D","--txt":"#E8F4FA","--mute":"#647C95","--red":"#81D4FA","--orange":"#B3E5FC","--yellow":"#4FC3F7","--green":"#E1F5FE","--teal":"#29B6F6","--blue":"#B2EBF2","--purple":"#03A9F4","--pink":"#CFEEF7","--lime":"#0288D1","--kick":"#B3E5FC","--snare":"#29B6F6","--hhat":"#CFEEF7","--clap":"#81D4FA","--tom1":"#E1F5FE","--tom2":"#03A9F4","--ride":"#80DEEA","--crash":"#4FC3F7","--perc1":"#B2EBF2","--perc2":"#0288D1","--bass":"#B3E5FC","--fx1":"#4FC3F7","--fx2":"#29B6F6","--fx3":"#03A9F4","--fx4":"#0288D1","--fx5":"#81D4FA"},"industrial":{"--bg":"#0E0D0B","--surf":"#181613","--surf2":"#221F1B","--surf3":"#2C2823","--bdr":"#453E35","--txt":"#E8E2D8","--mute":"#7A7266","--red":"#C8542E","--orange":"#E87E1F","--yellow":"#F2C230","--green":"#8FA83D","--teal":"#5C8A8A","--blue":"#5C7A99","--purple":"#8A6E5C","--pink":"#B0785C","--lime":"#A8B83D","--kick":"#E87E1F","--snare":"#C8542E","--hhat":"#F2C230","--clap":"#8FA83D","--tom1":"#5C8A8A","--tom2":"#5C7A99","--ride":"#B0785C","--crash":"#F2C230","--perc1":"#8A6E5C","--perc2":"#A8632E","--bass":"#6B7A45","--fx1":"#F2C230","--fx2":"#C8542E","--fx3":"#8FA83D","--fx4":"#5C8A8A","--fx5":"#E87E1F"},"jungle-fever":{"--bg":"#071005","--surf":"#121A10","--surf2":"#1D251B","--surf3":"#293128","--bdr":"#424941","--txt":"#E8F5E0","--mute":"#6A855C","--red":"#00C853","--orange":"#FFD600","--yellow":"#64DD17","--green":"#FF6D00","--teal":"#00E676","--blue":"#FFAB00","--purple":"#76FF03","--pink":"#FF9100","--lime":"#00BFA5","--kick":"#FFD600","--snare":"#00E676","--hhat":"#FF9100","--clap":"#00C853","--tom1":"#FF6D00","--tom2":"#76FF03","--ride":"#AEEA00","--crash":"#64DD17","--perc1":"#FFAB00","--perc2":"#00BFA5","--bass":"#FFD600","--fx1":"#64DD17","--fx2":"#00E676","--fx3":"#76FF03","--fx4":"#00BFA5","--fx5":"#00C853"},"lava-lamp":{"--bg":"#12060E","--surf":"#1C1118","--surf2":"#271C23","--surf3":"#33282F","--bdr":"#4A4147","--txt":"#FAE8EE","--mute":"#8F6075","--red":"#FF3D00","--orange":"#FF9E80","--yellow":"#D500F9","--green":"#FF6E40","--teal":"#E040FB","--blue":"#FF5722","--purple":"#AA00FF","--pink":"#FFAB91","--lime":"#C51162","--kick":"#FF9E80","--snare":"#E040FB","--hhat":"#FFAB91","--clap":"#FF3D00","--tom1":"#FF6E40","--tom2":"#AA00FF","--ride":"#FF7539","--crash":"#D500F9","--perc1":"#FF5722","--perc2":"#C51162","--bass":"#FF9E80","--fx1":"#D500F9","--fx2":"#E040FB","--fx3":"#AA00FF","--fx4":"#C51162","--fx5":"#FF3D00"},"matrix":{"--bg":"#000400","--surf":"#020D04","--surf2":"#041507","--surf3":"#061E0A","--bdr":"#0E3A18","--txt":"#B4FFC2","--mute":"#2E7A42","--red":"#00FF41","--orange":"#33FF66","--yellow":"#66FF8C","--green":"#00E838","--teal":"#00CC33","--blue":"#1AFF55","--purple":"#4DFF7A","--pink":"#80FFA3","--lime":"#00FF41","--kick":"#00FF41","--snare":"#00E838","--hhat":"#33FF66","--clap":"#00CC33","--tom1":"#1AFF55","--tom2":"#4DFF7A","--ride":"#66FF8C","--crash":"#80FFA3","--perc1":"#00B32D","--perc2":"#26D94D","--bass":"#00FF41","--fx1":"#00FF41","--fx2":"#33FF66","--fx3":"#00E838","--fx4":"#66FF8C","--fx5":"#1AFF55"},"miami-nights":{"--bg":"#0A0812","--surf":"#15131C","--surf2":"#201E27","--surf3":"#2C2A33","--bdr":"#44434A","--txt":"#F5EAF7","--mute":"#8A7095","--red":"#FF6EC7","--orange":"#00E5FF","--yellow":"#FF9E00","--green":"#F50057","--teal":"#18FFFF","--blue":"#FFAB00","--purple":"#FF4081","--pink":"#84FFFF","--lime":"#FFD180","--kick":"#00E5FF","--snare":"#18FFFF","--hhat":"#84FFFF","--clap":"#FF6EC7","--tom1":"#F50057","--tom2":"#FF4081","--ride":"#EA00FF","--crash":"#FF9E00","--perc1":"#FFAB00","--perc2":"#FFD180","--bass":"#00E5FF","--fx1":"#FF9E00","--fx2":"#18FFFF","--fx3":"#FF4081","--fx4":"#FFD180","--fx5":"#FF6EC7"},"midnight-oil":{"--bg":"#0A0A14","--surf":"#15151E","--surf2":"#202029","--surf3":"#2C2C34","--bdr":"#44444C","--txt":"#EAE8F5","--mute":"#6A6A8A","--red":"#FFB300","--orange":"#FF8F00","--yellow":"#5C6BC0","--green":"#7986CB","--teal":"#FFD54F","--blue":"#3949AB","--purple":"#FFA000","--pink":"#9FA8DA","--lime":"#FFC107","--kick":"#FF8F00","--snare":"#FFD54F","--hhat":"#9FA8DA","--clap":"#FFB300","--tom1":"#7986CB","--tom2":"#FFA000","--ride":"#283593","--crash":"#5C6BC0","--perc1":"#3949AB","--perc2":"#FFC107","--bass":"#FF8F00","--fx1":"#5C6BC0","--fx2":"#FFD54F","--fx3":"#FFA000","--fx4":"#FFC107","--fx5":"#FFB300"},"mint-condition":{"--bg":"#06120C","--surf":"#111C16","--surf2":"#1C2721","--surf3":"#28332E","--bdr":"#414A46","--txt":"#E0F5EA","--mute":"#5A8570","--red":"#69F0AE","--orange":"#B9F6CA","--yellow":"#00E676","--green":"#CCFF90","--teal":"#00C853","--blue":"#A5D6A7","--purple":"#64DD17","--pink":"#E8F5E9","--lime":"#00BFA5","--kick":"#B9F6CA","--snare":"#00C853","--hhat":"#E8F5E9","--clap":"#69F0AE","--tom1":"#CCFF90","--tom2":"#64DD17","--ride":"#76FF03","--crash":"#00E676","--perc1":"#A5D6A7","--perc2":"#00BFA5","--bass":"#B9F6CA","--fx1":"#00E676","--fx2":"#00C853","--fx3":"#64DD17","--fx4":"#00BFA5","--fx5":"#69F0AE"},"moonshine":{"--bg":"#0A0C12","--surf":"#15161C","--surf2":"#202127","--surf3":"#2C2E33","--bdr":"#44464A","--txt":"#EEF0F7","--mute":"#767C90","--red":"#C5CAE9","--orange":"#9FA8DA","--yellow":"#E8EAF6","--green":"#7986CB","--teal":"#D1D9FF","--blue":"#5C6BC0","--purple":"#B4BCF0","--pink":"#3F51B5","--lime":"#DEE3FF","--kick":"#9FA8DA","--snare":"#D1D9FF","--hhat":"#3F51B5","--clap":"#C5CAE9","--tom1":"#7986CB","--tom2":"#B4BCF0","--ride":"#8C9EFF","--crash":"#E8EAF6","--perc1":"#5C6BC0","--perc2":"#DEE3FF","--bass":"#9FA8DA","--fx1":"#E8EAF6","--fx2":"#D1D9FF","--fx3":"#B4BCF0","--fx4":"#DEE3FF","--fx5":"#C5CAE9"},"neon-tokyo":{"--bg":"#0C060E","--surf":"#161118","--surf2":"#211C23","--surf3":"#2E282F","--bdr":"#464147","--txt":"#FAE8F5","--mute":"#8F6A85","--red":"#FF2E63","--orange":"#08D9D6","--yellow":"#FFDE22","--green":"#FF6B9D","--teal":"#00F5D4","--blue":"#F9F871","--purple":"#EA0599","--pink":"#00D9E9","--lime":"#FFC93C","--kick":"#08D9D6","--snare":"#00F5D4","--hhat":"#00D9E9","--clap":"#FF2E63","--tom1":"#FF6B9D","--tom2":"#EA0599","--ride":"#FF477E","--crash":"#FFDE22","--perc1":"#F9F871","--perc2":"#FFC93C","--bass":"#08D9D6","--fx1":"#FFDE22","--fx2":"#00F5D4","--fx3":"#EA0599","--fx4":"#FFC93C","--fx5":"#FF2E63"},"northern-lights":{"--bg":"#060E12","--surf":"#11181C","--surf2":"#1C2327","--surf3":"#282F33","--bdr":"#41474A","--txt":"#E4F5EE","--mute":"#5A8072","--red":"#69F0AE","--orange":"#00E5FF","--yellow":"#B388FF","--green":"#64FFDA","--teal":"#40C4FF","--blue":"#7C4DFF","--purple":"#00E676","--pink":"#18FFFF","--lime":"#651FFF","--kick":"#00E5FF","--snare":"#40C4FF","--hhat":"#18FFFF","--clap":"#69F0AE","--tom1":"#64FFDA","--tom2":"#00E676","--ride":"#1DE9B6","--crash":"#B388FF","--perc1":"#7C4DFF","--perc2":"#651FFF","--bass":"#00E5FF","--fx1":"#B388FF","--fx2":"#40C4FF","--fx3":"#00E676","--fx4":"#651FFF","--fx5":"#69F0AE"},"ocean-floor":{"--bg":"#04101A","--surf":"#0F1A24","--surf2":"#1A252E","--surf3":"#27313A","--bdr":"#404950","--txt":"#DCEFF7","--mute":"#4A7089","--red":"#00ACC1","--orange":"#26C6DA","--yellow":"#0277BD","--green":"#4FC3F7","--teal":"#00838F","--blue":"#29B6F6","--purple":"#006064","--pink":"#80DEEA","--lime":"#0288D1","--kick":"#26C6DA","--snare":"#00838F","--hhat":"#80DEEA","--clap":"#00ACC1","--tom1":"#4FC3F7","--tom2":"#006064","--ride":"#00BCD4","--crash":"#0277BD","--perc1":"#29B6F6","--perc2":"#0288D1","--bass":"#26C6DA","--fx1":"#0277BD","--fx2":"#00838F","--fx3":"#006064","--fx4":"#0288D1","--fx5":"#00ACC1"},"peach-fuzz":{"--bg":"#140E0A","--surf":"#1E1815","--surf2":"#292320","--surf3":"#342F2C","--bdr":"#4C4744","--txt":"#FAF0E8","--mute":"#8F7C6E","--red":"#FFAB91","--orange":"#FFCCBC","--yellow":"#FF8A65","--green":"#FBE9E7","--teal":"#FF7043","--blue":"#FFE0B2","--purple":"#FF9E80","--pink":"#FFD180","--lime":"#F4511E","--kick":"#FFCCBC","--snare":"#FF7043","--hhat":"#FFD180","--clap":"#FFAB91","--tom1":"#FBE9E7","--tom2":"#FF9E80","--ride":"#FFAB40","--crash":"#FF8A65","--perc1":"#FFE0B2","--perc2":"#F4511E","--bass":"#FFCCBC","--fx1":"#FF8A65","--fx2":"#FF7043","--fx3":"#FF9E80","--fx4":"#F4511E","--fx5":"#FFAB91"},"precious-metals-gems":{"--bg":"#0C0812","--surf":"#160F1E","--surf2":"#201628","--surf3":"#2A1D34","--bdr":"#443052","--txt":"#F2E8D8","--mute":"#8A7A99","--red":"#E0115F","--orange":"#FFAA00","--yellow":"#FFD700","--green":"#50C878","--teal":"#40E0D0","--blue":"#0F52BA","--purple":"#9966CC","--pink":"#F04A8C","--lime":"#B4E197","--kick":"#FFD700","--snare":"#C0C0C0","--hhat":"#E0115F","--clap":"#50C878","--tom1":"#0F52BA","--tom2":"#9966CC","--ride":"#FFAA00","--crash":"#40E0D0","--perc1":"#F04A8C","--perc2":"#B87333","--bass":"#E5E4E2","--fx1":"#FFD700","--fx2":"#E0115F","--fx3":"#50C878","--fx4":"#9966CC","--fx5":"#0F52BA"},"robot":{"--bg":"#0A0C0E","--surf":"#14181C","--surf2":"#1C2228","--surf3":"#252D35","--bdr":"#39444F","--txt":"#D8E2EA","--mute":"#66747F","--red":"#FF6A00","--orange":"#FFA000","--yellow":"#FFD000","--green":"#00E8A0","--teal":"#00D8E8","--blue":"#4DA6FF","--purple":"#9AA8B5","--pink":"#C0CCD6","--lime":"#7AE8C8","--kick":"#00D8E8","--snare":"#FFA000","--hhat":"#C0CCD6","--clap":"#00E8A0","--tom1":"#4DA6FF","--tom2":"#7A8A99","--ride":"#FFD000","--crash":"#FF6A00","--perc1":"#9AA8B5","--perc2":"#5C6E7D","--bass":"#00B8C8","--fx1":"#00D8E8","--fx2":"#FF6A00","--fx3":"#00E8A0","--fx4":"#9AA8B5","--fx5":"#FFA000"},"royal-court":{"--bg":"#0C0814","--surf":"#16131E","--surf2":"#211E29","--surf3":"#2E2A34","--bdr":"#46434C","--txt":"#F5EEDC","--mute":"#8A7F60","--red":"#FFD700","--orange":"#7B1FA2","--yellow":"#FFC107","--green":"#9C27B0","--teal":"#FFE082","--blue":"#6A1B9A","--purple":"#FFB300","--pink":"#AB47BC","--lime":"#F9A825","--kick":"#7B1FA2","--snare":"#FFE082","--hhat":"#AB47BC","--clap":"#FFD700","--tom1":"#9C27B0","--tom2":"#FFB300","--ride":"#4A148C","--crash":"#FFC107","--perc1":"#6A1B9A","--perc2":"#F9A825","--bass":"#7B1FA2","--fx1":"#FFC107","--fx2":"#FFE082","--fx3":"#FFB300","--fx4":"#F9A825","--fx5":"#FFD700"},"rust-belt":{"--bg":"#100C08","--surf":"#1A1613","--surf2":"#25211E","--surf3":"#312E2A","--bdr":"#494643","--txt":"#F2EAE0","--mute":"#857260","--red":"#BF360C","--orange":"#8D6E63","--yellow":"#D84315","--green":"#A1887F","--teal":"#E64A19","--blue":"#795548","--purple":"#FF5722","--pink":"#BCAAA4","--lime":"#6D4C41","--kick":"#8D6E63","--snare":"#E64A19","--hhat":"#BCAAA4","--clap":"#BF360C","--tom1":"#A1887F","--tom2":"#FF5722","--ride":"#FF7043","--crash":"#D84315","--perc1":"#795548","--perc2":"#6D4C41","--bass":"#8D6E63","--fx1":"#D84315","--fx2":"#E64A19","--fx3":"#FF5722","--fx4":"#6D4C41","--fx5":"#BF360C"},"sakura-night":{"--bg":"#080A14","--surf":"#13151E","--surf2":"#1E2029","--surf3":"#2A2C34","--bdr":"#43444C","--txt":"#FAECF2","--mute":"#87788A","--red":"#F8BBD0","--orange":"#F48FB1","--yellow":"#FCE4EC","--green":"#F06292","--teal":"#FFC1E3","--blue":"#EC407A","--purple":"#FF94C2","--pink":"#E91E63","--lime":"#FFD8E8","--kick":"#F48FB1","--snare":"#FFC1E3","--hhat":"#E91E63","--clap":"#F8BBD0","--tom1":"#F06292","--tom2":"#FF94C2","--ride":"#D81B60","--crash":"#FCE4EC","--perc1":"#EC407A","--perc2":"#FFD8E8","--bass":"#F48FB1","--fx1":"#FCE4EC","--fx2":"#FFC1E3","--fx3":"#FF94C2","--fx4":"#FFD8E8","--fx5":"#F8BBD0"},"sandstorm":{"--bg":"#12100A","--surf":"#1C1A15","--surf2":"#272520","--surf3":"#33312C","--bdr":"#4A4944","--txt":"#F7F2E4","--mute":"#8A8268","--red":"#D7CCC8","--orange":"#FFE082","--yellow":"#BCAAA4","--green":"#FFD54F","--teal":"#A1887F","--blue":"#FFECB3","--purple":"#8D6E63","--pink":"#FFC107","--lime":"#EFEBE9","--kick":"#FFE082","--snare":"#A1887F","--hhat":"#FFC107","--clap":"#D7CCC8","--tom1":"#FFD54F","--tom2":"#8D6E63","--ride":"#FFB300","--crash":"#BCAAA4","--perc1":"#FFECB3","--perc2":"#EFEBE9","--bass":"#FFE082","--fx1":"#BCAAA4","--fx2":"#A1887F","--fx3":"#8D6E63","--fx4":"#EFEBE9","--fx5":"#D7CCC8"},"steel-rain":{"--bg":"#0A0D10","--surf":"#15171A","--surf2":"#202225","--surf3":"#2C2E31","--bdr":"#444749","--txt":"#E8EDF2","--mute":"#6E7A87","--red":"#78909C","--orange":"#B0BEC5","--yellow":"#546E7A","--green":"#CFD8DC","--teal":"#90A4AE","--blue":"#607D8B","--purple":"#ECEFF1","--pink":"#455A64","--lime":"#A7B8C2","--kick":"#B0BEC5","--snare":"#90A4AE","--hhat":"#455A64","--clap":"#78909C","--tom1":"#CFD8DC","--tom2":"#ECEFF1","--ride":"#37474F","--crash":"#546E7A","--perc1":"#607D8B","--perc2":"#A7B8C2","--bass":"#B0BEC5","--fx1":"#546E7A","--fx2":"#90A4AE","--fx3":"#ECEFF1","--fx4":"#A7B8C2","--fx5":"#78909C"},"swamp-thing":{"--bg":"#0A0E06","--surf":"#151811","--surf2":"#20231C","--surf3":"#2C2F28","--bdr":"#444741","--txt":"#EAF0DC","--mute":"#75805E","--red":"#827717","--orange":"#9E9D24","--yellow":"#C0CA33","--green":"#D4E157","--teal":"#AFB42B","--blue":"#CDDC39","--purple":"#E6EE9C","--pink":"#F0F4C3","--lime":"#616118","--kick":"#9E9D24","--snare":"#AFB42B","--hhat":"#F0F4C3","--clap":"#827717","--tom1":"#D4E157","--tom2":"#E6EE9C","--ride":"#A8B400","--crash":"#C0CA33","--perc1":"#CDDC39","--perc2":"#616118","--bass":"#9E9D24","--fx1":"#C0CA33","--fx2":"#AFB42B","--fx3":"#E6EE9C","--fx4":"#616118","--fx5":"#827717"},"synthwave-sunset":{"--bg":"#120716","--surf":"#1E0C24","--surf2":"#2A1232","--surf3":"#381842","--bdr":"#552860","--txt":"#FFE8F0","--mute":"#9A6A8A","--red":"#FF2975","--orange":"#FF6B35","--yellow":"#FFD319","--green":"#2DE2A6","--teal":"#29D9FF","--blue":"#4D5CFF","--purple":"#B026FF","--pink":"#FF29A8","--lime":"#8DE969","--kick":"#FF2975","--snare":"#FF6B35","--hhat":"#FFD319","--clap":"#29D9FF","--tom1":"#B026FF","--tom2":"#4D5CFF","--ride":"#FF29A8","--crash":"#FF8C42","--perc1":"#2DE2A6","--perc2":"#E9526B","--bass":"#7A29FF","--fx1":"#29D9FF","--fx2":"#FF2975","--fx3":"#FFD319","--fx4":"#B026FF","--fx5":"#FF6B35"},"toxic-romance":{"--bg":"#0A0F08","--surf":"#151913","--surf2":"#20241E","--surf3":"#2C302A","--bdr":"#444843","--txt":"#F0FAE8","--mute":"#758565","--red":"#76FF03","--orange":"#FF4081","--yellow":"#B2FF59","--green":"#F50057","--teal":"#64DD17","--blue":"#FF80AB","--purple":"#AEEA00","--pink":"#C51162","--lime":"#CCFF90","--kick":"#FF4081","--snare":"#64DD17","--hhat":"#C51162","--clap":"#76FF03","--tom1":"#F50057","--tom2":"#AEEA00","--ride":"#FF5C9E","--crash":"#B2FF59","--perc1":"#FF80AB","--perc2":"#CCFF90","--bass":"#FF4081","--fx1":"#B2FF59","--fx2":"#64DD17","--fx3":"#AEEA00","--fx4":"#CCFF90","--fx5":"#76FF03"},"toxic-sludge":{"--bg":"#0A0E06","--surf":"#131A0A","--surf2":"#1C260F","--surf3":"#253314","--bdr":"#3D5220","--txt":"#EAFAD8","--mute":"#6E8A52","--red":"#D0FF14","--orange":"#A8E82E","--yellow":"#F2FF5C","--green":"#7AFF2E","--teal":"#4DE85C","--blue":"#8AFF6A","--purple":"#C8FF3D","--pink":"#E8FF8A","--lime":"#B8FF14","--kick":"#D0FF14","--snare":"#7AFF2E","--hhat":"#F2FF5C","--clap":"#4DE85C","--tom1":"#A8E82E","--tom2":"#5CD83D","--ride":"#C8FF3D","--crash":"#E8FF8A","--perc1":"#8AFF6A","--perc2":"#95C82E","--bass":"#B8FF14","--fx1":"#7AFF2E","--fx2":"#D0FF14","--fx3":"#4DE85C","--fx4":"#C8FF3D","--fx5":"#A8E82E"},"vaporwave":{"--bg":"#0F0A1E","--surf":"#1A1230","--surf2":"#251A42","--surf3":"#302254","--bdr":"#4A3878","--txt":"#F5E8FF","--mute":"#8A78AD","--red":"#FF6AD5","--orange":"#FF9E6A","--yellow":"#FFE86A","--green":"#6AFFB8","--teal":"#6AE8FF","--blue":"#6A8AFF","--purple":"#C86AFF","--pink":"#FF6AC8","--lime":"#B8FF8A","--kick":"#FF6AD5","--snare":"#6AE8FF","--hhat":"#FFE86A","--clap":"#6AFFB8","--tom1":"#6A8AFF","--tom2":"#C86AFF","--ride":"#FF9E6A","--crash":"#FF6AC8","--perc1":"#8AFFE8","--perc2":"#B88AFF","--bass":"#FF8AB8","--fx1":"#6AE8FF","--fx2":"#FF6AD5","--fx3":"#6AFFB8","--fx4":"#C86AFF","--fx5":"#FFE86A"},"velvet-underground":{"--bg":"#100610","--surf":"#1A111A","--surf2":"#251C25","--surf3":"#312831","--bdr":"#494149","--txt":"#F5E4EE","--mute":"#8A6080","--red":"#880E4F","--orange":"#AD1457","--yellow":"#C2185B","--green":"#D81B60","--teal":"#E91E63","--blue":"#EC407A","--purple":"#F06292","--pink":"#4A0E2E","--lime":"#B0003A","--kick":"#AD1457","--snare":"#E91E63","--hhat":"#4A0E2E","--clap":"#880E4F","--tom1":"#D81B60","--tom2":"#F06292","--ride":"#FF5C8D","--crash":"#C2185B","--perc1":"#EC407A","--perc2":"#B0003A","--bass":"#AD1457","--fx1":"#C2185B","--fx2":"#E91E63","--fx3":"#F06292","--fx4":"#B0003A","--fx5":"#880E4F"},"voodoo-bayou":{"--bg":"#0A080E","--surf":"#151318","--surf2":"#201E23","--surf3":"#2C2A2F","--bdr":"#444347","--txt":"#EEE8F0","--mute":"#75687A","--red":"#6A1B9A","--orange":"#33691E","--yellow":"#8E24AA","--green":"#558B2F","--teal":"#4A148C","--blue":"#7CB342","--purple":"#AB47BC","--pink":"#9CCC65","--lime":"#38006B","--kick":"#33691E","--snare":"#4A148C","--hhat":"#9CCC65","--clap":"#6A1B9A","--tom1":"#558B2F","--tom2":"#AB47BC","--ride":"#689F38","--crash":"#8E24AA","--perc1":"#7CB342","--perc2":"#38006B","--bass":"#33691E","--fx1":"#8E24AA","--fx2":"#4A148C","--fx3":"#AB47BC","--fx4":"#38006B","--fx5":"#6A1B9A"}};
+const PALETTE_NAMES = Object.keys(PALETTES);
+
+/* ---------- 1. deterministic randomness --------------------------------- */
+
+// splitmix64 — turns a seed into well-distributed 64-bit values.
+const M64 = (1n << 64n) - 1n;
+function splitmix64(state){
+  state = (state + 0x9E3779B97F4A7C15n) & M64;
+  let z = state;
+  z = ((z ^ (z >> 30n)) * 0xBF58476D1CE4E5B9n) & M64;
+  z = ((z ^ (z >> 27n)) * 0x94D049BB133111EBn) & M64;
+  return { state, value: z ^ (z >> 31n) };
+}
+
+// mulberry32 — fast 32-bit stream for the millions of draws per piece.
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomSeed64(){
+  const a = new Uint32Array(2);
+  crypto.getRandomValues(a);
+  return ((BigInt(a[0]) << 32n) | BigInt(a[1])) & M64;
+}
+const hex64  = s => s.toString(16).padStart(16,"0").toUpperCase();
+const bits   = (s, lo, n) => Number((s >> BigInt(lo)) & ((1n << BigInt(n)) - 1n));
+const lerp   = (a,b,t) => a + (b-a)*t;
+const clamp  = (v,a,b) => v<a?a:v>b?b:v;
+const clamp01= v => clamp(v,0,1);
+
+/* ---------- 2. colour ---------------------------------------------------- */
+
+function hexToRgb(h){
+  h = h.replace("#","");
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n = parseInt(h,16);
+  return [ (n>>16)&255, (n>>8)&255, n&255 ];
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx-mn;
+  let h = 0;
+  if (d){
+    if (mx===r)      h = ((g-b)/d + (g<b?6:0));
+    else if (mx===g) h = ((b-r)/d + 2);
+    else             h = ((r-g)/d + 4);
+    h *= 60;
+  }
+  const l = (mx+mn)/2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2*l - 1));
+  return [h, s, l];
+}
+function hslToRgb(h,s,l){
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2*l - 1)) * s;
+  const x = c * (1 - Math.abs(((h/60) % 2) - 1));
+  const m = l - c/2;
+  let r,g,b;
+  if (h<60)       [r,g,b]=[c,x,0];
+  else if (h<120) [r,g,b]=[x,c,0];
+  else if (h<180) [r,g,b]=[0,c,x];
+  else if (h<240) [r,g,b]=[0,x,c];
+  else if (h<300) [r,g,b]=[x,0,c];
+  else            [r,g,b]=[c,0,x];
+  return [ Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255) ];
+}
+const relLum = (r,g,b) => 0.2126*(r/255) + 0.7152*(g/255) + 0.0722*(b/255);
+
+// The 21 tokens in a skin that carry hue. --bg/--surf/--txt are structural.
+const ACCENT_KEYS = ["--red","--orange","--yellow","--green","--teal","--blue",
+  "--purple","--pink","--lime","--kick","--snare","--hhat","--clap","--tom1",
+  "--tom2","--ride","--crash","--perc1","--perc2","--bass","--fx1","--fx2",
+  "--fx3","--fx4","--fx5"];
+
+const HARMONY = ["ANALOGOUS","DUO","MONO","SPREAD"];
+
+/**
+ * Pull a harmonised ink set out of one of the 50 skins.
+ * Colour is the hard part of generative art; this is where the taste already
+ * banked in skins/*.json gets spent.
+ */
+function buildPalette(skinName, harmonyIdx, rand, additive){
+  const skin = PALETTES[skinName];
+  const bg   = hexToRgb(skin["--bg"]   || "#0A0A0C");
+  const surf = hexToRgb(skin["--surf"] || skin["--bg"] || "#141416");
+
+  // unique accents, brightest-first, discarding anything too close to the bg
+  const seen = new Set(), pool = [];
+  for (const k of ACCENT_KEYS){
+    const hx = skin[k]; if (!hx) continue;
+    const key = hx.toLowerCase(); if (seen.has(key)) continue;
+    seen.add(key);
+    const rgb = hexToRgb(hx), hsl = rgbToHsl(...rgb);
+    if (Math.abs(relLum(...rgb) - relLum(...bg)) < 0.045) continue; // invisible on ground
+    pool.push({ rgb, h: hsl[0], s: hsl[1], l: hsl[2] });
+  }
+  if (!pool.length) pool.push({ rgb:[220,220,220], h:0, s:0, l:.86 });
+
+  const harmony = HARMONY[harmonyIdx % HARMONY.length];
+
+  // Collapse near-identical hues into one rung. A skin's 21 accents are often
+  // five hues repeated; picking three of the same hue reads as one muddy ink.
+  const sortedHue = [...pool].sort((a,b) => a.h - b.h);
+  const byHue = [];
+  for (const c of sortedHue){
+    const near = byHue.find(o => {
+      let d = Math.abs(o.h - c.h); if (d > 180) d = 360 - d;
+      return d < 16;
+    });
+    if (!near) byHue.push(c);
+    else if (c.s > near.s) Object.assign(near, c);   // keep the more saturated
+  }
+  let inks = [];
+
+  if (harmony === "ANALOGOUS"){
+    const i = (rand() * byHue.length) | 0;
+    for (let k = 0; k < 3; k++) inks.push(byHue[(i + k) % byHue.length]);
+
+  } else if (harmony === "DUO"){
+    const a = byHue[(rand() * byHue.length) | 0];
+    let best = null, bestD = -1;
+    for (const c of byHue){
+      let d = Math.abs(c.h - a.h); if (d > 180) d = 360 - d;
+      if (d > bestD){ bestD = d; best = c; }
+    }
+    inks = [a, best || a];
+
+  } else if (harmony === "MONO"){
+    const a = pool[(rand() * pool.length) | 0];
+    inks = [
+      a,
+      { rgb: hslToRgb(a.h, a.s * .82, clamp01(a.l + .16)), h:a.h, s:a.s, l:a.l+.16 },
+      { rgb: hslToRgb(a.h, a.s * .55, clamp01(a.l - .16)), h:a.h, s:a.s, l:a.l-.16 },
+    ];
+
+  } else { // SPREAD — maximally separated hues
+    const step = Math.max(1, Math.floor(byHue.length / 4));
+    const off  = (rand() * byHue.length) | 0;
+    for (let k = 0; k < 4; k++) inks.push(byHue[(off + k*step) % byHue.length]);
+  }
+
+  inks = inks.filter(Boolean);
+  if (!inks.length) inks = [{ rgb:[220,220,220], h:0, s:0, l:.86 }];
+
+  // These tokens were authored as UI accents on dark chrome — a different job.
+  // As ink they need more chroma, and on source-over they need enough
+  // lightness to register against the ground at 6% alpha.
+  const floorL = additive ? 0.42 : 0.58;
+  const lifted = inks.map(c => {
+    const hsl = (c.h === undefined) ? rgbToHsl(...c.rgb) : [c.h, c.s, c.l];
+    const s = clamp01(hsl[1] * 1.18 + 0.06);
+    const l = Math.max(hsl[2], floorL);
+    return hslToRgb(hsl[0], s, l);
+  });
+  return { name: skinName, harmony, bg, surf, inks: lifted };
+}
+
+/* ---------- 3. simplex noise (Gustavson 2D) ------------------------------ */
+
+const GRAD2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[1,0],[-1,0],[0,1],[0,-1],[0,1],[0,-1]];
+const F2 = 0.5 * (Math.sqrt(3) - 1);
+const G2 = (3 - Math.sqrt(3)) / 6;
+
+function makeNoise2D(rand){
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--){                 // seeded Fisher–Yates
+    const j = (rand() * (i + 1)) | 0;
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint8Array(512), pm12 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++){ perm[i] = p[i & 255]; pm12[i] = perm[i] % 12; }
+
+  return function noise2(xin, yin){
+    const s = (xin + yin) * F2;
+    let i = Math.floor(xin + s), j = Math.floor(yin + s);
+    const t = (i + j) * G2;
+    const x0 = xin - (i - t), y0 = yin - (j - t);
+    const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+    const x1 = x0 - i1 + G2,      y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2*G2,     y2 = y0 - 1 + 2*G2;
+    i &= 255; j &= 255;
+    let n = 0;
+    let tt = 0.5 - x0*x0 - y0*y0;
+    if (tt > 0){ const g = GRAD2[pm12[i + perm[j]]];             tt *= tt; n += tt*tt*(g[0]*x0 + g[1]*y0); }
+    tt = 0.5 - x1*x1 - y1*y1;
+    if (tt > 0){ const g = GRAD2[pm12[i + i1 + perm[j + j1]]];   tt *= tt; n += tt*tt*(g[0]*x1 + g[1]*y1); }
+    tt = 0.5 - x2*x2 - y2*y2;
+    if (tt > 0){ const g = GRAD2[pm12[i + 1 + perm[j + 1]]];     tt *= tt; n += tt*tt*(g[0]*x2 + g[1]*y2); }
+    return 70 * n;                                // ~[-1,1]
+  };
+}
+
+function makeFbm(noise2, octaves, lacunarity, gain){
+  return function(x, y){
+    let a = 1, f = 1, sum = 0, norm = 0;
+    for (let o = 0; o < octaves; o++){
+      sum  += a * noise2(x * f, y * f);
+      norm += a; a *= gain; f *= lacunarity;
+    }
+    return sum / (norm || 1);
+  };
+}
+
+/* ---------- 4. seed -> parameters ---------------------------------------
+   Bit layout (documented in docs/product/1OF1.md §03):
+     0-7   series      8-15  palette      16-23 palette subset
+     24-47 series params            48-55 finish        56-63 composition
+   ------------------------------------------------------------------------ */
+
+const SERIES = ["FIELD"];   // the other seven land in weeks 3-4
+const SEEDING = ["UNIFORM","GRID","BAND","RING"];
+const COLORMODE = ["INDEX","ANGLE","POSITION"];
+
+function decode(seed, opts){
+  const sp = bits(seed, 24, 24);
+  const cp = bits(seed, 56, 8);
+  const fp = bits(seed, 48, 8);
+  const rand = mulberry32(Number(splitmix64(seed).value & 0xFFFFFFFFn));
+
+  const palIdx = (opts && opts.paletteOverride >= 0)
+    ? opts.paletteOverride
+    : bits(seed, 8, 8) % PALETTE_NAMES.length;
+
+  const additive = (((sp >> 22) & 1) === 1);
+
+  const p = {
+    seed, additive,
+    series:   SERIES[bits(seed, 0, 8) % SERIES.length],
+    palette:  buildPalette(PALETTE_NAMES[palIdx], bits(seed, 16, 8), rand, additive),
+    rand,
+
+    // --- flow ---
+    noiseScale:  lerp(0.55, 2.30, ((sp        ) & 63) / 63),   // field frequency
+    octaves:     2 + (((sp >>  6) & 3)),                       // 2..5
+    warp:        lerp(0.0,  1.35, ((sp >>  8) & 15) / 15),     // domain warp
+
+    // Streamline length as a FRACTION of the canvas, not a step count. Step
+    // size is then fixed in device pixels, so a 240px thumbnail and a 1440px
+    // render trace the same paths at different sampling rates — which is what
+    // makes the thumbnail an honest preview, and therefore what makes scoring
+    // and rejection mean anything at all.
+    pathFrac:    lerp(0.18, 0.78, ((sp >> 12) & 15) / 15),
+    density:     lerp(0.60, 1.85, ((sp >> 20) & 3) / 3),
+
+    // --- ink ---
+    strokeW:     lerp(0.50, 2.20, ((cp      ) & 7) / 7),
+    alpha:       lerp(0.045, 0.150, ((cp >> 3) & 7) / 7),
+    seeding:     SEEDING[(cp >> 6) & 3],
+    colorMode:   COLORMODE[((sp >> 18) & 3) % COLORMODE.length],
+
+    // --- finish ---
+    grain:       lerp(0.012, 0.042, ((fp      ) & 7) / 7),
+    vignette:    lerp(0.08,  0.30,  ((fp >> 3) & 3) / 3),
+    aberration:  lerp(0.0,   1.6,   ((fp >> 5) & 7) / 7),
+  };
+
+  // Additive accumulation blows out fast — pull the per-stroke alpha back.
+  if (p.additive) p.alpha *= 0.55;
+  return p;
+}
+
+// Step size in device pixels. Constant across every render size.
+const STEP_PX = 1.35;
+// Streamlines at density 1.0. Not scaled by area — see pathFrac above.
+const BASE_LINES = 9000;
+
+/* ---------- 5. FIELD ------------------------------------------------------
+   Curl of an fBm potential gives a divergence-free field: streamlines swirl
+   and never converge to points, which is what reads as smoke or ink rather
+   than as "particles".
+   -------------------------------------------------------------------------*/
+
+// Quiet zones: the top 22% and bottom 18% sit under the clock and the dock.
+// Bias seeding away from them so the composition leaves room for the UI,
+// rather than fixing it later with a scrim.
+const Q_TOP = 0.22, Q_BOT = 0.18;
+function zoneWeight(ny){
+  if (ny < Q_TOP)     return lerp(0.28, 1.0, ny / Q_TOP);
+  if (ny > 1 - Q_BOT) return lerp(1.0, 0.30, (ny - (1 - Q_BOT)) / Q_BOT);
+  return 1.0;
+}
+
+function paintGround(ctx, p, w, h){
+  const [br,bg,bb] = p.palette.bg, [sr,sg,sb] = p.palette.surf;
+  const grd = ctx.createLinearGradient(0, 0, w * 0.35, h);
+  grd.addColorStop(0, `rgb(${br},${bg},${bb})`);
+  grd.addColorStop(1, `rgb(${Math.round((br+sr)/2)},${Math.round((bg+sg)/2)},${Math.round((bb+sb)/2)})`);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+}
+
+/** Returns a stepper that draws `batch` streamlines per call. */
+function fieldRenderer(ctx, p, w, h){
+  const noise2 = makeNoise2D(p.rand);
+  const fbm    = makeFbm(noise2, p.octaves, 2.02, 0.55);
+  const warpN  = makeNoise2D(p.rand);
+
+  const mn     = Math.min(w, h);
+  const scale  = p.noiseScale / mn * 2.2;
+  const eps    = 1.0;
+  const step   = STEP_PX;                              // device px, size-invariant
+  const pathPx = p.pathFrac * mn;                      // streamline length in px
+  const baseSteps = Math.max(10, Math.round(pathPx / step));
+  // Sub-pixel strokes vanish at thumbnail size, which would break the preview
+  // contract, so the width has a hard floor in device pixels.
+  const swidth = Math.max(0.62, p.strokeW * (mn / 720));
+
+  const total = Math.round(BASE_LINES * p.density);
+
+  function potential(x, y){
+    if (p.warp > 0.001){
+      const wx = warpN(x * scale * 0.55, y * scale * 0.55) * p.warp * 90;
+      const wy = warpN(x * scale * 0.55 + 31.7, y * scale * 0.55 - 12.3) * p.warp * 90;
+      x += wx; y += wy;
+    }
+    return fbm(x * scale, y * scale);
+  }
+  function flow(x, y){
+    const n1 = potential(x, y + eps), n2 = potential(x, y - eps);
+    const n3 = potential(x + eps, y), n4 = potential(x - eps, y);
+    let vx = (n1 - n2), vy = -(n3 - n4);
+    const m = Math.hypot(vx, vy) || 1;
+    return [vx / m, vy / m];
+  }
+
+  function spawn(i){
+    const r = p.rand;
+    let x, y;
+    switch (p.seeding){
+      case "GRID": {
+        const cols = Math.ceil(Math.sqrt(total * (w / h)));
+        const rows = Math.ceil(total / cols);
+        x = ((i % cols) + 0.5) / cols * w + (r() - 0.5) * (w / cols);
+        y = ((Math.floor(i / cols) % rows) + 0.5) / rows * h + (r() - 0.5) * (h / rows);
+        break;
+      }
+      case "BAND": {
+        const c = 0.5 + (r() - 0.5) * 0.18;
+        x = r() * w;
+        y = (c + (r() - 0.5) * 0.42) * h;
+        break;
+      }
+      case "RING": {
+        // A radial bloom, dense at the core and thinning outward — not an
+        // annulus. A hard inner radius reads as a donut hole, which looks
+        // like a mistake rather than a composition.
+        const a  = r() * Math.PI * 2;
+        const rr = Math.pow(r(), 0.55) * 0.52 * Math.min(w, h);
+        x = w / 2 + Math.cos(a) * rr;
+        y = h * 0.47 + Math.sin(a) * rr * 1.35;
+        break;
+      }
+      default:
+        x = r() * w; y = r() * h;
+    }
+    return [x, y];
+  }
+
+  const inks = p.palette.inks;
+  ctx.lineCap  = "round";
+  ctx.lineJoin = "round";
+  ctx.globalCompositeOperation = p.additive ? "lighter" : "source-over";
+
+  let i = 0;
+  return {
+    total,
+    done(){ return i >= total; },
+    progress(){ return i / total; },
+    step(batch){
+      const end = Math.min(total, i + batch);
+      for (; i < end; i++){
+        let [x, y] = spawn(i);
+
+        // Rejection-sample against the quiet-zone weighting.
+        let guard = 0;
+        while (p.rand() > zoneWeight(y / h) && guard++ < 4){ [x, y] = spawn(i); }
+
+        let ink;
+        if (p.colorMode === "INDEX")        ink = inks[i % inks.length];
+        else if (p.colorMode === "POSITION")ink = inks[Math.floor((y / h) * inks.length) % inks.length];
+        else                                ink = inks[0];
+
+        const steps = Math.round(baseSteps * (0.45 + p.rand() * 0.55));
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        let drawn = 0;
+
+        for (let s = 0; s < steps; s++){
+          const [vx, vy] = flow(x, y);
+          x += vx * step; y += vy * step;
+          if (x < -40 || y < -40 || x > w + 40 || y > h + 40) break;
+          ctx.lineTo(x, y);
+          drawn++;
+        }
+        // A round cap on a 2-segment path is a dot, and a field full of dots
+        // reads as sensor dust. Only stroke paths long enough to be a line.
+        if (drawn < 8) continue;
+
+        if (p.colorMode === "ANGLE"){
+          const [vx, vy] = flow(x, y);
+          const a = (Math.atan2(vy, vx) + Math.PI) / (Math.PI * 2);
+          ink = inks[Math.floor(a * inks.length) % inks.length];
+        }
+        // Taper alpha toward the quiet zones as well as the seeding bias.
+        const zw = zoneWeight(y / h);
+        ctx.strokeStyle = `rgba(${ink[0]},${ink[1]},${ink[2]},${p.alpha * (0.55 + 0.45 * zw)})`;
+        ctx.lineWidth   = swidth * (0.6 + p.rand() * 0.8);
+        ctx.stroke();
+      }
+      if (i >= total) ctx.globalCompositeOperation = "source-over";
+    }
+  };
+}
+
+/* ---------- 6. finish pass -----------------------------------------------
+   Raw algorithmic output looks like a screensaver. This is the difference
+   between "generated" and "printed".
+   -------------------------------------------------------------------------*/
+
+// 8x8 ordered Bayer, normalised to [-0.5, 0.5] — kills OLED gradient banding.
+const BAYER8 = (() => {
+  const m = [
+    [ 0,32, 8,40, 2,34,10,42],[48,16,56,24,50,18,58,26],
+    [12,44, 4,36,14,46, 6,38],[60,28,52,20,62,30,54,22],
+    [ 3,35,11,43, 1,33, 9,41],[51,19,59,27,49,17,57,25],
+    [15,47, 7,39,13,45, 5,37],[63,31,55,23,61,29,53,21]];
+  const out = new Float32Array(64);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) out[y*8+x] = m[y][x] / 64 - 0.5;
+  return out;
+})();
+
+function finish(ctx, p, w, h){
+  const img  = ctx.getImageData(0, 0, w, h);
+  const d    = img.data;
+  const src  = p.aberration > 0.02 ? new Uint8ClampedArray(d) : null;
+  const rand = mulberry32(Number(splitmix64(p.seed ^ 0xABCDn).value & 0xFFFFFFFFn));
+
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.hypot(cx, cy);
+  const ab = p.aberration * (Math.min(w, h) / 720);
+
+  for (let y = 0; y < h; y++){
+    const row = y * w;
+    const dy  = (y - cy) / maxR;
+
+    // Quiet-zone falloff. Biasing where streamlines *start* isn't enough —
+    // a long streamline wanders into the clock afterwards. This is the
+    // guarantee: the top and bottom always fall away, so a white clock and a
+    // row of icons always have somewhere to sit. Reads as natural falloff
+    // rather than as a scrim because it multiplies into an already-dark ground.
+    const ny = y / h;
+    let scrim = 1;
+    if (ny < Q_TOP){
+      const t = ny / Q_TOP;              scrim = lerp(0.24, 1.00, t*t*(3-2*t));
+    } else if (ny > 1 - Q_BOT){
+      const t = (ny - (1 - Q_BOT)) / Q_BOT; scrim = lerp(1.00, 0.36, t*t*(3-2*t));
+    }
+
+    for (let x = 0; x < w; x++){
+      const i  = (row + x) * 4;
+      const dx = (x - cx) / maxR;
+      const r2 = dx*dx + dy*dy;
+
+      let R = d[i], G = d[i+1], B = d[i+2];
+
+      // chromatic aberration — radial, strongest at the corners
+      if (src){
+        const off = ab * r2;
+        const rx = clamp(Math.round(x + dx * off * maxR / 40), 0, w-1);
+        const ry = clamp(Math.round(y + dy * off * maxR / 40), 0, h-1);
+        const bx = clamp(Math.round(x - dx * off * maxR / 40), 0, w-1);
+        const by = clamp(Math.round(y - dy * off * maxR / 40), 0, h-1);
+        R = src[(ry * w + rx) * 4];
+        B = src[(by * w + bx) * 4 + 2];
+      }
+
+      // vignette — off-centre, so it reads as a lens not a filter
+      const v = (1 - p.vignette * clamp01((r2 - 0.10) / 0.90)) * scrim;
+      R *= v; G *= v; B *= v;
+
+      // grain
+      const g = (rand() - 0.5) * 255 * p.grain;
+      R += g; G += g; B += g;
+
+      // dither before the implicit 8-bit quantise
+      const bd = BAYER8[((y & 7) << 3) | (x & 7)];
+      d[i]   = clamp(R + bd, 0, 255);
+      d[i+1] = clamp(G + bd, 0, 255);
+      d[i+2] = clamp(B + bd, 0, 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/* ---------- 7. scoring ---------------------------------------------------
+   The user should never be shown a bad one. Score small, reject, reroll.
+   -------------------------------------------------------------------------*/
+
+function score(ctx, w, h){
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let sum = 0, sum2 = 0, n = 0;
+  let qSum = 0, qSum2 = 0, qN = 0;
+  const topEnd = Math.floor(h * Q_TOP), botStart = Math.floor(h * (1 - Q_BOT));
+
+  for (let y = 0; y < h; y++){
+    const inQuiet = (y < topEnd || y >= botStart);
+    for (let x = 0; x < w; x++){
+      const i = (y * w + x) * 4;
+      const L = relLum(d[i], d[i+1], d[i+2]);
+      sum += L; sum2 += L*L; n++;
+      if (inQuiet){ qSum += L; qSum2 += L*L; qN++; }
+    }
+  }
+  const mean  = sum / n;
+  const std   = Math.sqrt(Math.max(0, sum2/n - mean*mean));
+  const qMean = qSum / (qN || 1);
+  const qStd  = Math.sqrt(Math.max(0, qSum2/(qN||1) - qMean*qMean));
+
+  // interest: is anything happening at all?
+  const interest = clamp01(std / 0.140);
+  // calm: can a white clock sit on the top and icons on the bottom?
+  // Weighted toward how BRIGHT the quiet zones are, not how busy. White text
+  // with a shadow sits happily over dark texture; it dies over a pale wash.
+  // Scoring busyness first was rejecting pieces that read perfectly well.
+  const calm     = 0.62 * clamp01(1 - qMean / 0.26)
+                 + 0.38 * clamp01(1 - qStd  / 0.130);
+  // exposure: a phone wallpaper wants to be dark — an OLED panel and a
+  // legible home screen both want it. Black and blown-out are the failures,
+  // not "not bright enough". Target sits low deliberately.
+  const exposure = clamp01(1 - Math.abs(mean - 0.16) / 0.22);
+
+  const total = 0.35*interest + 0.45*calm + 0.20*exposure;
+  return { total, interest, calm, exposure, mean, std, qStd, qMean };
+}
+
+/* ---------- 8. orchestration --------------------------------------------- */
+
+const PRESETS = { thumb:[240,520], preview:[720,1560], full:[1440,3120] };
+
+// Rejection threshold. Calibrated against a 48-piece sample: mean score 0.745,
+// so 0.55 passed 98% and gated nothing. 0.68 rejects roughly the bottom
+// quartile — the murky, low-contrast ones. Re-derive this whenever the art
+// changes; a gate tuned to the old output is not a gate.
+const PASS = 0.68;
+
+function renderSync(canvas, seed, w, h, opts){
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  const p = decode(seed, opts);
+  paintGround(ctx, p, w, h);
+  const r = fieldRenderer(ctx, p, w, h);
+  r.step(r.total);
+  finish(ctx, p, w, h);
+  return p;
+}
+
+function renderProgressive(canvas, seed, w, h, opts, onProgress){
+  return new Promise(resolve => {
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    const p = decode(seed, opts);
+    paintGround(ctx, p, w, h);
+    const r = fieldRenderer(ctx, p, w, h);
+    // Keep each frame under ~16ms of work so the UI stays alive.
+    const batch = Math.max(12, Math.round(1400 / Math.sqrt(p.maxSteps)));
+    function tick(){
+      const t0 = performance.now();
+      while (!r.done() && performance.now() - t0 < 14) r.step(batch);
+      onProgress && onProgress(r.progress());
+      if (!r.done()) requestAnimationFrame(tick);
+      else { finish(ctx, p, w, h); onProgress && onProgress(1); resolve(p); }
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+/* ---------- 9. UI --------------------------------------------------------- */
+
+const $ = s => document.querySelector(s);
+const view = $("#view"), grid = $("#grid");
+const scratch = document.createElement("canvas");
+
+let current = { seed: randomSeed64(), params: null, score: null };
+let kept = JSON.parse(localStorage.getItem("1of1.kept") || "[]");
+let busy = false;
+
+for (let i = 0; i < PALETTE_NAMES.length; i++){
+  const o = document.createElement("option");
+  o.value = i; o.textContent = "palette: " + PALETTE_NAMES[i];
+  $("#palIn").appendChild(o);
+}
+
+const paletteOverride = () => parseInt($("#palIn").value, 10);
+const opts = () => ({ paletteOverride: paletteOverride() });
+
+function setProgress(t){ $("#prog i").style.width = (t*100).toFixed(1) + "%"; }
+
+function scoreSeed(seed){
+  const [tw, th] = PRESETS.thumb;
+  renderSync(scratch, seed, tw, th, opts());
+  return score(scratch.getContext("2d", { willReadFrequently:true }), tw, th);
+}
+
+/** The real app's issue() — reroll until something passes, then show it. */
+function issueSeed(maxTries){
+  if (!$("#autoRej").checked) {
+    const s = randomSeed64();
+    return { seed: s, score: null, tries: 1 };
+  }
+  let best = null, bestSeed = null;
+  for (let t = 1; t <= maxTries; t++){
+    const s  = randomSeed64();
+    const sc = scoreSeed(s);
+    if (!best || sc.total > best.total){ best = sc; bestSeed = s; }
+    if (sc.total >= PASS) return { seed: s, score: sc, tries: t };
+  }
+  return { seed: bestSeed, score: best, tries: maxTries };
+}
+
+function paintSerial(p, sc){
+  const bitsStr = hex64(p.seed);
+  $("#serial").innerHTML =
+    `1OF1 · <b>#${bitsStr.slice(0,8)}</b>·${bitsStr.slice(8)} · <b>${p.series}</b> · ` +
+    `${p.palette.name.toUpperCase()} · ${p.palette.harmony} · ${p.seeding} · ` +
+    `${p.colorMode}${p.additive ? " · ADD" : ""} · ${view.width}×${view.height}`;
+
+  const box = $("#scorebox");
+  if (!sc){ box.innerHTML = ""; return; }
+  const cls = sc.total >= PASS ? "good" : "poor";
+  box.innerHTML =
+    `<span class="pill ${cls}">SCORE <b>${sc.total.toFixed(2)}</b></span>` +
+    `<span class="pill">calm <b>${sc.calm.toFixed(2)}</b></span>` +
+    `<span class="pill">interest <b>${sc.interest.toFixed(2)}</b></span>` +
+    `<span class="pill">exposure <b>${sc.exposure.toFixed(2)}</b></span>`;
+}
+
+async function showSeed(seed, res){
+  if (busy) return;
+  busy = true;
+  $("#bReroll").disabled = true;
+  const [w, h] = PRESETS[res || "preview"];
+  const t0 = performance.now();
+  const p = await renderProgressive(view, seed, w, h, opts(), setProgress);
+  const ms = Math.round(performance.now() - t0);
+
+  const sc = score(view.getContext("2d", { willReadFrequently:true }), w, h);
+  current = { seed, params: p, score: sc };
+  paintSerial(p, sc);
+  $("#stats").textContent =
+    `${w}×${h} · ${ms}ms · ${kept.length} kept`;
+  $("#bKeep").textContent = kept.includes(hex64(seed)) ? "Kept ✓" : "Keep";
+  setProgress(0);
+  $("#bReroll").disabled = false;
+  busy = false;
+  $("#seedIn").value = hex64(seed);
+}
+
+function reroll(){
+  if (busy) return;
+  const r = issueSeed(12);
+  if (r.tries > 1) console.log(`issued after ${r.tries} attempts`);
+  showSeed(r.seed);
+}
+
+function toggleKeep(){
+  const k = hex64(current.seed);
+  const i = kept.indexOf(k);
+  if (i >= 0) kept.splice(i, 1); else kept.push(k);
+  localStorage.setItem("1of1.kept", JSON.stringify(kept));
+  $("#bKeep").textContent = kept.includes(k) ? "Kept ✓" : "Keep";
+  $("#stats").textContent = $("#stats").textContent.replace(/\d+ kept/, kept.length + " kept");
+}
+
+/* ---- contact sheet: the actual go/no-go instrument ---------------------- */
+
+let sheetOn = false;
+async function buildSheet(n){
+  sheetOn = true;
+  $("#sheet").classList.add("on");
+  $("#single").classList.add("off");
+  grid.innerHTML = "";
+  const [w, h] = PRESETS.thumb;
+  let passed = 0;
+
+  for (let i = 0; i < n; i++){
+    const seed = randomSeed64();
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const c = document.createElement("canvas");
+    cell.appendChild(c);
+    grid.appendChild(cell);
+
+    const p  = renderSync(c, seed, w, h, opts());
+    const sc = score(c.getContext("2d", { willReadFrequently:true }), w, h);
+    if (sc.total >= PASS) passed++; else cell.classList.add("rejected");
+
+    const k = hex64(seed);
+    if (kept.includes(k)) cell.classList.add("kept");
+
+    const tag = document.createElement("div");
+    tag.className = "tag mono";
+    tag.innerHTML = `<span>${k.slice(0,6)}</span><b>${sc.total.toFixed(2)}</b>`;
+    cell.appendChild(tag);
+
+    const keepBtn = document.createElement("div");
+    keepBtn.className = "keep"; keepBtn.textContent = "✓";
+    keepBtn.onclick = e => {
+      e.stopPropagation();
+      const idx = kept.indexOf(k);
+      if (idx >= 0) kept.splice(idx, 1); else kept.push(k);
+      localStorage.setItem("1of1.kept", JSON.stringify(kept));
+      cell.classList.toggle("kept");
+      $("#stats").textContent = `sheet of ${n} · ${passed} passed (${Math.round(passed/n*100)}%) · ${kept.length} kept`;
+    };
+    cell.appendChild(keepBtn);
+
+    cell.onclick = () => { closeSheet(); showSeed(seed); };
+
+    $("#stats").textContent = `sheet ${i+1}/${n} · ${passed} passed · ${kept.length} kept`;
+    if (i % 3 === 2) await new Promise(r => setTimeout(r, 0));   // keep the tab alive
+  }
+  $("#stats").textContent =
+    `sheet of ${n} · ${passed} passed (${Math.round(passed/n*100)}%) · ${kept.length} kept`;
+}
+function closeSheet(){
+  sheetOn = false;
+  $("#sheet").classList.remove("on");
+  $("#single").classList.remove("off");
+}
+
+/* ---- actions ------------------------------------------------------------ */
+
+$("#bReroll").onclick = reroll;
+$("#bKeep").onclick   = toggleKeep;
+$("#bSheet").onclick  = () => sheetOn ? closeSheet() : buildSheet(24);
+$("#bFull").onclick   = () => showSeed(current.seed, "full");
+$("#bDown").onclick   = () => {
+  view.toBlob(b => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = `1of1-${hex64(current.seed)}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
+};
+$("#seedIn").onchange = e => {
+  const v = e.target.value.trim().replace(/^0x/i, "");
+  if (/^[0-9a-f]{1,16}$/i.test(v)) showSeed(BigInt("0x" + v) & M64);
+};
+$("#palIn").onchange  = () => showSeed(current.seed);
+$("#furnOn").onchange = e => $("#furniture").classList.toggle("on", e.target.checked);
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "r"){ e.preventDefault(); reroll(); }
+  if (k === "s"){ e.preventDefault(); sheetOn ? closeSheet() : buildSheet(24); }
+  if (k === "k"){ e.preventDefault(); toggleKeep(); }
+  if (k === "d"){ e.preventDefault(); $("#bDown").click(); }
+  if (k === "f"){ e.preventDefault(); $("#bFull").click(); }
+  if (k === "g"){ e.preventDefault(); $("#furnOn").click(); }
+});
+
+/* ---- go ------------------------------------------------------------------ */
+$("#passLbl").textContent = PASS.toFixed(2);
+$("#furniture").classList.add("on");
+showSeed(current.seed);
+</script>
+</body>
+</html>
