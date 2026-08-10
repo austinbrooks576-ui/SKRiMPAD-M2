@@ -123,6 +123,38 @@ const TMP = path.join(os.tmpdir(), 'jpfix');
      'numbered like the hardware — pad 1 is bottom left',
      grid.labels.slice(0, 4).join(',') + ' … ' + grid.labels.slice(12).join(','));
 
+  // The grid must be SQUARE AT EVERY SIZE, not just at the one the rest of this
+  // suite happens to run at. A tall phone stretched all sixteen pads into
+  // portrait rectangles while a square desktop window looked perfectly fine,
+  // which is exactly the shape of bug a single-viewport test cannot see.
+  const sizes = [[360, 780], [390, 844], [430, 932], [768, 1024], [1280, 800], [1600, 1000]];
+  const shapes = [];
+  for (const [w, h] of sizes) {
+    await p.setViewportSize({ width: w, height: h });
+    await p.waitForTimeout(160);
+    shapes.push(await p.evaluate((wh) => {
+      const pads = [...document.querySelectorAll('.pad')];
+      const r = pads[0].getBoundingClientRect();
+      const last = pads[15].getBoundingClientRect();
+      const doc = document.documentElement;
+      return {
+        wh, w: Math.round(r.width), h: Math.round(r.height),
+        square: Math.abs(r.width - r.height) <= 2,
+        big: Math.min(r.width, r.height) >= 44,
+        onScreen: last.bottom <= innerHeight + 1 && last.right <= innerWidth + 1,
+        noHScroll: doc.scrollWidth <= doc.clientWidth + 1,
+      };
+    }, w + 'x' + h));
+  }
+  ok(shapes.every((s2) => s2.square), 'the pads are square at every screen size',
+     shapes.map((s2) => s2.wh + ':' + s2.w + 'x' + s2.h).join('  '));
+  ok(shapes.every((s2) => s2.big), 'and never smaller than a fingertip',
+     'smallest ' + Math.min(...shapes.map((s2) => Math.min(s2.w, s2.h))) + 'px');
+  ok(shapes.every((s2) => s2.onScreen && s2.noHScroll),
+     'the whole grid fits, with nothing scrolling sideways');
+  await p.setViewportSize({ width: 900, height: 900 });
+  await p.waitForTimeout(160);
+
   // ---- identification ------------------------------------------------------
   const ident = await p.evaluate(() => {
     const A = window.__jp;
