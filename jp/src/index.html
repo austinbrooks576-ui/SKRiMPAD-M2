@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<title>SKRiMPAD JP</title>
+<meta name="theme-color" content="#07080C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* ONE DEVICE, ONE SCREEN.
+   This app has exactly one instrument in front of it, so it has exactly one
+   layout: the grid, and a rail of the things you reach for while your other
+   hand is on the pads. There is nothing to navigate, because there is nowhere
+   else to be. */
+:root{
+  --bg:#07080C; --panel:#10131B; --line:rgba(255,255,255,.09);
+  --txt:#EAF0F6; --dim:#7D8798; --acc:#4BE3C8; --rec:#FF3B5C; --warm:#FFB454;
+  --fs-xs:clamp(9px,1.5vw,11px); --fs-sm:clamp(11px,1.8vw,13px);
+  --fs-md:clamp(13px,2.2vw,16px); --fs-lg:clamp(17px,3vw,22px);
+  --sp:clamp(6px,1.2vw,12px);
+  --hit:44px;
+  --e1:0 1px 2px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.35);
+  --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
+  --lip:inset 0 1px 0 rgba(255,255,255,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
+  font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:var(--fs-md);letter-spacing:.02em;}
+button,input,select{font-family:inherit;color:inherit;}
+button{border:0;background:none;cursor:pointer;}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+
+#app{position:fixed;inset:0;display:flex;flex-direction:column;
+  padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
+          max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
+  gap:var(--sp);}
+
+/* ---------- top bar ---------- */
+#top{display:flex;align-items:center;gap:var(--sp);min-height:34px;flex:0 0 auto;}
+#brand{font-weight:600;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);}
+#brand b{color:var(--acc);}
+#link{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);
+  color:var(--dim);background:none;padding:5px 9px;border:1px solid var(--line);border-radius:999px;
+  min-height:26px;}
+#link .dot{width:7px;height:7px;border-radius:50%;background:#54607A;flex:0 0 auto;}
+#link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
+#link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
+
+/* ---------- the grid ---------- */
+#gridwrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);
+  gap:clamp(5px,1vw,12px);width:100%;height:100%;
+  /* Square, and as big as the space allows. A pad grid that is not square does
+     not match the thing under your hands, and the whole point of a dedicated
+     app is that the screen and the hardware agree. */
+  max-width:min(100%,calc(100vh - 210px));max-height:100%;aspect-ratio:1;margin:0 auto;}
+.pad{position:relative;border-radius:clamp(8px,1.4vw,16px);border:1px solid rgba(255,255,255,.08);
+  overflow:hidden;box-shadow:var(--e1),var(--lip);
+  background:linear-gradient(160deg,hsl(var(--h) 62% 26%),hsl(var(--h) 58% 15%));
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:clamp(5px,1vw,10px);text-align:left;transition:transform .05s;}
+.pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.45);font-variant-numeric:tabular-nums;}
+.pad .t{font-size:var(--fs-sm);font-weight:600;line-height:1.15;word-break:break-word;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);}
+.pad .t.empty{color:rgba(255,255,255,.3);font-weight:400;}
+/* The strike glow is a separate layer so lighting a pad never touches layout —
+   an opacity change on a child cannot reflow anything. */
+.pad i{position:absolute;inset:0;background:hsl(var(--h) 90% 62%);opacity:0;pointer-events:none;
+  transition:opacity .18s ease-out;}
+.pad.hit i{opacity:.55;transition:none;}
+.pad.held{border-color:hsl(var(--h) 90% 65%);box-shadow:0 0 0 2px hsl(var(--h) 90% 60% / .5),var(--e1);}
+.pad.latch{border-color:var(--warm);box-shadow:0 0 0 2px rgba(255,180,84,.55),var(--e1);}
+.pad.loop::after{content:'';position:absolute;right:6px;top:6px;width:7px;height:7px;
+  border-radius:50%;background:var(--rec);box-shadow:0 0 7px var(--rec);}
+.pad.arm{animation:armpulse 1s ease-in-out infinite;}
+@keyframes armpulse{0%,100%{box-shadow:0 0 0 2px rgba(75,227,200,.25),var(--e1);}
+  50%{box-shadow:0 0 0 4px rgba(75,227,200,.75),var(--e1);}}
+.pad:active{transform:scale(.985);}
+
+/* ---------- rails ---------- */
+.rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);
+  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+.chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
+.chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
+.chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
+.chip.warm.on{background:var(--warm);border-color:var(--warm);color:#241300;}
+.chip:disabled{opacity:.4;}
+.lab{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.12em;margin-right:2px;}
+#tempo{width:52px;min-height:28px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;}
+#loopbar{flex:1 1 90px;height:6px;min-width:70px;border-radius:99px;background:rgba(255,255,255,.08);
+  overflow:hidden;}
+#loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+
+/* ---------- sheets ---------- */
+.scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:40;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(560px,94vw);max-height:min(84vh,760px);background:var(--panel);
+  border:1px solid var(--line);border-radius:16px;box-shadow:var(--e2);
+  display:flex;flex-direction:column;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;z-index:50;}
+.sheet.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+.sheet header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.sheet h2{margin:0;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.sheet .body{overflow:auto;padding:12px 14px;-webkit-overflow-scrolling:touch;}
+.x{margin-left:auto;min-width:34px;min-height:34px;border-radius:9px;border:1px solid var(--line);
+  color:var(--dim);font-size:16px;line-height:1;}
+.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.row:last-child{border-bottom:0;}
+.row .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--fs-sm);}
+.row .sub{font-size:var(--fs-xs);color:var(--dim);}
+.dim{color:var(--dim);font-size:var(--fs-xs);line-height:1.5;}
+#drop{margin:0 0 10px;padding:20px 10px;border:1px dashed var(--line);border-radius:12px;
+  text-align:center;color:var(--dim);font-size:var(--fs-sm);cursor:pointer;}
+#drop.hot{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.07);}
+#file{display:none;}
+#toast{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);background:rgba(16,19,27,.96);border:1px solid var(--line);
+  border-radius:11px;padding:9px 14px;font-size:var(--fs-sm);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:80;max-width:92vw;text-align:center;box-shadow:var(--e2);}
+#toast.on{opacity:1;}
+.grp{margin:0 0 16px;}
+.grp h3{margin:0 0 6px;font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.opts{display:flex;flex-wrap:wrap;gap:6px;}
+@media (max-width:430px){ .rail{gap:5px;} .chip{padding:0 9px;} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <span id="brand">SKRiMPAD <b>JP</b></span>
+    <button id="link" aria-live="polite"><span class="dot"></span><span id="linktxt">looking for your JP mini…</span></button>
+    <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="setbtn" aria-label="Setup and help">⚙</button>
+  </div>
+
+  <div id="gridwrap"><div id="grid" role="group" aria-label="Sixteen pads"></div></div>
+
+  <div class="rail">
+    <span class="lab">PRESET</span>
+    <button class="chip sm" id="bankdn" aria-label="Previous preset">‹</button>
+    <button class="chip sm" id="bank">1</button>
+    <button class="chip sm" id="bankup" aria-label="Next preset">›</button>
+    <span class="lab">BPM</span>
+    <input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo">
+    <button class="chip sm" id="tap">TAP</button>
+    <button class="chip sm" id="curve">Linear</button>
+  </div>
+
+  <div class="rail">
+    <button class="chip" id="repeat">REPEAT</button>
+    <button class="chip sm" id="rate">1/16</button>
+    <button class="chip sm warm" id="latch">LATCH</button>
+    <button class="chip sm" id="arp">ARP</button>
+  </div>
+
+  <div class="rail">
+    <button class="chip rec" id="rec" aria-label="Record">●</button>
+    <button class="chip" id="play" aria-label="Play">▶</button>
+    <button class="chip" id="pause" aria-label="Pause">❚❚</button>
+    <button class="chip" id="stop" aria-label="Stop">■</button>
+    <div id="loopbar"><i></i></div>
+    <button class="chip sm" id="undo">UNDO</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="sheet" id="lib" role="dialog" aria-modal="true" aria-label="Sounds">
+  <header><h2>SOUNDS</h2><span class="sub" id="libcount"></span><button class="x" id="libx">✕</button></header>
+  <div class="body">
+    <div id="drop">DROP AUDIO OR A .ZIP PACK HERE<br><span class="dim">or tap to browse</span></div>
+    <input type="file" id="file" multiple accept="audio/*,.zip,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff">
+    <div id="list"></div>
+  </div>
+</div>
+
+<div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
+  <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
+  <div class="body" id="setupbody"></div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import { createEngine } from '../../ultimate/src/core/engine.js';
+import { createMidiIO } from '../../ultimate/src/core/midi-io.js';
+import { createLibrary } from '../../ultimate/src/core/library.js';
+import { openMenu, closeMenu, onLongPress } from '../../ultimate/src/core/menu.js';
+import { importZip, isZip } from './core/zip.js';
+import {
+  PADS, PRESETS, RATES, CURVES, CURVE_IDS, FACTORY_NOTES,
+  identify, createDeviceMap, padLabel,
+} from './core/jpmini.js';
+import { createRepeat, ARP_MODES, ARP_IDS } from './core/repeat.js';
+import { createLooper } from './core/looper.js';
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------------------------------------------------------------------------
+// STATE
+// ---------------------------------------------------------------------------
+const LS = 'skrimpad.jp.state.v1';
+const DEFAULT = {
+  bpm: 100, preset: 0, curve: 'linear',
+  rate: 4, swing: 0, gate: 0.5, arp: 'off', latch: false, repeat: false,
+  // slots[preset][pad] = { id, name, gain, pitch, mode }
+  slots: Array.from({ length: PRESETS }, () => Array.from({ length: PADS }, () => null)),
+};
+let S = load();
+function load() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS) || 'null');
+    if (!v || typeof v !== 'object') return structuredClone(DEFAULT);
+    const out = structuredClone(DEFAULT);
+    ['bpm', 'preset', 'curve', 'rate', 'swing', 'gate', 'arp'].forEach((k) => {
+      if (v[k] != null) out[k] = v[k];
+    });
+    out.latch = !!v.latch; out.repeat = !!v.repeat;
+    if (Array.isArray(v.slots)) {
+      v.slots.slice(0, PRESETS).forEach((p, i) => {
+        if (!Array.isArray(p)) return;
+        p.slice(0, PADS).forEach((sl, k) => { if (sl && sl.id) out.slots[i][k] = sl; });
+      });
+    }
+    return out;
+  } catch (e) { return structuredClone(DEFAULT); }
+}
+let saveT = 0;
+function save() {
+  clearTimeout(saveT);
+  saveT = setTimeout(() => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} }, 350);
+}
+const slot = (i, p) => S.slots[(p == null ? S.preset : p)][i];
+
+// ---------------------------------------------------------------------------
+// AUDIO
+// ---------------------------------------------------------------------------
+// Every assigned sample is decoded and held in `warm`, so this is a Map lookup
+// and never a decode. The scheduler calls it with an exact future start time —
+// anything that could await here would hand that time back to the event loop
+// and land the note late.
+const eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+const warm = new Map();          // decoded buffers, kept hot for the assigned pads
+const lib = createLibrary({
+  ctx: () => (eng.init(), eng.ctx),
+  onChange: () => { renderList(); },
+  onError: (kind, name) => toast(kind === 'storage' ? 'no room to store ' + name : 'could not read ' + name),
+});
+
+// A pad's voice. Sixteen pads and one synth voice each, so an unassigned pad
+// still MAKES A SOUND — a grid of silent squares teaches nobody anything, and a
+// controller you have just plugged in has to prove it is working before you
+// have imported a single file.
+const HUES = [4, 24, 44, 64, 96, 128, 152, 168, 186, 202, 218, 238, 262, 286, 310, 334];
+const DRUMS = ['kick', 'snare', 'hat', 'clap', 'tom', 'rim', 'perc', 'cym',
+               'kick', 'snare', 'hat', 'clap', 'tom', 'rim', 'perc', 'cym'];
+function voiceFor(i) {
+  const sl = slot(i);
+  const base = {
+    kind: sl && sl.id ? 'sample' : 'drum',
+    drum: DRUMS[i % DRUMS.length],
+    note: 36 + i, gain: 1, attack: 0.001, decay: 0.4, sustain: 0, release: 0.12,
+    cutoff: 0.9, res: 0.05, drive: 0.1, space: 0.05, spread: 0, pan: 0, tune: 0,
+    wave: 'sine',
+  };
+  if (sl && sl.id) {
+    base.sampleId = sl.id;
+    base.kind = 'sample';
+    base.tune = sl.pitch || 0;
+    base.gain = sl.gain == null ? 1 : sl.gain;
+    base.decay = 3; base.release = 0.2;
+  }
+  return base;
+}
+
+// ---------------------------------------------------------------------------
+// THE MACHINE
+// ---------------------------------------------------------------------------
+const dev = createDeviceMap();
+let portName = '';
+
+const rep = createRepeat({
+  now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+  bpmFor: () => S.bpm,
+  onHit: (pad, v, at, len, oct) => {
+    strike(pad, v, at, oct, true);
+  },
+});
+
+const loop = createLooper({
+  now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+  bpmFor: () => S.bpm,
+  onFire: (pad, v, at) => strike(pad, v, at, 0, true),
+  onState: (info) => paintTransport(info),
+});
+
+// One place where a pad becomes sound. Everything — a finger on the screen, a
+// pad on the controller, a note-repeat tick, a looper playback — comes through
+// here, so there is exactly one answer to "what does pad 7 do".
+function strike(i, vel, at, oct, fromMachine) {
+  if (i < 0 || i >= PADS) return;
+  eng.init();
+  const v = voiceFor(i);
+  if (oct) v.tune = (v.tune || 0) + oct * 12;
+  eng.play(v, at || 0, Math.max(1, Math.min(127, vel | 0)), i);
+  flash(i);
+  if (!fromMachine) loop.capture(i, vel, 0.25);
+}
+
+// The velocity curve, applied here rather than at every call site. FULL LEVEL
+// is a curve like any other — it is the one that returns 127 whatever you do,
+// which is exactly what the hardware's FULL LEVEL button does.
+function curved(raw) {
+  const f = (CURVES[S.curve] || CURVES.linear).f;
+  return Math.max(1, Math.min(127, Math.round(f(Math.max(0, Math.min(127, raw)) / 127) * 127)));
+}
+
+// A pad went down — from anywhere.
+function padDown(i, rawVel) {
+  const vel = curved(rawVel == null ? 100 : rawVel);
+  // NOTE REPEAT AND ARP OWN THE HIT WHEN THEY ARE ON. Striking once here as
+  // well as letting the repeat fire its first tick double-triggers the attack,
+  // which on a short percussive sample is an audible flam on every single hit.
+  const taken = rep.down(i, vel);
+  if (!taken) strike(i, vel, 0, 0, false);
+  else loop.capture(i, vel, 0.25);
+  paintPads();
+}
+function padUp(i) { rep.up(i); paintPads(); }
+
+// ---------------------------------------------------------------------------
+// THE GRID
+// ---------------------------------------------------------------------------
+const cells = [];
+function buildGrid() {
+  const g = $('#grid');
+  g.innerHTML = '';
+  cells.length = 0;
+  for (let i = 0; i < PADS; i++) {
+    const b = document.createElement('button');
+    b.className = 'pad';
+    b.style.setProperty('--h', HUES[i]);
+    b.dataset.i = i;
+    b.innerHTML = '<i></i><span class="n"></span><span class="t"></span>';
+    // Pointer, not click: a pad has to sound on the way DOWN. A click event
+    // fires on release, which puts the whole press between the hit and the
+    // sound and makes the app feel broken next to the hardware.
+    b.addEventListener('pointerdown', (ev) => {
+      if (ev.button === 2) return;
+      b.setPointerCapture && (() => { try { b.setPointerCapture(ev.pointerId); } catch (e) {} })();
+      // Velocity from where in the pad you hit it: the bottom is loud, the top
+      // is soft, which is how a finger on glass gets dynamics at all.
+      const r = b.getBoundingClientRect();
+      const y = (ev.clientY - r.top) / Math.max(1, r.height);
+      padDown(i, Math.round(46 + y * 81));
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((e) =>
+      b.addEventListener(e, () => padUp(i)));
+    // HOLD A PAD TO PUT A SOUND ON IT — the thing this app is asked for by
+    // name. It is the same menu the right button gives, because it is the same
+    // question, and a phone has no right button.
+    b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); showPadMenu(ev, i); });
+    onLongPress(b, 480, (ev, x, y) => { rep.up(i); openMenu({ x, y, items: padMenu(i), title: 'Pad ' + padLabel(i) }); });
+    g.appendChild(b);
+    cells.push(b);
+  }
+  paintPads();
+}
+
+function paintPads() {
+  const { held, latched } = rep.lit();
+  const used = loop.padsUsed();
+  for (let i = 0; i < PADS; i++) {
+    const b = cells[i], sl = slot(i);
+    const t = b.querySelector('.t');
+    const nm = sl && sl.name ? sl.name : DRUMS[i % DRUMS.length].toUpperCase();
+    if (t.textContent !== nm) t.textContent = nm;
+    t.classList.toggle('empty', !(sl && sl.id));
+    const lab = padLabel(i);
+    const n = b.querySelector('.n');
+    if (n.textContent !== lab) n.textContent = lab;
+    b.classList.toggle('held', held.includes(i));
+    b.classList.toggle('latch', latched.includes(i));
+    b.classList.toggle('loop', used.includes(i));
+    b.classList.toggle('arm', learnPad === i);
+  }
+}
+
+const flashT = new Array(PADS).fill(0);
+function flash(i) {
+  const b = cells[i]; if (!b) return;
+  b.classList.add('hit');
+  clearTimeout(flashT[i]);
+  flashT[i] = setTimeout(() => b.classList.remove('hit'), 60);
+}
+
+// ---------------------------------------------------------------------------
+// PAD MENU — hold, or right-click
+// ---------------------------------------------------------------------------
+function soundRows(onPick) {
+  const items = lib.items;
+  if (!items.length) return [{ label: 'No sounds yet', disabled: true }];
+  return items.map((it) => ({
+    label: it.name, hint: it.from || it.kind || '',
+    run: () => onPick(it.id, it.name),
+  }));
+}
+function padMenu(i) {
+  const sl = slot(i);
+  return [
+    { head: 'Pad ' + padLabel(i) + (sl && sl.name ? ' — ' + sl.name : '') },
+    { label: 'Put a sound on it', items: () => soundRows((id, name) => assign(i, id, name)) },
+    { label: 'Take its sound off', disabled: !(sl && sl.id), run: () => assign(i, null) },
+    { sep: 1 },
+    { label: 'Louder', disabled: !(sl && sl.id), run: () => tweak(i, 'gain', 0.12) },
+    { label: 'Quieter', disabled: !(sl && sl.id), run: () => tweak(i, 'gain', -0.12) },
+    { label: 'Pitch up', disabled: !(sl && sl.id), run: () => tweak(i, 'pitch', 1) },
+    { label: 'Pitch down', disabled: !(sl && sl.id), run: () => tweak(i, 'pitch', -1) },
+    { sep: 1 },
+    { label: 'Clear it from the loop', disabled: !loop.padsUsed().includes(i),
+      run: () => { loop.clearPad(i); paintPads(); toast('pad ' + padLabel(i) + ' cleared from the loop'); } },
+    { label: 'Teach the grid this pad', hint: 'then hit it',
+      run: () => startLearn(i) },
+  ];
+}
+function showPadMenu(ev, i) {
+  openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: 'Pad ' + padLabel(i) });
+}
+function assign(i, id, name) {
+  S.slots[S.preset][i] = id ? { id, name: name || '', gain: 1, pitch: 0 } : null;
+  save(); warmUp(); paintPads();
+  toast(id ? name + ' → pad ' + padLabel(i) : 'pad ' + padLabel(i) + ' cleared');
+}
+function tweak(i, k, d) {
+  const sl = slot(i); if (!sl) return;
+  if (k === 'gain') sl.gain = Math.max(0.05, Math.min(2, (sl.gain == null ? 1 : sl.gain) + d));
+  else sl.pitch = Math.max(-24, Math.min(24, (sl.pitch || 0) + d));
+  save(); strike(i, 110, 0, 0, true);
+  toast(k === 'gain' ? 'gain ' + Math.round(sl.gain * 100) + '%' : 'pitch ' + (sl.pitch > 0 ? '+' : '') + sl.pitch);
+}
+
+// Keep every assigned sample decoded and in memory. A pad that has to wait for
+// a decode is a pad that misses the beat, and there are only sixteen of them.
+async function warmUp() {
+  const ids = new Set();
+  S.slots.forEach((p) => p.forEach((sl) => { if (sl && sl.id) ids.add(sl.id); }));
+  lib.repin([...ids]);
+  for (const id of ids) {
+    if (warm.has(id)) continue;
+    const buf = await lib.bufferFor(id);
+    if (buf) warm.set(id, buf);
+  }
+  for (const id of [...warm.keys()]) if (!ids.has(id)) warm.delete(id);
+}
+
+// ---------------------------------------------------------------------------
+// THE CONTROLLER
+// ---------------------------------------------------------------------------
+let learnPad = null;             // which pad is waiting to be taught
+let sweep = -1;                  // full 16-pad sweep, or -1
+
+function startLearn(i) {
+  learnPad = i; sweep = -1; paintPads();
+  toast('hit pad ' + padLabel(i) + ' on the JP mini');
+}
+function startSweep() {
+  sweep = 0; learnPad = 0; paintPads();
+  toast('hit all sixteen pads in order, starting with pad 1 (bottom left)');
+}
+
+const io = createMidiIO({
+  onEvent: (e) => {
+    // TRANSPORT FIRST. A transport message must never be able to fall through
+    // and be read as a pad, or a board whose stop button sends a note would
+    // stop the loop AND fire a sample every time.
+    if (e.transport) { transport(e.transport); return; }
+    const nm = (e.port && e.port.name) || '';
+    const id = identify(nm);
+    if (!id.jp) {
+      if (id.sibling) note('That is a ' + id.sibling + ' — this app is built for the JP mini');
+      return;
+    }
+    portName = nm;
+    const cmd = e.cmd, ch = e.chan;
+    const on = cmd === 0x90 && e.d2 > 0;
+    const off = cmd === 0x80 || (cmd === 0x90 && e.d2 === 0);
+
+    if (on && learnPad != null) {
+      dev.teach(portName, S.preset, learnPad, e.d1, ch);
+      if (sweep >= 0 && sweep < PADS - 1) { sweep++; learnPad = sweep; }
+      else { learnPad = null; sweep = -1; toast('grid learned'); renderSetup(); }
+      paintPads();
+      return;
+    }
+    if (on || off) {
+      const i = dev.padFor(portName, S.preset, e.d1, ch);
+      if (i < 0) return;
+      on ? padDown(i, e.d2) : padUp(i);
+      return;
+    }
+    // PROGRAM CHANGE is how the unit says "I am on another preset now". It is
+    // not a mapping decision — that is what the message already means.
+    if (cmd === 0xC0) { setPreset(e.d1 % PRESETS, true); return; }
+    // Aftertouch, channel or polyphonic. The JP mini's ATOUCH SW decides
+    // whether it sends any at all, so absence is not a fault.
+    if (cmd === 0xD0 || cmd === 0xA0) { return; }
+  },
+  onPorts: () => paintLink(),
+  onGone: (port) => {
+    rep.clear(); paintPads(); paintLink();
+    note((port && port.name ? port.name : 'the controller') + ' dropped — reconnecting');
+  },
+});
+
+function transport(name) {
+  if (name === 'play') { loop.play(); toast('play'); }
+  else if (name === 'stop') { loop.stop(); rep.clear(); paintPads(); toast('stop'); }
+  else if (name === 'rec') { loop.arm(); toast(loop.info.state === 'armed' ? 'armed — hit a pad to start' : 'recording'); }
+  paintTransport(loop.info);
+}
+
+function paintLink() {
+  const ins = io.listInputs();
+  const jp = ins.filter((p) => identify(p.name).jp);
+  const el = $('#link'), t = $('#linktxt');
+  if (jp.length) {
+    el.classList.add('live');
+    portName = portName || jp[0].name;
+    t.textContent = jp[0].name + (dev.learned(portName) ? '' : ' · needs a grid sweep');
+  } else if (ins.length) {
+    el.classList.remove('live');
+    t.textContent = ins.length + ' MIDI port' + (ins.length === 1 ? '' : 's') + ', no JP mini';
+  } else {
+    el.classList.remove('live');
+    t.textContent = 'looking for your JP mini…';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CONTROLS
+// ---------------------------------------------------------------------------
+function setPreset(p, fromHardware) {
+  S.preset = ((p % PRESETS) + PRESETS) % PRESETS;
+  $('#bank').textContent = String(S.preset + 1);
+  rep.clear(); save(); paintPads(); warmUp();
+  if (fromHardware) toast('preset ' + (S.preset + 1));
+}
+$('#bank').addEventListener('click', () => setPreset(S.preset + 1));
+$('#bankup').addEventListener('click', () => setPreset(S.preset + 1));
+$('#bankdn').addEventListener('click', () => setPreset(S.preset - 1));
+
+$('#tempo').addEventListener('input', (e) => {
+  S.bpm = Math.max(20, Math.min(300, +e.target.value || 100)); save();
+});
+
+// TAP TEMPO, the same job as pad 16 in the unit's shift layer. A median of the
+// last few gaps, not a mean: one late tap should not drag the tempo with it,
+// and a mean is exactly what lets it.
+let taps = [];
+$('#tap').addEventListener('click', () => {
+  const t = performance.now();
+  taps = taps.filter((x) => t - x < 2400);
+  taps.push(t);
+  if (taps.length < 3) { toast('keep tapping…'); return; }
+  const gaps = [];
+  for (let i = 1; i < taps.length; i++) gaps.push(taps[i] - taps[i - 1]);
+  gaps.sort((a, b) => a - b);
+  const med = gaps[gaps.length >> 1];
+  S.bpm = Math.max(20, Math.min(300, Math.round(60000 / med)));
+  $('#tempo').value = S.bpm; save();
+  toast(S.bpm + ' BPM');
+});
+
+$('#curve').addEventListener('click', (ev) => {
+  openMenu({ x: ev.clientX, y: ev.clientY, title: 'Velocity', items: CURVE_IDS.map((id) => ({
+    label: CURVES[id].l, on: S.curve === id,
+    hint: id === 'fixed' ? 'full level' : '',
+    run: () => { S.curve = id; $('#curve').textContent = CURVES[id].l; save(); },
+  })) });
+});
+
+function setRep(patch) {
+  Object.assign(S, patch);
+  rep.set({
+    on: S.repeat, q: RATES[S.rate].q, swing: S.swing, gate: S.gate,
+    mode: S.arp, latch: S.latch,
+  });
+  $('#repeat').classList.toggle('on', S.repeat);
+  $('#latch').classList.toggle('on', S.latch);
+  $('#arp').classList.toggle('on', S.arp !== 'off');
+  $('#arp').textContent = S.arp === 'off' ? 'ARP' : ARP_MODES[S.arp].l.toUpperCase();
+  $('#rate').textContent = RATES[S.rate].label;
+  save(); paintPads();
+}
+$('#repeat').addEventListener('click', () => setRep({ repeat: !S.repeat }));
+$('#latch').addEventListener('click', () => setRep({ latch: !S.latch }));
+$('#rate').addEventListener('click', (ev) => {
+  openMenu({ x: ev.clientX, y: ev.clientY, title: 'Repeat rate', items: RATES.map((r, i) => ({
+    label: r.label, on: S.rate === i, run: () => setRep({ rate: i }),
+  })).concat([{ sep: 1 }, { head: 'Swing' }].concat([0, 0.15, 0.3, 0.45].map((v) => ({
+    label: v ? Math.round(v * 100) + '%' : 'straight', on: S.swing === v, run: () => setRep({ swing: v }),
+  })))) });
+});
+$('#arp').addEventListener('click', (ev) => {
+  openMenu({ x: ev.clientX, y: ev.clientY, title: 'Arpeggiator', items: ARP_IDS.map((id) => ({
+    label: ARP_MODES[id].l, on: S.arp === id,
+    run: () => setRep({ arp: id, repeat: id === 'off' ? S.repeat : true }),
+  })) });
+});
+
+$('#rec').addEventListener('click', () => transport('rec'));
+$('#play').addEventListener('click', () => { loop.play(); paintTransport(loop.info); });
+$('#pause').addEventListener('click', () => { loop.pause(); paintTransport(loop.info); });
+$('#stop').addEventListener('click', () => transport('stop'));
+$('#undo').addEventListener('click', () => { loop.undo(); paintPads(); toast('undone'); });
+
+function paintTransport(info) {
+  const st = info.state;
+  $('#rec').classList.toggle('on', st === 'recording' || st === 'armed' || st === 'overdub');
+  $('#play').classList.toggle('on', st === 'playing' || st === 'overdub');
+  $('#pause').classList.toggle('on', st === 'paused');
+  $('#undo').disabled = !info.canUndo;
+  $('#loopbar').firstElementChild.style.width = Math.round(info.pos * 100) + '%';
+}
+
+// ---------------------------------------------------------------------------
+// LIBRARY
+// ---------------------------------------------------------------------------
+function openSheet(id) {
+  $('#scrim').classList.add('open');
+  $(id).classList.add('open');
+  const f = $(id).querySelector('button, [tabindex]');
+  if (f) f.focus();
+}
+function closeSheets() {
+  $('#scrim').classList.remove('open');
+  document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('open'));
+}
+$('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
+$('#libx').addEventListener('click', closeSheets);
+$('#setbtn').addEventListener('click', () => { renderSetup(); openSheet('#setup'); });
+$('#setx').addEventListener('click', closeSheets);
+$('#scrim').addEventListener('click', closeSheets);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeMenu(); closeSheets(); }
+});
+
+function renderList() {
+  const box = $('#list');
+  const items = lib.items;
+  $('#libcount').textContent = items.length ? items.length + ' sounds' : '';
+  if (!items.length) {
+    box.innerHTML = '<div class="dim">Nothing here yet. Drop a folder of samples or a .zip pack '
+      + 'onto the panel above — a pack unpacks itself and files everything by name.</div>';
+    return;
+  }
+  box.innerHTML = items.map((it) =>
+    '<div class="row" data-id="' + esc(it.id) + '">'
+    + '<span class="nm">' + esc(it.name)
+    + (it.from ? '<br><span class="sub">' + esc(it.from) + '</span>' : '') + '</span>'
+    + '<button class="chip sm" data-put>PUT ON A PAD</button>'
+    + '<button class="chip sm" data-del aria-label="Remove">✕</button></div>').join('');
+}
+$('#list').addEventListener('click', async (ev) => {
+  const row = ev.target.closest('.row'); if (!row) return;
+  const id = row.dataset.id;
+  const it = lib.find(id);
+  if (ev.target.closest('[data-del]')) {
+    await lib.remove(id);
+    S.slots.forEach((p) => p.forEach((sl, i) => { if (sl && sl.id === id) p[i] = null; }));
+    warm.delete(id); save(); paintPads(); renderList();
+    return;
+  }
+  if (ev.target.closest('[data-put]')) {
+    openMenu({
+      x: ev.clientX, y: ev.clientY, title: 'Which pad?',
+      items: Array.from({ length: PADS }, (_, i) => ({
+        label: 'Pad ' + padLabel(i),
+        hint: slot(i) && slot(i).name ? slot(i).name : '',
+        run: () => { assign(i, id, it && it.name); closeSheets(); },
+      })),
+    });
+  }
+});
+
+// ---- import: files, folders, and packs ------------------------------------
+async function takeFiles(list) {
+  const files = Array.from(list || []);
+  if (!files.length) return;
+  eng.init();
+  let audio = 0, packs = 0;
+  lib.batch(true);
+  try {
+    for (const f of files) {
+      if (isZip(f)) {
+        packs++;
+        const ab = await f.arrayBuffer();
+        try {
+          const r = await importZip(ab, {
+            packName: f.name.replace(/\.zip$/i, ''),
+            addBuffer: (name, raw, origin) => lib.addRaw(name, raw, origin),
+            onProgress: (n, total) => toast('unpacking ' + n + ' of ' + total + '…'),
+          });
+          toast(r.ok + ' sounds from ' + f.name
+            + (r.bad ? ' · ' + r.bad + ' skipped' : '')
+            + (r.stopped ? ' · stopped early, pack too big for one go' : ''));
+        } catch (err) { toast(String(err.message || err)); }
+      } else {
+        const m = await lib.add(f);
+        if (m) audio++;
+      }
+    }
+  } finally { lib.batch(false); }
+  if (audio) toast(audio + ' sound' + (audio === 1 ? '' : 's') + ' imported');
+  if (!audio && !packs) toast('nothing there the app could read');
+  renderList();
+}
+$('#drop').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', async (e) => { await takeFiles(e.target.files); e.target.value = ''; });
+
+// Drop anywhere on the window, not just on the panel. Someone dragging a pack
+// in has no reason to know where the target is, and a drop that lands two
+// pixels outside it silently does nothing.
+['dragenter', 'dragover'].forEach((n) => window.addEventListener(n, (e) => {
+  e.preventDefault(); $('#drop').classList.add('hot');
+}));
+window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#drop').classList.remove('hot'); });
+window.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  $('#drop').classList.remove('hot');
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  if (!$('#lib').classList.contains('open')) openSheet('#lib');
+  await takeFiles(dt.files);
+});
+
+// ---------------------------------------------------------------------------
+// SETUP + HELP
+// ---------------------------------------------------------------------------
+function renderSetup() {
+  const d = io.diagnostics();
+  const ins = io.listInputs();
+  const jp = ins.filter((p) => identify(p.name).jp);
+  $('#setupbody').innerHTML =
+    '<div class="grp"><h3>YOUR JP MINI</h3>'
+    + '<div class="dim">' + (jp.length
+        ? esc(jp[0].name) + ' — ' + (dev.learned(portName || jp[0].name)
+            ? 'grid learned.' : 'the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.')
+        : (ins.length ? esc(ins.length + ' MIDI port(s) visible, none of them a JP mini: ' + ins.map((p) => p.name).join(', '))
+                      : 'No MIDI port visible yet. Plug the USB-C cable in, or pair over Bluetooth below.'))
+    + '</div>'
+    + '<div class="opts" style="margin-top:8px">'
+    + '<button class="chip sm" id="sweepbtn">TEACH THE GRID</button>'
+    + '<button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button>'
+    + '<button class="chip sm" id="rescanbtn">RESCAN</button>'
+    + '<button class="chip sm" id="resetgrid">FORGET THE GRID</button>'
+    + '</div></div>'
+    + '<div class="grp"><h3>DIAGNOSIS</h3><div class="dim">'
+    + esc(d.mode) + (d.sysex ? ' + sysex' : ' · no sysex')
+    + ' · ' + d.inputs + ' in · ' + d.bytes + ' messages'
+    + (d.webBluetooth ? ' · web bluetooth' : ' · no web bluetooth')
+    + (d.liveNames && d.liveNames.length ? '<br>Sending: ' + esc(d.liveNames.join(', ')) : '')
+    + (d.silentNames && d.silentNames.length ? '<br>Silent: ' + esc(d.silentNames.join(', ')) : '')
+    + (d.lost ? '<br>Last to drop: ' + esc(d.lost) : '')
+    + '</div></div>'
+    + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + '</h3>'
+        + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br>'
+            + '<span class="sub">' + esc(b2) + '</span></span></div>').join('')
+        + '</div>').join('');
+
+  $('#sweepbtn').addEventListener('click', () => { closeSheets(); startSweep(); });
+  $('#rescanbtn').addEventListener('click', () => { io.rescan(); setTimeout(renderSetup, 500); });
+  $('#resetgrid').addEventListener('click', () => {
+    dev.reset(portName, null); toast('grid forgotten'); renderSetup();
+  });
+  $('#btbtn').addEventListener('click', async () => {
+    try {
+      const r = await io.connectBluetooth({ onStatus: (s) => { if (s && s.hint) toast(s.hint.slice(0, 80)); } });
+      toast('bluetooth: ' + (r && r.mode));
+    } catch (e) { toast('bluetooth: ' + (e && e.message || e)); }
+    renderSetup();
+  });
+}
+
+// Every function in the app, written down. The rule carried over from the other
+// editions: a control that is not explained here is not finished.
+const HELP = [
+  ['THE PADS', [
+    ['Hit them', 'On the controller or on screen. On screen, where you hit the pad is how hard it plays — the bottom is loud, the top is soft.'],
+    ['Hold one', 'Opens everything you can do to that pad: put a sound on it, take it off, nudge its gain or pitch, clear it out of the loop. Right-click does the same on a desktop.'],
+    ['PRESET', 'The unit has eight of them and so does this. Each preset is its own set of sixteen sounds, and turning the preset on the controller switches the app too — Program Change already means "I have chosen something else", so there was nothing to set up.'],
+  ]],
+  ['NOTE REPEAT', [
+    ['REPEAT', 'Hold a pad and it retriggers at the rate beside it, exactly as the unit does. Hold a second pad and it becomes an arpeggio without you changing anything — note repeat and an arpeggiator are the same machine with one pad in it or several.'],
+    ['The rate', 'The eight divisions the unit itself offers: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T. Swing is under the same button, and it delays the offbeats only.'],
+    ['LATCH', 'Keeps a pad repeating after you let go. Hitting a latched pad again takes it out, so you can build and unbuild a pattern one pad at a time rather than having to clear the lot.'],
+    ['ARP', 'Up, down, up-down, as played, random, or all at once. Up-down turns at the ends without playing the end note twice, which is the limp you hear in most of them.'],
+    ['TAP', 'Tap the tempo. It takes the median of your last few taps rather than the average, so one late tap does not drag the tempo with it.'],
+  ]],
+  ['THE LOOPER', [
+    ['●  RECORD', 'Arms it. The loop starts at your FIRST HIT, not when you pressed the button, so the gap between deciding and playing is not baked into the front of your loop. Press it again while playing to overdub.'],
+    ['▶  ❚❚  ■', 'Play, pause, stop. Pause keeps your place; stop goes back to the top. The controller’s own transport buttons drive these if it sends MIDI realtime or MMC.'],
+    ['The length', 'Decided by your first pass, rounded up to whole bars. A loop 3.8 bars long can never line up with anything.'],
+    ['UNDO', 'Steps back through overdubs. Holding a pad also offers "clear it from the loop", which removes just that pad’s part.'],
+    ['What it records', 'The hits, not the audio. Change the sample under a pad and the part you played is now that sample; change the tempo and it follows.'],
+  ]],
+  ['SOUNDS', [
+    ['Drop anything', 'Audio files, a folder of them, or a .zip pack — anywhere on the window, not just on the panel. A pack unpacks itself, and the vendor prefix, key and tempo are stripped off the names so you can find things.'],
+    ['PUT ON A PAD', 'From the list. Or hold the pad and pick from there — same job from the other end.'],
+    ['Where it lives', 'On your device, in the app’s own storage. It survives a restart and works with no network.'],
+  ]],
+  ['THE CONTROLLER', [
+    ['TEACH THE GRID', 'Hit the sixteen pads in order, starting at pad 1 (bottom left). Every JP mini can be remapped in the vendor software, so no fixed note table can be right for every unit — this learns yours, once, and remembers it against that unit’s name.'],
+    ['CONNECT BLUETOOTH', 'Pair the unit in your system Bluetooth settings first, then press this. On Android it hands over to the system MIDI service; on Windows and Mac the app opens the BLE-MIDI link itself. A unit already paired with this app is reopened on its own next time.'],
+    ['If it drops out', 'Whatever it was holding is released rather than left ringing, any pedal it left down is lifted, and it reconnects on its own.'],
+    ['Velocity', 'Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do.'],
+  ]],
+];
+
+// ---------------------------------------------------------------------------
+// BOOT
+// ---------------------------------------------------------------------------
+let toastT = 0;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('on'), 2600);
+}
+let noteT = 0;
+function note(msg) { clearTimeout(noteT); noteT = setTimeout(() => toast(msg), 60); }
+
+buildGrid();
+$('#tempo').value = S.bpm;
+$('#bank').textContent = String(S.preset + 1);
+$('#curve').textContent = (CURVES[S.curve] || CURVES.linear).l;
+setRep({});
+paintTransport(loop.info);
+
+lib.boot().then(() => { renderList(); warmUp(); });
+io.start().catch(() => {});
+io.keepLooking();
+io.autoReconnect({ onStatus: (s) => { if (s && s.connected) toast('reconnected'); } }).catch(() => {});
+paintLink();
+setInterval(() => paintTransport(loop.info), 120);
+
+// A first sound on the first gesture. Browsers will not start audio without
+// one, and an app that is silent until you happen to touch the right thing is
+// an app people decide is broken.
+const kick = () => { eng.init(); eng.resume(); };
+['pointerdown', 'keydown'].forEach((e) => window.addEventListener(e, kick, { once: true }));
+
+// Test seam.
+window.__jp = {
+  get S() { return S; }, eng, io, lib, dev, rep, loop,
+  padDown, padUp, strike, setPreset, setRep, transport,
+  assign, startSweep, startLearn, takeFiles,
+  get learnPad() { return learnPad; },
+  paintPads, renderSetup, HELP, curved,
+};
+</script>
+</body>
+</html>

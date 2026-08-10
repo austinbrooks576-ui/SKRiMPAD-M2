@@ -2504,7 +2504,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       if (!file) return null;
       const name = file.name || "sound " + nextId;
       if (!AUDIO_RE.test(name) && !/^audio\//.test(file.type || "")) return null;
-      const raw = await file.arrayBuffer();
+      return store(name, await file.arrayBuffer());
+    }
+    async function addRaw(name, raw, origin) {
+      if (!raw || !raw.byteLength) return null;
+      return store(name || "sound " + nextId, raw, origin);
+    }
+    async function store(name, raw, origin) {
       let buf2 = null;
       try {
         buf2 = await ctx().decodeAudioData(raw.slice(0));
@@ -2514,18 +2520,21 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       const id = "sx" + nextId++;
       const rec = {
         id,
-        name: name.replace(/\.[^.]+$/, ""),
+        name: String(name).replace(/\.[^.]+$/, ""),
         kind: classify(name, buf2),
         dur: +buf2.duration.toFixed(3),
         size: raw.byteLength,
-        bytes: raw
+        bytes: raw,
+        // Which pack it came from. Two kicks called "Kick 01" from two packs are
+        // indistinguishable in a list without it.
+        from: origin || ""
       };
       const stored = await txWrite(db, (s) => s.put(rec));
       if (db && !stored) {
         onError && onError("storage", name);
         return null;
       }
-      const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
+      const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size, from: rec.from };
       items.push(meta);
       cache.set(id, buf2);
       bytes += sizeOf(buf2);
@@ -2575,10 +2584,17 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
     return {
       boot,
       add,
+      addRaw,
       addFiles,
       remove,
       clear,
       bufferFor,
+      // Batch mode, exposed. A pack import adds hundreds of sounds and each one
+      // would otherwise re-sort the array and rebuild the whole list.
+      batch(on) {
+        batching = !!on;
+        if (!on) settle();
+      },
       get items() {
         return items.slice();
       },

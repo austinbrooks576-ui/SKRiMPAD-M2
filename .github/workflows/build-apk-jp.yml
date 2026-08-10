@@ -1,0 +1,122 @@
+name: Build APK (JP)
+
+# SKRiMPAD JP — the app for the JamJum JP mini and nothing else.
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - 'jp/**'
+      - 'ultimate/src/core/**'      # JP shares the audio, MIDI and library core
+      - 'android/**'
+      - '.github/workflows/build-apk-jp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the JP bundle
+        run: node jp/tools/bundle.js
+
+      # THE TESTS RUN BEFORE THE BUILD, not after. An APK that reaches a phone
+      # and then turns out to have a broken looper has already cost someone an
+      # install; a red job costs nobody anything.
+      - name: Test it
+        run: |
+          npm install --no-audit --no-fund playwright-core
+          npx --yes playwright install --with-deps chromium
+          node jp/test/jp.cjs
+
+      - name: Install the bundle as the app
+        run: cp jp/dist/index.html android/app/src/main/assets/index.html
+
+      - name: Verify the bundle is self-contained
+        run: |
+          f=android/app/src/main/assets/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="grid"' "$f" || { echo "bundle has no pad grid — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD JP ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-jp-${{ github.run_number }}
+          path: SKRiMPAD JP ${{ github.run_number }}.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: jp-v1.0.${{ github.run_number }}
+          name: SKRiMPAD JP — Android ${{ github.run_number }}
+          body: |
+            **SKRiMPAD JP** — built for one controller: the JamJum **JP mini**.
+
+            Not an edition with a JP mode. One device, one screen, and every
+            function the unit has wired to something that uses it.
+
+            **Sixteen pads, eight presets.** The grid on screen is numbered the
+            way the hardware is — pad 1 is bottom left — so you can follow one
+            while looking at the other. Turn the preset on the unit and the app
+            follows, because Program Change already means "I have chosen
+            something else".
+
+            **It learns YOUR unit.** Every JP mini can be remapped in the vendor
+            software, so no fixed note table is right for everybody. Hit the
+            sixteen pads once, in order, and the mapping is yours and remembered.
+
+            **Note repeat, arpeggiator, latch.** The unit's own eight divisions —
+            1/4 through 1/32T — with swing. Hold a second pad and the repeat
+            becomes an arpeggio with nothing to switch. Latch is per pad: hit a
+            latched pad again and it drops out, so you build and unbuild a
+            pattern one pad at a time.
+
+            **A looper that starts when you do.** RECORD arms it; the loop begins
+            at your first hit, so the pause between deciding and playing is not
+            baked into the front of it. It records the HITS, not the audio — swap
+            the sample under a pad and the part you played is now that sample.
+            Overdub, undo, and drop one pad's part without losing the rest.
+
+            **Your own sounds.** Drag audio files or a whole `.zip` pack onto the
+            window. A pack unpacks itself and the vendor name, key and tempo come
+            off the filenames. Hold any pad to drop a sound straight onto it.
+
+            **Plugged in or over the air.** USB-C, or Bluetooth LE MIDI — pair in
+            Android's Bluetooth settings and it attaches itself.
+
+            Download **`SKRiMPAD JP ${{ github.run_number }}.apk`**, enable
+            "Install unknown apps", then open it to install.
+          files: SKRiMPAD JP ${{ github.run_number }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -168,13 +168,28 @@ export function createLibrary({ ctx, onChange, onError } = {}) {
     if (!file) return null;
     const name = file.name || ('sound ' + nextId);
     if (!AUDIO_RE.test(name) && !/^audio\//.test(file.type || '')) return null;
-    const raw = await file.arrayBuffer();
+    return store(name, await file.arrayBuffer());
+  }
+
+  // The same thing from bytes rather than a File. A ZIP pack is unpacked in
+  // memory and never becomes a File at any point, so without this every pack
+  // import would have to fabricate one — and the name a pack entry deserves is
+  // not the name inside the archive anyway.
+  async function addRaw(name, raw, origin) {
+    if (!raw || !raw.byteLength) return null;
+    return store(name || ('sound ' + nextId), raw, origin);
+  }
+
+  async function store(name, raw, origin) {
     let buf = null;
     try { buf = await ctx().decodeAudioData(raw.slice(0)); } catch (e) { return null; }
     const id = 'sx' + (nextId++);
     const rec = {
-      id, name: name.replace(/\.[^.]+$/, ''), kind: classify(name, buf),
+      id, name: String(name).replace(/\.[^.]+$/, ''), kind: classify(name, buf),
       dur: +buf.duration.toFixed(3), size: raw.byteLength, bytes: raw,
+      // Which pack it came from. Two kicks called "Kick 01" from two packs are
+      // indistinguishable in a list without it.
+      from: origin || '',
     };
     // A write that failed must not produce a listed sound. tx() resolves null
     // for both "no result" and "the transaction blew up", so a quota error read
@@ -190,7 +205,7 @@ export function createLibrary({ ctx, onChange, onError } = {}) {
       onError && onError('storage', name);
       return null;
     }
-    const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size };
+    const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size, from: rec.from };
     items.push(meta);
     cache.set(id, buf); bytes += sizeOf(buf); evict();
     if (!batching) settle();
@@ -246,7 +261,10 @@ export function createLibrary({ ctx, onChange, onError } = {}) {
   }
 
   return {
-    boot, add, addFiles, remove, clear, bufferFor,
+    boot, add, addRaw, addFiles, remove, clear, bufferFor,
+    // Batch mode, exposed. A pack import adds hundreds of sounds and each one
+    // would otherwise re-sort the array and rebuild the whole list.
+    batch(on) { batching = !!on; if (!on) settle(); },
     get items() { return items.slice(); },
     find: (id) => items.find((x) => x.id === id) || null,
     pin(id) { if (id) pinned.add(id); },
