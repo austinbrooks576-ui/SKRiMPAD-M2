@@ -1,21 +1,32 @@
 # Creative Direction
 
-Two agency-grade creative directions, each covering the same eight disciplines:
+Agency-grade creative directions, each covering the same eight disciplines:
 creative direction, cinematic hero, 3D visual world, motion language, sections
 as experiences, the build sequence, the honest audit, and launch.
 
 | Doc | Product | The idea in one line |
 | --- | --- | --- |
-| [01 — SIDECHAIN](./01-SIDECHAIN.md) | **New.** Automatic audio mixing for video and podcasts. | A colour and motion system that literally sidechains — two signals, and one always makes room for the other. |
+| [01 — SIDECHAIN](./01-SIDECHAIN.md) | **Parked.** Automatic audio mixing for video and podcasts. | A colour and motion system that literally sidechains — two signals, and one always makes room for the other. |
 | [02 — SKRiMPAD](./02-SKRIMPAD.md) | **This repo.** The groovebox. | The homepage is a playable 3D machine wired to the real audio engine, and the site runs on the product's own 50 skin files. |
 
-## Why two, and why these two
+**See also: [`docs/product/1OF1.md`](../product/1OF1.md)** — the active new-product
+direction. Different brief, different shape: a Google Play app rather than a
+website, in an existing paying market, monetised by subscription, designed for
+passive income. It's a product-and-business design rather than a web creative
+direction, so it lives in `docs/product/` — but §04 of that doc is the same
+art-direction discipline applied to an app.
 
-The brief asked for a *new* product — something already in demand and proven to
-make money — and then, separately, for the same treatment applied to SKRiMPAD.
-The new product wasn't named, so doc 01 names one, argues the market
+## Why these two
+
+The brief originally asked for a *new* product — something already in demand and
+proven to make money — and then, separately, for the same treatment applied to
+SKRiMPAD. The new product wasn't named, so doc 01 names one, argues the market
 structurally (§01.1), and flags exactly which sections are product-specific if
 you want to swap the premise.
+
+SIDECHAIN was subsequently parked: it invents a need rather than entering one
+that already has paying customers. It's kept because the system is sound and
+transfers, not because it's the current plan. 1OF1 is the current plan.
 
 The two directions are deliberately built on **opposite** decisions, so neither
 reads as the same template recoloured:
