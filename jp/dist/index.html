@@ -100,8 +100,17 @@ button{border:0;background:none;cursor:pointer;}
 .chip.warm.on{background:var(--warm);border-color:var(--warm);color:#241300;}
 .chip:disabled{opacity:.4;}
 .lab{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.12em;margin-right:2px;}
-#tempo{width:52px;min-height:28px;background:transparent;border:0;text-align:center;
-  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;}
+/* Tempo and TAP are one chip with two targets: the number if you know it, the
+   button if you do not. Two ways to say the same thing, neither hidden behind a
+   gesture nobody would guess at. */
+.chip.pair{padding:0 4px 0 2px;gap:0;}
+.chip.pair #tap{min-height:30px;padding:0 8px;border-radius:8px;font-size:var(--fs-xs);
+  color:var(--dim);border:1px solid transparent;}
+.chip.pair #tap:hover{color:var(--txt);border-color:var(--line);}
+#tempo{width:46px;min-height:30px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;
+  -moz-appearance:textfield;}
+#tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 #loopbar{flex:1 1 90px;height:6px;min-width:70px;border-radius:99px;background:rgba(255,255,255,.08);
   overflow:hidden;}
 #loopbar i{display:block;height:100%;width:0;background:var(--acc);}
@@ -153,31 +162,23 @@ button{border:0;background:none;cursor:pointer;}
 
   <div id="gridwrap"><div id="grid" role="group" aria-label="Sixteen pads"></div></div>
 
+  <!-- ONE RAIL. This was three, holding fourteen controls, and a pad instrument
+       does not have fourteen things you touch while playing. What is left is
+       what a hand actually reaches for mid-phrase; everything else moved under
+       the control it belongs to, or into SETUP if it is a thing you decide once
+       and never think about again. Nothing was removed. -->
   <div class="rail">
-    <span class="lab">PRESET</span>
-    <button class="chip sm" id="bankdn" aria-label="Previous preset">‹</button>
-    <button class="chip sm" id="bank">1</button>
-    <button class="chip sm" id="bankup" aria-label="Next preset">›</button>
-    <span class="lab">BPM</span>
-    <input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo">
-    <button class="chip sm" id="tap">TAP</button>
-    <button class="chip sm" id="curve">Linear</button>
-  </div>
-
-  <div class="rail">
+    <button class="chip" id="bank" aria-label="Preset">1</button>
     <button class="chip" id="repeat">REPEAT</button>
-    <button class="chip sm" id="rate">1/16</button>
-    <button class="chip sm warm" id="latch">LATCH</button>
-    <button class="chip sm" id="arp">ARP</button>
-  </div>
-
-  <div class="rail">
+    <span class="chip pair">
+      <input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo">
+      <button id="tap">TAP</button>
+    </span>
     <button class="chip rec" id="rec" aria-label="Record">●</button>
-    <button class="chip" id="play" aria-label="Play">▶</button>
-    <button class="chip" id="pause" aria-label="Pause">❚❚</button>
+    <button class="chip" id="play" aria-label="Play or pause">▶</button>
     <button class="chip" id="stop" aria-label="Stop">■</button>
     <div id="loopbar"><i></i></div>
-    <button class="chip sm" id="undo">UNDO</button>
+    <button class="chip sm" id="undo" aria-label="Undo">↶</button>
   </div>
 </div>
 
@@ -2781,8 +2782,19 @@ button{border:0;background:none;cursor:pointer;}
     if (fromHardware) toast("preset " + (S.preset + 1));
   }
   $("#bank").addEventListener("click", () => setPreset(S.preset + 1));
-  $("#bankup").addEventListener("click", () => setPreset(S.preset + 1));
-  $("#bankdn").addEventListener("click", () => setPreset(S.preset - 1));
+  function presetMenu() {
+    return [{ head: "Preset" }].concat(Array.from({ length: PRESETS }, (_, i) => ({
+      label: String(i + 1),
+      on: S.preset === i,
+      hint: S.slots[i].filter(Boolean).length ? S.slots[i].filter(Boolean).length + " sounds" : "empty",
+      run: () => setPreset(i)
+    })));
+  }
+  $("#bank").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: presetMenu(), title: "Preset" });
+  });
+  onLongPress($("#bank"), 420, (ev, x, y) => openMenu({ x, y, items: presetMenu(), title: "Preset" }));
   $("#tempo").addEventListener("input", (e) => {
     S.bpm = Math.max(20, Math.min(300, +e.target.value || 100));
     save();
@@ -2805,18 +2817,18 @@ button{border:0;background:none;cursor:pointer;}
     save();
     toast(S.bpm + " BPM");
   });
-  $("#curve").addEventListener("click", (ev) => {
-    openMenu({ x: ev.clientX, y: ev.clientY, title: "Velocity", items: CURVE_IDS.map((id) => ({
+  function curveMenu() {
+    return [{ head: "How hard the pads feel" }].concat(CURVE_IDS.map((id) => ({
       label: CURVES[id].l,
       on: S.curve === id,
-      hint: id === "fixed" ? "full level" : "",
+      hint: id === "fixed" ? "full level \u2014 every hit at 127" : "",
       run: () => {
         S.curve = id;
-        $("#curve").textContent = CURVES[id].l;
         save();
+        renderSetup();
       }
-    })) });
-  });
+    })));
+  }
   function setRep(patch) {
     Object.assign(S, patch);
     rep.set({
@@ -2827,41 +2839,61 @@ button{border:0;background:none;cursor:pointer;}
       mode: S.arp,
       latch: S.latch
     });
-    $("#repeat").classList.toggle("on", S.repeat);
-    $("#latch").classList.toggle("on", S.latch);
-    $("#arp").classList.toggle("on", S.arp !== "off");
-    $("#arp").textContent = S.arp === "off" ? "ARP" : ARP_MODES[S.arp].l.toUpperCase();
-    $("#rate").textContent = RATES[S.rate].label;
+    const b = $("#repeat");
+    b.classList.toggle("on", S.repeat);
+    b.classList.toggle("warm", S.latch);
+    b.textContent = (S.arp === "off" ? "REPEAT" : ARP_MODES[S.arp].l.toUpperCase()) + " " + RATES[S.rate].label + (S.latch ? " \xB7" : "");
+    b.title = "Tap to turn note repeat on. Hold for the rate, swing, latch and the arpeggiator.";
     save();
     paintPads();
   }
+  function repeatMenu() {
+    return [
+      { head: "Note repeat" },
+      {
+        label: S.repeat ? "Turn it off" : "Turn it on",
+        on: S.repeat,
+        run: () => setRep({ repeat: !S.repeat })
+      },
+      {
+        label: "Latch",
+        hint: "keep going after you let go",
+        on: S.latch,
+        run: () => setRep({ latch: !S.latch })
+      },
+      { sep: 1 },
+      { label: "Rate", hint: RATES[S.rate].label, items: () => RATES.map((r, i) => ({
+        label: r.label,
+        on: S.rate === i,
+        run: () => setRep({ rate: i })
+      })) },
+      {
+        label: "Swing",
+        hint: S.swing ? Math.round(S.swing * 100) + "%" : "straight",
+        items: () => [0, 0.15, 0.3, 0.45].map((v) => ({
+          label: v ? Math.round(v * 100) + "%" : "straight",
+          on: S.swing === v,
+          run: () => setRep({ swing: v })
+        }))
+      },
+      { label: "Arpeggiator", hint: ARP_MODES[S.arp].l, items: () => ARP_IDS.map((id) => ({
+        label: ARP_MODES[id].l,
+        on: S.arp === id,
+        run: () => setRep({ arp: id, repeat: id === "off" ? S.repeat : true })
+      })) }
+    ];
+  }
   $("#repeat").addEventListener("click", () => setRep({ repeat: !S.repeat }));
-  $("#latch").addEventListener("click", () => setRep({ latch: !S.latch }));
-  $("#rate").addEventListener("click", (ev) => {
-    openMenu({ x: ev.clientX, y: ev.clientY, title: "Repeat rate", items: RATES.map((r, i) => ({
-      label: r.label,
-      on: S.rate === i,
-      run: () => setRep({ rate: i })
-    })).concat([{ sep: 1 }, { head: "Swing" }].concat([0, 0.15, 0.3, 0.45].map((v) => ({
-      label: v ? Math.round(v * 100) + "%" : "straight",
-      on: S.swing === v,
-      run: () => setRep({ swing: v })
-    })))) });
+  $("#repeat").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: repeatMenu(), title: "Note repeat" });
   });
-  $("#arp").addEventListener("click", (ev) => {
-    openMenu({ x: ev.clientX, y: ev.clientY, title: "Arpeggiator", items: ARP_IDS.map((id) => ({
-      label: ARP_MODES[id].l,
-      on: S.arp === id,
-      run: () => setRep({ arp: id, repeat: id === "off" ? S.repeat : true })
-    })) });
-  });
+  onLongPress($("#repeat"), 420, (ev, x, y) => openMenu({ x, y, items: repeatMenu(), title: "Note repeat" }));
   $("#rec").addEventListener("click", () => transport("rec"));
   $("#play").addEventListener("click", () => {
-    loop.play();
-    paintTransport(loop.info);
-  });
-  $("#pause").addEventListener("click", () => {
-    loop.pause();
+    const st = loop.info.state;
+    if (st === "playing" || st === "overdub") loop.pause();
+    else loop.play();
     paintTransport(loop.info);
   });
   $("#stop").addEventListener("click", () => transport("stop"));
@@ -2873,8 +2905,9 @@ button{border:0;background:none;cursor:pointer;}
   function paintTransport(info) {
     const st = info.state;
     $("#rec").classList.toggle("on", st === "recording" || st === "armed" || st === "overdub");
-    $("#play").classList.toggle("on", st === "playing" || st === "overdub");
-    $("#pause").classList.toggle("on", st === "paused");
+    const playing = st === "playing" || st === "overdub";
+    $("#play").classList.toggle("on", playing);
+    $("#play").textContent = playing ? "\u2759\u2759" : "\u25B6";
     $("#undo").disabled = !info.canUndo;
     $("#loopbar").firstElementChild.style.width = Math.round(info.pos * 100) + "%";
   }
@@ -3004,7 +3037,8 @@ button{border:0;background:none;cursor:pointer;}
     const d = io.diagnostics();
     const ins = io.listInputs();
     const jp = ins.filter((p) => identify(p.name).jp);
-    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR JP MINI</h3><div class="dim">' + (jp.length ? esc(jp[0].name) + " \u2014 " + (dev.learned(portName || jp[0].name) ? "grid learned." : "the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.") : ins.length ? esc(ins.length + " MIDI port(s) visible, none of them a JP mini: " + ins.map((p) => p.name).join(", ")) : "No MIDI port visible yet. Plug the USB-C cable in, or pair over Bluetooth below.") + '</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="sweepbtn">TEACH THE GRID</button><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="resetgrid">FORGET THE GRID</button></div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : " \xB7 no sysex") + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + (d.lost ? "<br>Last to drop: " + esc(d.lost) : "") + "</div></div>" + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + "</h3>" + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br><span class="sub">' + esc(b2) + "</span></span></div>").join("") + "</div>").join("");
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR JP MINI</h3><div class="dim">' + (jp.length ? esc(jp[0].name) + " \u2014 " + (dev.learned(portName || jp[0].name) ? "grid learned." : "the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.") : ins.length ? esc(ins.length + " MIDI port(s) visible, none of them a JP mini: " + ins.map((p) => p.name).join(", ")) : "No MIDI port visible yet. Plug the USB-C cable in, or pair over Bluetooth below.") + '</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="sweepbtn">TEACH THE GRID</button><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="resetgrid">FORGET THE GRID</button></div></div><div class="grp"><h3>HOW HARD THE PADS FEEL</h3><div class="opts"><button class="chip sm" id="curvebtn">' + esc((CURVES[S.curve] || CURVES.linear).l) + '</button></div><div class="dim" style="margin-top:6px">Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do.</div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : " \xB7 no sysex") + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + (d.lost ? "<br>Last to drop: " + esc(d.lost) : "") + "</div></div>" + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + "</h3>" + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br><span class="sub">' + esc(b2) + "</span></span></div>").join("") + "</div>").join("");
+    $("#curvebtn").addEventListener("click", (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: curveMenu(), title: "Velocity" }));
     $("#sweepbtn").addEventListener("click", () => {
       closeSheets();
       startSweep();
@@ -3034,18 +3068,19 @@ button{border:0;background:none;cursor:pointer;}
     ["THE PADS", [
       ["Hit them", "On the controller or on screen. On screen, where you hit the pad is how hard it plays \u2014 the bottom is loud, the top is soft."],
       ["Hold one", "Opens everything you can do to that pad: put a sound on it, take it off, nudge its gain or pitch, clear it out of the loop. Right-click does the same on a desktop."],
-      ["PRESET", 'The unit has eight of them and so does this. Each preset is its own set of sixteen sounds, and turning the preset on the controller switches the app too \u2014 Program Change already means "I have chosen something else", so there was nothing to set up.']
+      ["PRESET", 'The unit has eight and so does this; each is its own set of sixteen sounds. Tap the number to step forward \u2014 the same movement as the button on the unit \u2014 or hold it to jump straight to one. Turning the preset on the controller switches the app too, because Program Change already means "I have chosen something else".']
     ]],
     ["NOTE REPEAT", [
-      ["REPEAT", "Hold a pad and it retriggers at the rate beside it, exactly as the unit does. Hold a second pad and it becomes an arpeggio without you changing anything \u2014 note repeat and an arpeggiator are the same machine with one pad in it or several."],
-      ["The rate", "The eight divisions the unit itself offers: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T. Swing is under the same button, and it delays the offbeats only."],
+      ["REPEAT", "Tap it on, then hold a pad and it retriggers, exactly as the unit does. Hold a second pad and it becomes an arpeggio without you changing anything \u2014 note repeat and an arpeggiator are the same machine with one pad in it or several."],
+      ["The button says the state", "It reads REPEAT 1/16, or UP 1/8 if the arpeggiator is on, with a dot when latch is. One glance tells you what holding a pad is about to do."],
+      ["Hold REPEAT", "Everything about repeating is under it: the rate \u2014 the eight divisions the unit itself offers, 1/4 through 1/32T \u2014 swing, latch, and the arpeggiator. They all belong to the same feature, so they live in the same place."],
       ["LATCH", "Keeps a pad repeating after you let go. Hitting a latched pad again takes it out, so you can build and unbuild a pattern one pad at a time rather than having to clear the lot."],
-      ["ARP", "Up, down, up-down, as played, random, or all at once. Up-down turns at the ends without playing the end note twice, which is the limp you hear in most of them."],
+      ["The arpeggiator", "Up, down, up-down, as played, random, or all at once. Up-down turns at the ends without playing the end note twice, which is the limp you hear in most of them."],
       ["TAP", "Tap the tempo. It takes the median of your last few taps rather than the average, so one late tap does not drag the tempo with it."]
     ]],
     ["THE LOOPER", [
       ["\u25CF  RECORD", "Arms it. The loop starts at your FIRST HIT, not when you pressed the button, so the gap between deciding and playing is not baked into the front of your loop. Press it again while playing to overdub."],
-      ["\u25B6  \u275A\u275A  \u25A0", "Play, pause, stop. Pause keeps your place; stop goes back to the top. The controller\u2019s own transport buttons drive these if it sends MIDI realtime or MMC."],
+      ["\u25B6  \u25A0", "Play is also pause \u2014 it shows you what pressing it will do next. Stop goes back to the top. The controller\u2019s own transport buttons drive these if it sends MIDI realtime or MMC."],
       ["The length", "Decided by your first pass, rounded up to whole bars. A loop 3.8 bars long can never line up with anything."],
       ["UNDO", 'Steps back through overdubs. Holding a pad also offers "clear it from the loop", which removes just that pad\u2019s part.'],
       ["What it records", "The hits, not the audio. Change the sample under a pad and the part you played is now that sample; change the tempo and it follows."]
@@ -3059,7 +3094,7 @@ button{border:0;background:none;cursor:pointer;}
       ["TEACH THE GRID", "Hit the sixteen pads in order, starting at pad 1 (bottom left). Every JP mini can be remapped in the vendor software, so no fixed note table can be right for every unit \u2014 this learns yours, once, and remembers it against that unit\u2019s name."],
       ["CONNECT BLUETOOTH", "Pair the unit in your system Bluetooth settings first, then press this. On Android it hands over to the system MIDI service; on Windows and Mac the app opens the BLE-MIDI link itself. A unit already paired with this app is reopened on its own next time."],
       ["If it drops out", "Whatever it was holding is released rather than left ringing, any pedal it left down is lifted, and it reconnects on its own."],
-      ["Velocity", "Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do."]
+      ["Velocity", "Four curves, the same four the unit offers, in SETUP \u2014 it is a thing you decide once about how your pads feel, not something to keep on screen. FULL is full level: every hit at 127, whatever you do."]
     ]]
   ];
   var toastT = 0;
@@ -3078,7 +3113,6 @@ button{border:0;background:none;cursor:pointer;}
   buildGrid();
   $("#tempo").value = S.bpm;
   $("#bank").textContent = String(S.preset + 1);
-  $("#curve").textContent = (CURVES[S.curve] || CURVES.linear).l;
   setRep({});
   paintTransport(loop.info);
   lib.boot().then(() => {

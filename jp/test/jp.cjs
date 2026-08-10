@@ -231,14 +231,47 @@ const TMP = path.join(os.tmpdir(), 'jpfix');
   });
   ok(preset.p0 === 'Kick A' && !preset.onOther,
      'each of the eight presets is its own set of sounds');
+  ok(!(await p.evaluate(() => !!document.getElementById('bankup') || !!document.getElementById('bankdn'))),
+     'two arrows and a number are one button now — tap it to step forward');
   ok(preset.now === 5 && preset.shown === '6',
      'and a Program Change from the unit switches the app with it',
      'preset ' + preset.now + ', shown ' + preset.shown);
 
   // ---- note repeat + arp + latch ------------------------------------------
-  const rates = await p.evaluate(() => window.__jpRates);
-  const rateBtn = await p.evaluate(() => document.getElementById('rate').textContent);
-  ok(rateBtn === '1/16', 'the repeat rate starts where the unit does', rateBtn);
+  // ONE BUTTON, WHOLE STATE. Rate, latch and arp used to be a chip each.
+  const repLabel = await p.evaluate(() => document.getElementById('repeat').textContent);
+  ok(repLabel === 'REPEAT 1/16',
+     'one button says what holding a pad will do', repLabel);
+
+  // And everything behind it is one hold away — nothing was removed, it moved.
+  const behind = await p.evaluate(async () => {
+    const b = document.getElementById('repeat');
+    const r = b.getBoundingClientRect();
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+      clientX: r.left + 4, clientY: r.top + 4 }));
+    await new Promise((z) => setTimeout(z, 140));
+    const rows = [...document.querySelectorAll('.menu .mitem')].map((x) => x.textContent);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((z) => setTimeout(z, 120));
+    return { rows, closed: !document.querySelector('.menu') };
+  });
+  const want = ['Latch', 'Rate', 'Swing', 'Arpeggiator'];
+  const gone = want.filter((w) => !behind.rows.some((r) => r.includes(w)));
+  ok(gone.length === 0, 'with the rate, swing, latch and arpeggiator one hold behind it',
+     gone.join(', ') || behind.rows.length + ' rows');
+
+  const stateLabel = await p.evaluate(async () => {
+    const A = window.__jp;
+    A.setRep({ arp: 'up', rate: 2, latch: true });
+    await new Promise((z) => setTimeout(z, 60));
+    const on = document.getElementById('repeat').textContent;
+    A.setRep({ arp: 'off', rate: 4, latch: false, repeat: false });
+    await new Promise((z) => setTimeout(z, 60));
+    return { on, off: document.getElementById('repeat').textContent };
+  });
+  ok(stateLabel.on === 'UP 1/8 \u00b7',
+     'and the label follows the arpeggiator, the rate and latch', stateLabel.on);
 
   const repeatRun = await p.evaluate(async () => {
     const A = window.__jp;
@@ -359,17 +392,30 @@ const TMP = path.join(os.tmpdir(), 'jpfix');
   });
   ok(undone === 2, 'and undo puts it back', undone + ' events');
 
+  // PLAY IS ALSO PAUSE — pressed through the real button, not the API, because
+  // the merge is the thing under test and it lives in the click handler.
   const paused = await p.evaluate(async () => {
     const A = window.__jp;
-    A.loop.play(); await new Promise((r) => setTimeout(r, 120));
-    const a = A.loop.info.state;
-    A.loop.pause(); await new Promise((r) => setTimeout(r, 80));
-    const b2 = A.loop.info.state; const at = A.loop.info.pos;
-    A.loop.play(); await new Promise((r) => setTimeout(r, 60));
+    const play = document.getElementById('play');
+    // Start from a KNOWN state. The loop is still running from the section
+    // above, so without this the first click pauses rather than plays and every
+    // assertion below reads inverted — which is a fact about the test, not the
+    // app, and exactly the sort of thing that gets a working feature reverted.
+    document.getElementById('stop').click();
+    await new Promise((r) => setTimeout(r, 80));
+    play.click(); await new Promise((r) => setTimeout(r, 120));
+    const a = A.loop.info.state; const g1 = play.textContent;
+    play.click(); await new Promise((r) => setTimeout(r, 80));
+    const b2 = A.loop.info.state; const at = A.loop.info.pos; const g2 = play.textContent;
+    play.click(); await new Promise((r) => setTimeout(r, 60));
     const c = A.loop.info.state;
-    A.loop.stop(); await new Promise((r) => setTimeout(r, 60));
-    return { a, b: b2, at, c, d: A.loop.info.state, pos: A.loop.info.pos };
+    document.getElementById('stop').click(); await new Promise((r) => setTimeout(r, 60));
+    return { a, b: b2, at, c, d: A.loop.info.state, pos: A.loop.info.pos,
+             g1, g2, noPause: !document.getElementById('pause') };
   });
+  ok(paused.noPause, 'there is no separate pause button — play is also pause');
+  ok(paused.g1 === '\u2759\u2759' && paused.g2 === '\u25B6',
+     'and its glyph says what pressing it will do next', paused.g1 + ' → ' + paused.g2);
   ok(paused.a === 'playing' && paused.b === 'paused' && paused.c === 'playing',
      'play, pause and play again all do what they say',
      [paused.a, paused.b, paused.c].join(' → '));
@@ -455,8 +501,19 @@ const TMP = path.join(os.tmpdir(), 'jpfix');
     const ids = [...document.querySelectorAll('button[id]')].map((b) => b.id);
     return { txt, ids, groups: window.__jp.HELP.length };
   });
-  const MUST = ['REPEAT', 'LATCH', 'ARP', 'TAP', 'PRESET', 'UNDO', 'RECORD', 'TEACH THE GRID',
-                'CONNECT BLUETOOTH'];
+  // HOW MANY THINGS ARE ON THE PLAY SURFACE. This started at fourteen across
+  // three rails. It is asserted rather than merely reduced, because a control
+  // count creeps back one convenient addition at a time.
+  const surface = await p.evaluate(() => ({
+    rails: document.querySelectorAll('.rail').length,
+    controls: document.querySelectorAll('.rail button, .rail input').length,
+  }));
+  ok(surface.rails === 1, 'one rail under the grid, not three', surface.rails + ' rails');
+  ok(surface.controls <= 8, 'and no more than eight things on it',
+     surface.controls + ' controls');
+
+  const MUST = ['REPEAT', 'LATCH', 'TAP', 'PRESET', 'UNDO', 'RECORD', 'TEACH THE GRID',
+                'CONNECT BLUETOOTH', 'HOW HARD THE PADS FEEL'];
   const missing = MUST.filter((m) => !helped.txt.toUpperCase().includes(m));
   ok(missing.length === 0, 'every function is written up in SETUP', missing.join(', ') || helped.groups + ' sections');
 
