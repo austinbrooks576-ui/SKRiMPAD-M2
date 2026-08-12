@@ -1913,6 +1913,13 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       get ctx() {
         return ctx;
       },
+      // The master bus, for audio this engine did not make. A backing loop has to
+      // go through the SAME compressor and ceiling as everything else — routed
+      // straight to ctx.destination it would bypass the limiter entirely and be
+      // the one thing in the app that can clip.
+      get bus() {
+        return init(), master;
+      },
       get analyser() {
         return analyser;
       },

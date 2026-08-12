@@ -21,6 +21,35 @@
   --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
+
+/* ---------- the drop-down menus ----------
+   menu.js was imported and wired to every pad, key and knob in this edition,
+   and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
+   the stylesheet for them lives in ULTIMATE, which this edition never copied.
+   So every right-click and every long-press was building a real, working menu
+   as an unstyled div at the end of <body> — behind #app, at opacity 0, with no
+   position. Wired, working, and invisible. */
+.menu{position:fixed;z-index:70;min-width:min(230px,72vw);max-width:min(300px,86vw);
+  max-height:min(70svh,520px);overflow-y:auto;overscroll-behavior:contain;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--e2),var(--lip);padding:5px;
+  opacity:0;transform:scale(.97);transform-origin:top left;
+  transition:opacity .11s,transform .11s cubic-bezier(.2,.7,.3,1);}
+.menu.open{opacity:1;transform:none;}
+.mitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--txt);
+  font-size:var(--fs-sm);letter-spacing:.06em;cursor:pointer;min-height:var(--hit);}
+.mitem:hover:not(:disabled),.mitem:focus-visible{background:rgba(75,227,200,.12);color:var(--acc);}
+.mitem:disabled{opacity:.35;cursor:default;}
+.mitem.danger:hover{background:rgba(255,107,132,.14);color:#FF6B84;}
+.mitem.on .ml::before{content:'\2713 ';color:var(--acc);}
+.mitem.back{color:var(--dim);}
+.mitem .ml{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mitem .mh{flex:none;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
+.mitem .mx{flex:none;color:var(--dim);font-size:var(--fs-md);}
+.mhead{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding:7px 10px 4px;}
+.msep{border:0;border-top:1px solid var(--line);margin:4px 6px;}
+
 /* ---------- the sky, and the glass in front of it ----------
    The galaxy is a canvas painted ONCE per size change (see core/galaxy.js) and
    pinned behind everything. It is not animated, because the only thread that
@@ -257,6 +286,7 @@ button{border:0;background:none;cursor:pointer;}
   </div>
 
   <div class="rail">
+    <button class="chip" id="bed" title="Drop a loop here">\u21bb DROP A LOOP</button>
     <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
     <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
     <button class="chip" id="arp">ARP</button>
@@ -1026,6 +1056,13 @@ button{border:0;background:none;cursor:pointer;}
       resume,
       get ctx() {
         return ctx;
+      },
+      // The master bus, for audio this engine did not make. A backing loop has to
+      // go through the SAME compressor and ceiling as everything else — routed
+      // straight to ctx.destination it would bypass the limiter entirely and be
+      // the one thing in the app that can clip.
+      get bus() {
+        return init(), master;
       },
       get analyser() {
         return analyser;
@@ -3258,6 +3295,69 @@ button{border:0;background:none;cursor:pointer;}
     return new Uint8Array(bytes);
   }
 
+  // smk/src/core/mix.js
+  var HEADROOM = 0.62;
+  var PLUCK_ATTACK = 6e-3;
+  var voiceLimits = {
+    key: {
+      gain: 0.55 * HEADROOM,
+      attack: 4e-3,
+      decay: 0.4,
+      sustain: 0.7,
+      release: 0.5,
+      cutoff: 0.55,
+      res: 0.2,
+      drive: 0,
+      space: 0,
+      spread: 0.3,
+      pan: 0,
+      tune: 0
+    },
+    // A pad is a drum: its shape lives inside its own layers, so it is louder per
+    // voice and shorter, and it does not stack the way a held note does.
+    pad: {
+      gain: 0.8 * HEADROOM,
+      attack: 1e-3,
+      decay: 0.4,
+      sustain: 0,
+      release: 0.12,
+      cutoff: 0.75,
+      res: 0.2,
+      drive: 0.15,
+      space: 0,
+      spread: 0,
+      pan: 0,
+      tune: 0
+    },
+    // An arpeggiated note is a pluck. Short attack so it articulates, and quieter
+    // than a played note because there are sixteen of them a bar and you did not
+    // press sixteen keys.
+    arp: {
+      gain: 0.42 * HEADROOM,
+      attack: PLUCK_ATTACK,
+      decay: 0.12,
+      sustain: 0,
+      release: 0.09,
+      cutoff: 0.6,
+      res: 0.2,
+      drive: 0,
+      space: 0,
+      spread: 0.2,
+      pan: 0,
+      tune: 0
+    }
+  };
+  function pluck(v, len) {
+    const L = Math.max(0.03, len || 0.12);
+    return Object.assign({}, v, {
+      attack: Math.min(v.attack, PLUCK_ATTACK),
+      decay: Math.max(0.03, L * 0.7),
+      sustain: 0,
+      release: Math.max(0.03, L * 0.35),
+      gain: v.gain * 0.78
+    });
+  }
+
   // smk/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -3333,23 +3433,23 @@ button{border:0;background:none;cursor:pointer;}
   var knobRole = (i) => KNOB_ROLES[S.knobBank * KNOBS + i];
   function keyVoice(note) {
     const sl = S.keys[note];
-    const v = {
+    const L = voiceLimits.key;
+    const v = Object.assign({}, L, {
       kind: sl && sl.id ? "sample" : "synth",
       wave: "sawtooth",
       note,
-      gain: 0.5 + K(7) * 0.7,
-      attack: 2e-3 + K(2) * 0.6,
-      decay: 0.4,
-      sustain: 0.7,
-      release: 0.06 + K(3) * 1.4,
+      gain: L.gain * (0.55 + K(7) * 0.9),
+      attack: 2e-3 + K(2) * K(2) * 0.35,
+      // squared, so the useful range is not all in the first tenth
+      release: 0.06 + K(3) * 1.2,
       cutoff: 0.12 + K(0) * 0.85,
       res: K(1) * 0.8,
-      drive: K(4) * 0.8,
-      space: S.knob[8 + 0],
+      drive: K(4) * 0.7,
+      space: S.knob[8 + 0] * 0.8,
       spread: K(5) * 0.9,
       pan: (S.knob[8 + 2] - 0.5) * 2,
       tune: Math.round((K(6) - 0.5) * 48)
-    };
+    });
     if (sl && sl.id) {
       v.sampleId = sl.id;
       v.decay = 3;
@@ -3361,23 +3461,17 @@ button{border:0;background:none;cursor:pointer;}
   var PAD_DEF = ["kick", "snare", "hat", "clap", "tom", "rim", "perc", "cym"];
   function padVoice(i) {
     const sl = S.pads[S.padBank][i];
-    const v = {
+    const L = voiceLimits.pad;
+    const v = Object.assign({}, L, {
       kind: sl && sl.id ? "sample" : "drum",
       drum: PAD_DEF[i % 8],
       note: 36 + i,
-      gain: 0.9 + K(7) * 0.5,
-      attack: 1e-3,
-      decay: 0.4,
-      sustain: 0,
-      release: 0.12,
+      gain: L.gain * (0.6 + K(7) * 0.8),
       cutoff: 0.5 + K(0) * 0.5,
       res: K(1) * 0.5,
       drive: 0.1 + K(4) * 0.6,
-      space: S.knob[8 + 0] * 0.6,
-      spread: 0,
-      pan: 0,
-      tune: 0
-    };
+      space: S.knob[8 + 0] * 0.5
+    });
     if (sl && sl.id) {
       v.sampleId = sl.id;
       v.kind = "sample";
@@ -3404,24 +3498,125 @@ button{border:0;background:none;cursor:pointer;}
         eng.play(padVoice(e.pad), when, e.vel, e.pad);
         flashPad(e.pad);
       } else {
-        const v = keyVoice(e.note);
-        v.decay = Math.max(0.05, (e.len || 0.25) * 0.7);
-        v.sustain = 0;
-        eng.play(v, when, e.vel);
+        eng.play(pluck(keyVoice(e.note), e.len || 0.25), when, e.vel);
         flashKey(e.note, e.len || 0.25);
       }
     },
     onTick: () => paintSeqHeads()
   });
+  var bed = {
+    id: "",
+    name: "",
+    src: null,
+    gain: null,
+    level: 0.75,
+    get playing() {
+      return !!this.src;
+    },
+    set(id, name) {
+      this.id = id;
+      this.name = name;
+      paintBed();
+      saveBed();
+    },
+    clear() {
+      this.stop();
+      this.id = "";
+      this.name = "";
+      paintBed();
+      saveBed();
+    },
+    start() {
+      this.stop();
+      if (!this.id) return;
+      const buf = warm.get(this.id);
+      if (!buf) {
+        warmUp().then(() => {
+          if (this.id && !this.src) this.start();
+        });
+        return;
+      }
+      eng.init();
+      if (!eng.ctx) return;
+      const g = eng.ctx.createGain();
+      g.gain.value = this.level;
+      g.connect(eng.bus);
+      const s = eng.ctx.createBufferSource();
+      s.buffer = buf;
+      s.loop = true;
+      s.connect(g);
+      s.start(eng.ctx.currentTime + 0.02);
+      this.src = s;
+      this.gain = g;
+      paintBed();
+    },
+    stop() {
+      if (this.src) {
+        try {
+          this.src.stop();
+        } catch (e) {
+        }
+      }
+      this.src = null;
+      this.gain = null;
+      paintBed();
+    },
+    setLevel(v) {
+      this.level = Math.max(0, Math.min(1.2, v));
+      if (this.gain) try {
+        this.gain.gain.setTargetAtTime(this.level, eng.ctx.currentTime, 0.02);
+      } catch (e) {
+      }
+      saveBed();
+    }
+  };
+  function paintBed() {
+    const el = $("#bed");
+    if (!el) return;
+    el.textContent = bed.name ? (bed.playing ? "\u25B6 " : "\u21BB ") + bed.name.slice(0, 18) : "\u21BB DROP A LOOP";
+    el.classList.toggle("on", bed.playing);
+  }
+  function saveBed() {
+    try {
+      localStorage.setItem(LS2 + ".bed", JSON.stringify({ id: bed.id, name: bed.name, level: bed.level }));
+    } catch (e) {
+    }
+  }
+  function loadBed() {
+    try {
+      const b = JSON.parse(localStorage.getItem(LS2 + ".bed") || "null");
+      if (b && b.id) {
+        bed.id = b.id;
+        bed.name = b.name || "";
+        bed.level = b.level == null ? 0.75 : b.level;
+      }
+    } catch (e) {
+    }
+  }
+  function bedMenu() {
+    return [
+      { label: bed.playing ? "Stop it" : "Play it", disabled: !bed.id, run: () => bed.playing ? bed.stop() : bed.start() },
+      { label: "Put a loop on it", items: () => soundRows((id, name) => {
+        bed.set(id, name);
+        warmUp();
+      }) },
+      {
+        label: "Level",
+        hint: Math.round(bed.level * 100) + "%",
+        items: () => [0.25, 0.5, 0.75, 1].map((v) => ({
+          label: Math.round(v * 100) + "%",
+          on: Math.abs(bed.level - v) < 0.01,
+          run: () => bed.setLevel(v)
+        }))
+      },
+      { label: "Clear it", danger: true, disabled: !bed.id, run: () => bed.clear() }
+    ];
+  }
   var held = /* @__PURE__ */ new Map();
   var arp = createArp({
     now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
     onNote: (note, vel, when, len) => {
-      const v = keyVoice(note);
-      v.decay = Math.max(0.04, len * 0.7);
-      v.sustain = 0;
-      v.release = Math.max(0.03, len * 0.3);
-      eng.play(v, when, vel);
+      eng.play(pluck(keyVoice(note), len), when, vel);
       loop.capture(1e3 + note, vel, len);
       flashKey(note, len);
     }
@@ -3573,6 +3768,12 @@ button{border:0;background:none;cursor:pointer;}
         openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: PAD_LABELS[i] });
       });
       onLongPress(b, 460, (ev, x, y) => openMenu({ x, y, items: padMenu(i), title: PAD_LABELS[i] }));
+      armDropTarget(b, (id, name) => {
+        S.pads[S.padBank][i] = { id, name };
+        save();
+        warmUp();
+        paintPads();
+      }, PAD_LABELS[i]);
       host.appendChild(b);
       padEls.push(b);
     }
@@ -3647,6 +3848,16 @@ button{border:0;background:none;cursor:pointer;}
         openMenu({ x: ev.clientX, y: ev.clientY, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) });
       });
       onLongPress(e, 460, (ev, x, y) => openMenu({ x, y, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }));
+      armDropTarget(
+        e,
+        (id, name) => {
+          S.keys[n] = { id, name };
+          save();
+          warmUp();
+          paintKeys();
+        },
+        NOTES[n % 12] + (Math.floor(n / 12) - 1)
+      );
       host.appendChild(e);
       keyEls.set(n, e);
     });
@@ -3982,10 +4193,12 @@ button{border:0;background:none;cursor:pointer;}
       const st = loop.info.state;
       st === "playing" || st === "overdub" ? loop.pause() : loop.play();
       seq.playing ? seq.stop() : seq.play();
+      bed.playing ? bed.stop() : bed.start();
     } else if (name === "stop") {
       loop.stop();
       arp.clear();
       seq.stop();
+      bed.stop();
       held.forEach((h) => {
         try {
           h.off();
@@ -4140,6 +4353,16 @@ button{border:0;background:none;cursor:pointer;}
     openSheet("#lib");
   });
   $("#libx").addEventListener("click", closeSheets);
+  $("#bed").addEventListener("click", () => bed.playing ? bed.stop() : bed.start());
+  $("#bed").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: bedMenu(), title: "Loop bed" });
+  });
+  onLongPress($("#bed"), 420, (ev, x, y) => openMenu({ x, y, items: bedMenu(), title: "Loop bed" }));
+  armDropTarget($("#bed"), (id, name) => {
+    bed.set(id, name);
+    warmUp().then(() => bed.start());
+  }, "the loop bed");
   $("#seqbtn").addEventListener("click", () => {
     renderSeq();
     openSheet("#seq");
@@ -4201,6 +4424,30 @@ button{border:0;background:none;cursor:pointer;}
       ] });
     }
   });
+  var dropTarget = null;
+  function armDropTarget(el, place, label) {
+    el.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      dropTarget = { place, label };
+      el.classList.add("hot");
+    });
+    el.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropTarget = { place, label };
+      el.classList.add("hot");
+    });
+    el.addEventListener("dragleave", () => {
+      el.classList.remove("hot");
+    });
+    el.addEventListener("drop", () => {
+      el.classList.remove("hot");
+    });
+  }
+  function newestSound() {
+    const all = lib.items;
+    return all.length ? all[all.length - 1] : null;
+  }
   async function takeFiles(list) {
     const files = Array.from(list || []);
     if (!files.length) return;
@@ -4226,6 +4473,15 @@ button{border:0;background:none;cursor:pointer;}
       lib.batch(false);
     }
     if (audio) toast(audio + " sound" + (audio === 1 ? "" : "s") + " imported");
+    const dest = dropTarget;
+    dropTarget = null;
+    if (dest && audio) {
+      const it = newestSound();
+      if (it) {
+        dest.place(it.id, it.name);
+        toast(it.name + " \u2192 " + dest.label);
+      }
+    }
     renderList();
   }
   $("#drop").addEventListener("click", () => $("#file").click());
@@ -4244,7 +4500,7 @@ button{border:0;background:none;cursor:pointer;}
     e.preventDefault();
     $("#drop").classList.remove("hot");
     if (!e.dataTransfer) return;
-    if (!$("#lib").classList.contains("open")) openSheet("#lib");
+    if (!dropTarget && !$("#lib").classList.contains("open")) openSheet("#lib");
     await takeFiles(e.dataTransfer.files);
   });
   var BUTTONS = ["play", "stop", "rec", "arp", "scch", "padB", "knobB", "oct+", "oct-"];
@@ -4283,15 +4539,20 @@ button{border:0;background:none;cursor:pointer;}
     }));
     $("#seqbody").querySelectorAll("[data-bars]").forEach((b) => b.addEventListener("click", (ev) => {
       const i = +b.dataset.bars;
-      openMenu(ev, [1, 2, 4, 8, 16, 32].map((n) => ({
-        label: n + (n === 1 ? " bar" : " bars"),
-        on: seq.channels[i].bars === n,
-        run: () => {
-          seq.setBars(i, n);
-          saveSeq();
-          renderSeq();
-        }
-      })), { title: seq.channels[i].name });
+      openMenu({
+        x: ev.clientX,
+        y: ev.clientY,
+        title: seq.channels[i].name,
+        items: [1, 2, 4, 8, 16, 32].map((n) => ({
+          label: n + (n === 1 ? " bar" : " bars"),
+          on: seq.channels[i].bars === n,
+          run: () => {
+            seq.setBars(i, n);
+            saveSeq();
+            renderSeq();
+          }
+        }))
+      });
     }));
     $("#seqbody").querySelectorAll("[data-cl]").forEach((b) => b.addEventListener("click", () => {
       seq.clear(+b.dataset.cl);
@@ -4413,6 +4674,8 @@ button{border:0;background:none;cursor:pointer;}
   });
   var sky = mountGalaxy($("#sky"));
   loadSeq();
+  loadBed();
+  paintBed();
   seq.setBpm(S.bpm);
   setInterval(saveSeq, 4e3);
   window.__smk = {
@@ -4430,6 +4693,7 @@ button{border:0;background:none;cursor:pointer;}
     seq,
     renderSeq,
     exportMid,
+    bed,
     get lastTransport() {
       return lastTransport;
     },

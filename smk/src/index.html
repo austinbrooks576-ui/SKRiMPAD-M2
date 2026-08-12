@@ -21,6 +21,35 @@
   --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
+
+/* ---------- the drop-down menus ----------
+   menu.js was imported and wired to every pad, key and knob in this edition,
+   and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
+   the stylesheet for them lives in ULTIMATE, which this edition never copied.
+   So every right-click and every long-press was building a real, working menu
+   as an unstyled div at the end of <body> — behind #app, at opacity 0, with no
+   position. Wired, working, and invisible. */
+.menu{position:fixed;z-index:70;min-width:min(230px,72vw);max-width:min(300px,86vw);
+  max-height:min(70svh,520px);overflow-y:auto;overscroll-behavior:contain;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--e2),var(--lip);padding:5px;
+  opacity:0;transform:scale(.97);transform-origin:top left;
+  transition:opacity .11s,transform .11s cubic-bezier(.2,.7,.3,1);}
+.menu.open{opacity:1;transform:none;}
+.mitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--txt);
+  font-size:var(--fs-sm);letter-spacing:.06em;cursor:pointer;min-height:var(--hit);}
+.mitem:hover:not(:disabled),.mitem:focus-visible{background:rgba(75,227,200,.12);color:var(--acc);}
+.mitem:disabled{opacity:.35;cursor:default;}
+.mitem.danger:hover{background:rgba(255,107,132,.14);color:#FF6B84;}
+.mitem.on .ml::before{content:'\2713 ';color:var(--acc);}
+.mitem.back{color:var(--dim);}
+.mitem .ml{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mitem .mh{flex:none;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
+.mitem .mx{flex:none;color:var(--dim);font-size:var(--fs-md);}
+.mhead{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding:7px 10px 4px;}
+.msep{border:0;border-top:1px solid var(--line);margin:4px 6px;}
+
 /* ---------- the sky, and the glass in front of it ----------
    The galaxy is a canvas painted ONCE per size change (see core/galaxy.js) and
    pinned behind everything. It is not animated, because the only thread that
@@ -257,6 +286,7 @@ button{border:0;background:none;cursor:pointer;}
   </div>
 
   <div class="rail">
+    <button class="chip" id="bed" title="Drop a loop here">\u21bb DROP A LOOP</button>
     <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
     <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
     <button class="chip" id="arp">ARP</button>
@@ -311,6 +341,7 @@ import { decode as decodeTransport, describe as describeMsg, whyQuiet } from '..
 import { mountGalaxy } from './core/galaxy.js';
 import { createArp } from './core/arp.js';
 import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js';
+import { voiceLimits, pluck } from './core/mix.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -380,16 +411,22 @@ const knobRole = (i) => KNOB_ROLES[(S.knobBank * KNOBS) + i];
 // A key's voice. A sample if one is on that key, otherwise a playable synth —
 // because a keyboard that is silent until you import something teaches nobody
 // anything.
+// A key's voice. Every number starts from mix.js and the knobs move it from
+// there, rather than each knob inventing its own range — which is how ATTACK
+// ended up at 302ms in the middle of its travel and every note peaked a third
+// of a second after it was played.
 function keyVoice(note) {
   const sl = S.keys[note];
-  const v = {
+  const L = voiceLimits.key;
+  const v = Object.assign({}, L, {
     kind: sl && sl.id ? 'sample' : 'synth', wave: 'sawtooth', note,
-    gain: 0.5 + K(7) * 0.7, attack: 0.002 + K(2) * 0.6, decay: 0.4,
-    sustain: 0.7, release: 0.06 + K(3) * 1.4,
-    cutoff: 0.12 + K(0) * 0.85, res: K(1) * 0.8, drive: K(4) * 0.8,
-    space: S.knob[8 + 0], spread: K(5) * 0.9,
+    gain: L.gain * (0.55 + K(7) * 0.9),
+    attack: 0.002 + K(2) * K(2) * 0.35,   // squared, so the useful range is not all in the first tenth
+    release: 0.06 + K(3) * 1.2,
+    cutoff: 0.12 + K(0) * 0.85, res: K(1) * 0.8, drive: K(4) * 0.7,
+    space: S.knob[8 + 0] * 0.8, spread: K(5) * 0.9,
     pan: (S.knob[8 + 2] - 0.5) * 2, tune: Math.round((K(6) - 0.5) * 48),
-  };
+  });
   if (sl && sl.id) { v.sampleId = sl.id; v.decay = 3; v.release = 0.2; }
   return v;
 }
@@ -397,12 +434,13 @@ const HUES = [4, 34, 62, 96, 150, 196, 250, 300];
 const PAD_DEF = ['kick', 'snare', 'hat', 'clap', 'tom', 'rim', 'perc', 'cym'];
 function padVoice(i) {
   const sl = S.pads[S.padBank][i];
-  const v = {
+  const L = voiceLimits.pad;
+  const v = Object.assign({}, L, {
     kind: sl && sl.id ? 'sample' : 'drum', drum: PAD_DEF[i % 8], note: 36 + i,
-    gain: 0.9 + K(7) * 0.5, attack: 0.001, decay: 0.4, sustain: 0, release: 0.12,
+    gain: L.gain * (0.6 + K(7) * 0.8),
     cutoff: 0.5 + K(0) * 0.5, res: K(1) * 0.5, drive: 0.1 + K(4) * 0.6,
-    space: S.knob[8 + 0] * 0.6, spread: 0, pan: 0, tune: 0,
-  };
+    space: S.knob[8 + 0] * 0.5,
+  });
   if (sl && sl.id) { v.sampleId = sl.id; v.kind = 'sample'; v.decay = 3; }
   return v;
 }
@@ -428,11 +466,76 @@ const seq = createSeq({
   now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
   onFire: (e, when) => {
     if (e.k === 'pad') { eng.play(padVoice(e.pad), when, e.vel, e.pad); flashPad(e.pad); }
-    else { const v = keyVoice(e.note); v.decay = Math.max(0.05, (e.len || 0.25) * 0.7); v.sustain = 0;
-           eng.play(v, when, e.vel); flashKey(e.note, e.len || 0.25); }
+    else { eng.play(pluck(keyVoice(e.note), e.len || 0.25), when, e.vel); flashKey(e.note, e.len || 0.25); }
   },
   onTick: () => paintSeqHeads(),
 });
+
+// ---------------------------------------------------------------------------
+// THE LOOP BED. Drop a loop on it, press play, and play over the top.
+//
+// It is deliberately NOT a sequencer channel. A backing loop is audio somebody
+// already made — it does not want quantising, it does not want to be recorded
+// into, and it does not want to be one of the eight parts you are building. It
+// wants to go round and stay out of the way, which is one buffer, looping,
+// through the master bus so the same limiter catches it as everything else.
+const bed = {
+  id: '', name: '', src: null, gain: null, level: 0.75,
+  get playing() { return !!this.src; },
+  set(id, name) { this.id = id; this.name = name; paintBed(); saveBed(); },
+  clear() { this.stop(); this.id = ''; this.name = ''; paintBed(); saveBed(); },
+  start() {
+    this.stop();
+    if (!this.id) return;
+    const buf = warm.get(this.id);
+    // Not warmed yet — ask for it and start when it arrives, rather than
+    // silently doing nothing, which is what "I pressed play and nothing
+    // happened" is made of.
+    if (!buf) { warmUp().then(() => { if (this.id && !this.src) this.start(); }); return; }
+    eng.init(); if (!eng.ctx) return;
+    const g = eng.ctx.createGain();
+    g.gain.value = this.level;
+    g.connect(eng.bus);
+    const s = eng.ctx.createBufferSource();
+    s.buffer = buf; s.loop = true;
+    s.connect(g);
+    s.start(eng.ctx.currentTime + 0.02);
+    this.src = s; this.gain = g;
+    paintBed();
+  },
+  stop() {
+    if (this.src) { try { this.src.stop(); } catch (e) {} }
+    this.src = null; this.gain = null;
+    paintBed();
+  },
+  setLevel(v) {
+    this.level = Math.max(0, Math.min(1.2, v));
+    if (this.gain) try { this.gain.gain.setTargetAtTime(this.level, eng.ctx.currentTime, 0.02); } catch (e) {}
+    saveBed();
+  },
+};
+function paintBed() {
+  const el = $('#bed'); if (!el) return;
+  el.textContent = bed.name ? ((bed.playing ? '\u25b6 ' : '\u21bb ') + bed.name.slice(0, 18)) : '\u21bb DROP A LOOP';
+  el.classList.toggle('on', bed.playing);
+}
+function saveBed() { try { localStorage.setItem(LS + '.bed', JSON.stringify({ id: bed.id, name: bed.name, level: bed.level })); } catch (e) {} }
+function loadBed() {
+  try {
+    const b = JSON.parse(localStorage.getItem(LS + '.bed') || 'null');
+    if (b && b.id) { bed.id = b.id; bed.name = b.name || ''; bed.level = b.level == null ? 0.75 : b.level; }
+  } catch (e) {}
+}
+function bedMenu() {
+  return [
+    { label: bed.playing ? 'Stop it' : 'Play it', disabled: !bed.id, run: () => (bed.playing ? bed.stop() : bed.start()) },
+    { label: 'Put a loop on it', items: () => soundRows((id, name) => { bed.set(id, name); warmUp(); }) },
+    { label: 'Level', hint: Math.round(bed.level * 100) + '%',
+      items: () => [0.25, 0.5, 0.75, 1].map((v) => ({ label: Math.round(v * 100) + '%', on: Math.abs(bed.level - v) < 0.01,
+        run: () => bed.setLevel(v) })) },
+    { label: 'Clear it', danger: true, disabled: !bed.id, run: () => bed.clear() },
+  ];
+}
 
 const held = new Map();
 
@@ -444,12 +547,11 @@ const held = new Map();
 const arp = createArp({
   now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
   onNote: (note, vel, when, len) => {
-    const v = keyVoice(note);
-    // The gate is the whole envelope of an arpeggiated note. Handing it to
-    // decay+release rather than sustaining means a short gate is genuinely
-    // staccato instead of a long note faded early.
-    v.decay = Math.max(0.04, len * 0.7); v.sustain = 0; v.release = Math.max(0.03, len * 0.3);
-    eng.play(v, when, vel);
+    // An arpeggiated note is a PLUCK, not a held note played briefly. pluck()
+    // caps the attack so it peaks where you played it, shapes the whole
+    // envelope from the gate, and trims the level — because there are sixteen
+    // of these a bar and you did not press sixteen keys. See core/mix.js.
+    eng.play(pluck(keyVoice(note), len), when, vel);
     loop.capture(1000 + note, vel, len);
     flashKey(note, len);
   },
@@ -577,6 +679,7 @@ function buildPads() {
     });
     b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: PAD_LABELS[i] }); });
     onLongPress(b, 460, (ev, x, y) => openMenu({ x, y, items: padMenu(i), title: PAD_LABELS[i] }));
+    armDropTarget(b, (id, name) => { S.pads[S.padBank][i] = { id, name }; save(); warmUp(); paintPads(); }, PAD_LABELS[i]);
     host.appendChild(b); padEls.push(b);
   }
   paintPads();
@@ -648,6 +751,8 @@ function buildKeys() {
     ['pointerup', 'pointercancel', 'pointerleave'].forEach((x) => e.addEventListener(x, () => keyOff(n)));
     e.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }); });
     onLongPress(e, 460, (ev, x, y) => openMenu({ x, y, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }));
+    armDropTarget(e, (id, name) => { S.keys[n] = { id, name }; save(); warmUp(); paintKeys(); },
+                  NOTES[n % 12] + (Math.floor(n / 12) - 1));
     host.appendChild(e); keyEls.set(n, e);
   });
   paintKeys();
@@ -881,8 +986,9 @@ function transport(name) {
   if (name === 'play') {
     const st = loop.info.state; (st === 'playing' || st === 'overdub') ? loop.pause() : loop.play();
     seq.playing ? seq.stop() : seq.play();
+    bed.playing ? bed.stop() : bed.start();
   }
-  else if (name === 'stop') { loop.stop(); arp.clear(); seq.stop();
+  else if (name === 'stop') { loop.stop(); arp.clear(); seq.stop(); bed.stop();
     held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); }
   else if (name === 'rec') {
     loop.arm();
@@ -974,6 +1080,10 @@ function openSheet(id) { $('#scrim').classList.add('open'); $(id).classList.add(
 function closeSheets() { $('#scrim').classList.remove('open'); document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('open')); }
 $('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
 $('#libx').addEventListener('click', closeSheets);
+$('#bed').addEventListener('click', () => (bed.playing ? bed.stop() : bed.start()));
+$('#bed').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: bedMenu(), title: 'Loop bed' }); });
+onLongPress($('#bed'), 420, (ev, x, y) => openMenu({ x, y, items: bedMenu(), title: 'Loop bed' }));
+armDropTarget($('#bed'), (id, name) => { bed.set(id, name); warmUp().then(() => bed.start()); }, 'the loop bed');
 $('#seqbtn').addEventListener('click', () => { renderSeq(); openSheet('#seq'); });
 $('#seqx').addEventListener('click', closeSheets);
 $('#setbtn').addEventListener('click', () => { renderSetup(); openSheet('#setup'); });
@@ -1011,6 +1121,29 @@ $('#list').addEventListener('click', async (ev) => {
   }
 });
 
+// DROP IT WHERE YOU WANT IT. Dropping a file on the window puts it in the
+// library; dropping it on a PAD or a KEY puts it on that pad or that key and
+// arms it, which is the thing that was actually being asked for. The library
+// import still happens either way — a sound you dropped on a pad is a sound you
+// have, not a sound that only exists on that pad.
+//
+// `dropTarget` is set by the element under the pointer during the drag rather
+// than read from the drop event, because a drop that lands on a pad's CHILD
+// (its label, its flash overlay) has that child as its target and the pad
+// itself nowhere in sight.
+let dropTarget = null;
+function armDropTarget(el, place, label) {
+  el.addEventListener('dragenter', (e) => { e.preventDefault(); dropTarget = { place, label }; el.classList.add('hot'); });
+  el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropTarget = { place, label }; el.classList.add('hot'); });
+  el.addEventListener('dragleave', () => { el.classList.remove('hot'); });
+  el.addEventListener('drop', () => { el.classList.remove('hot'); });
+}
+// The newest sound in the library, which is the one that was just imported.
+function newestSound() {
+  const all = lib.items;
+  return all.length ? all[all.length - 1] : null;
+}
+
 async function takeFiles(list) {
   const files = Array.from(list || []); if (!files.length) return;
   eng.init(); let audio = 0;
@@ -1030,6 +1163,12 @@ async function takeFiles(list) {
     }
   } finally { lib.batch(false); }
   if (audio) toast(audio + ' sound' + (audio === 1 ? '' : 's') + ' imported');
+  // If the drop landed on something, put the sound there.
+  const dest = dropTarget; dropTarget = null;
+  if (dest && audio) {
+    const it = newestSound();
+    if (it) { dest.place(it.id, it.name); toast(it.name + ' \u2192 ' + dest.label); }
+  }
   renderList();
 }
 $('#drop').addEventListener('click', () => $('#file').click());
@@ -1039,7 +1178,9 @@ window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#drop').c
 window.addEventListener('drop', async (e) => {
   e.preventDefault(); $('#drop').classList.remove('hot');
   if (!e.dataTransfer) return;
-  if (!$('#lib').classList.contains('open')) openSheet('#lib');
+  // Only open the library when the drop was NOT aimed at something. A sheet
+  // sliding up over the pad you just dropped on is the app arguing with you.
+  if (!dropTarget && !$('#lib').classList.contains('open')) openSheet('#lib');
   await takeFiles(e.dataTransfer.files);
 });
 
@@ -1104,10 +1245,11 @@ function renderSeq() {
   }));
   $('#seqbody').querySelectorAll('[data-bars]').forEach((b) => b.addEventListener('click', (ev) => {
     const i = +b.dataset.bars;
-    openMenu(ev, [1, 2, 4, 8, 16, 32].map((n) => ({
-      label: n + (n === 1 ? ' bar' : ' bars'), on: seq.channels[i].bars === n,
-      run: () => { seq.setBars(i, n); saveSeq(); renderSeq(); },
-    })), { title: seq.channels[i].name });
+    openMenu({ x: ev.clientX, y: ev.clientY, title: seq.channels[i].name,
+      items: [1, 2, 4, 8, 16, 32].map((n) => ({
+        label: n + (n === 1 ? ' bar' : ' bars'), on: seq.channels[i].bars === n,
+        run: () => { seq.setBars(i, n); saveSeq(); renderSeq(); },
+      })) });
   }));
   $('#seqbody').querySelectorAll('[data-cl]').forEach((b) => b.addEventListener('click', () => {
     seq.clear(+b.dataset.cl); saveSeq(); renderSeq();
@@ -1279,11 +1421,13 @@ $('#splashgo').addEventListener('click', () => {
 // an animation.
 const sky = mountGalaxy($('#sky'));
 loadSeq();
+loadBed();
+paintBed();
 seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid,
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed,
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,

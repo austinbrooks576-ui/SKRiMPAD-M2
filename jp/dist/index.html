@@ -149,6 +149,34 @@ button{border:0;background:none;cursor:pointer;}
 .grp h3{margin:0 0 6px;font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);font-weight:600;}
 .opts{display:flex;flex-wrap:wrap;gap:6px;}
 @media (max-width:430px){ .rail{gap:5px;} .chip{padding:0 9px;} }
+
+/* ---------- the drop-down menus ----------
+   menu.js was imported and wired to every pad, key and knob in this edition,
+   and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
+   the stylesheet for them lives in ULTIMATE, which this edition never copied.
+   So every right-click and every long-press was building a real, working menu
+   as an unstyled div at the end of <body> — behind #app, at opacity 0, with no
+   position. Wired, working, and invisible. */
+.menu{position:fixed;z-index:70;min-width:min(230px,72vw);max-width:min(300px,86vw);
+  max-height:min(70svh,520px);overflow-y:auto;overscroll-behavior:contain;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--e2),var(--lip);padding:5px;
+  opacity:0;transform:scale(.97);transform-origin:top left;
+  transition:opacity .11s,transform .11s cubic-bezier(.2,.7,.3,1);}
+.menu.open{opacity:1;transform:none;}
+.mitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--txt);
+  font-size:var(--fs-sm);letter-spacing:.06em;cursor:pointer;min-height:var(--hit);}
+.mitem:hover:not(:disabled),.mitem:focus-visible{background:rgba(75,227,200,.12);color:var(--acc);}
+.mitem:disabled{opacity:.35;cursor:default;}
+.mitem.danger:hover{background:rgba(255,107,132,.14);color:#FF6B84;}
+.mitem.on .ml::before{content:'\2713 ';color:var(--acc);}
+.mitem.back{color:var(--dim);}
+.mitem .ml{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mitem .mh{flex:none;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
+.mitem .mx{flex:none;color:var(--dim);font-size:var(--fs-md);}
+.mhead{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding:7px 10px 4px;}
+.msep{border:0;border-top:1px solid var(--line);margin:4px 6px;}
 </style>
 </head>
 <body>
@@ -931,6 +959,13 @@ button{border:0;background:none;cursor:pointer;}
       resume,
       get ctx() {
         return ctx;
+      },
+      // The master bus, for audio this engine did not make. A backing loop has to
+      // go through the SAME compressor and ceiling as everything else — routed
+      // straight to ctx.destination it would bypass the limiter entirely and be
+      // the one thing in the app that can clip.
+      get bus() {
+        return init(), master;
       },
       get analyser() {
         return analyser;

@@ -295,6 +295,84 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(exported && exported.size > 40, 'EXPORT produces an actual MIDI file',
      exported ? exported.size + ' bytes, ' + exported.type : 'nothing');
 
+  // ---- the right-click menus --------------------------------------------
+  // Every pad, key and knob has had a menu wired to it since this edition
+  // shipped, and none of it was ever VISIBLE: menu.js builds `.menu`/`.mitem`
+  // elements and the stylesheet for them lived only in ULTIMATE. So the check
+  // is not "does a menu open" — it did — but "can it be seen".
+  const menu = await p.evaluate(async () => {
+    const fire = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+    const look = () => {
+      const m = document.querySelector('.menu');
+      if (!m) return null;
+      const cs = getComputedStyle(m);
+      const r = m.getBoundingClientRect();
+      return { pos: cs.position, z: cs.zIndex, opacity: +cs.opacity, w: Math.round(r.width), items: m.querySelectorAll('.mitem').length };
+    };
+    const out = {};
+    for (const [name, sel] of [['pad', '.pad'], ['key', '#keys .kw'], ['knob', '.knob'], ['bed', '#bed']]) {
+      document.querySelectorAll('.menu').forEach((m) => m.remove());
+      fire(document.querySelector(sel));
+      // Long enough for the open transition to SETTLE. At 60ms the menus were
+      // caught mid-fade and read back opacities between 0 and 0.89 — which
+      // tests the animation, not the thing being claimed.
+      await new Promise((r) => setTimeout(r, 260));
+      out[name] = look();
+    }
+    document.querySelectorAll('.menu').forEach((m) => m.remove());
+    return out;
+  });
+  for (const k of ['pad', 'key', 'knob', 'bed']) {
+    const m = menu[k];
+    ok(m && m.pos === 'fixed' && +m.z >= 10 && m.opacity > 0.95 && m.w > 100 && m.items > 0,
+       'right-clicking a ' + k + ' opens a menu that can actually be SEEN',
+       m ? (m.items + ' items, ' + m.w + 'px, z' + m.z + ', opacity ' + m.opacity) : 'no menu at all');
+  }
+
+  // ---- drag and drop onto a pad ------------------------------------------
+  const dropped = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.S.pads[A.S.padBank][3] = null;
+    const pad = document.querySelectorAll('.pad')[3];
+    // A real DragEvent carrying a real file, aimed at the pad — not at the
+    // window. The pad must claim it.
+    const wav = new Uint8Array(44 + 800);
+    const dv = new DataView(wav.buffer);
+    const put = (o, s) => { for (let i = 0; i < s.length; i++) wav[o + i] = s.charCodeAt(i); };
+    put(0, 'RIFF'); dv.setUint32(4, 36 + 800, true); put(8, 'WAVE'); put(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, 8000, true); dv.setUint32(28, 16000, true); dv.setUint16(32, 2, true);
+    dv.setUint16(34, 16, true); put(36, 'data'); dv.setUint32(40, 800, true);
+    for (let i = 0; i < 400; i++) dv.setInt16(44 + i * 2, Math.round(Math.sin(i / 6) * 9000), true);
+    const file = new File([wav], 'DroppedLoop.wav', { type: 'audio/wav' });
+    const dt = new DataTransfer(); dt.items.add(file);
+    pad.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    window.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    await new Promise((r) => setTimeout(r, 900));
+    const slot = A.S.pads[A.S.padBank][3];
+    return { name: slot && slot.name, libOpened: document.querySelector('#lib').classList.contains('open') };
+  });
+  ok(dropped.name && /DroppedLoop/.test(dropped.name), 'a file dropped ON a pad lands on that pad',
+     dropped.name || 'nothing');
+  ok(!dropped.libOpened, 'and the library does not slide up over the pad you just aimed at');
+
+  // ---- the loop bed -------------------------------------------------------
+  const bedState = await p.evaluate(async () => {
+    const A = window.__smk;
+    const it = A.lib.items[A.lib.items.length - 1];
+    A.bed.set(it.id, it.name);
+    A.bed.start();
+    await new Promise((r) => setTimeout(r, 400));
+    const on = A.bed.playing;
+    const label = document.querySelector('#bed').textContent;
+    A.transport('stop');
+    await new Promise((r) => setTimeout(r, 60));
+    return { on, offAfterStop: !A.bed.playing, label };
+  });
+  ok(bedState.on, 'a loop dropped on the bed plays');
+  ok(/DroppedLoop/.test(bedState.label), 'and the transport shows which loop it is', bedState.label);
+  ok(bedState.offAfterStop, 'and STOP stops it along with everything else');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;
