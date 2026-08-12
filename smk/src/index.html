@@ -56,8 +56,13 @@ button{border:0;background:none;cursor:pointer;}
 #link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
 #link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
 
+/* CENTRED, not bottom-aligned. Once the pads became square they stopped
+   growing to fill the stage, and flex-end pushed the whole instrument to the
+   floor with a third of a desktop window of dead black above it. The
+   instrument is the thing being looked at; it belongs in the middle of the
+   space it has. */
 #stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:var(--sp);
-  justify-content:flex-end;}
+  justify-content:center;}
 
 /* ---------- knobs ---------- */
 #knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
@@ -72,10 +77,17 @@ button{border:0;background:none;cursor:pointer;}
 .knob.live{border-color:var(--acc);}
 
 /* ---------- pads: 2 x 4, DP1 top-left ---------- */
-#pads{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);
-  gap:6px;flex:0 0 auto;}
+/* The pad's SIZE comes from its own aspect-ratio and the grid's width cap —
+   never from a row height. `grid-template-rows:repeat(2,1fr)` looked right and
+   was not: 1fr of a grid that is sized by its content is just the content, so
+   the columns stretched to the window while the rows stayed at min-height and
+   a pad came out six times wider than it was tall on a desktop. The width cap
+   is what keeps 4 columns from turning into 340px slabs on a wide screen. */
+#pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:0 0 auto;
+  width:100%;max-width:min(100%,520px);margin-inline:auto;}
 .pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
-  overflow:hidden;box-shadow:var(--e1),var(--lip);min-height:56px;padding:6px 8px;
+  aspect-ratio:1;min-width:0;
+  overflow:hidden;box-shadow:var(--e1),var(--lip);padding:6px 8px;
   background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
   display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
 .pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
@@ -243,10 +255,16 @@ import {
   ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES, RHYTHMS, SCALES, CHORDS,
   identify, createUnitMap, signature,
 } from './core/smk25.js';
+import { decode as decodeTransport, describe as describeMsg, whyQuiet } from '../../ultimate/src/core/transport-in.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const NOTES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+// Which of the four transport standards a message arrived as, in words. Naming
+// it is the difference between "the button works" and "I now know what my
+// keyboard is set to", and the second one is what lets somebody fix the third
+// button when only two of them work.
+const HOW = { realtime: 'system real-time', mmc: 'MMC SysEx', mackie: 'Mackie note', cc: 'CC' };
 const BLACK = new Set([1, 3, 6, 8, 10]);
 
 // ---------------------------------------------------------------------------
@@ -591,6 +609,16 @@ async function warmUp() {
 // ---------------------------------------------------------------------------
 let learnPad = null, learnKnob = null, learnBtn = '';
 let shiftHeld = '';                 // 'arp' | 'scch' while that button is down
+// What the transport last arrived as, and the last message that matched
+// nothing. Both exist for one reason: when a button does not work, "the app
+// received nothing" and "the app received this and did not recognise it" are
+// completely different problems with completely different fixes, and until now
+// the app could not tell the user which one it was having.
+let lastTransport = null, lastUnknown = '';   // { name, how, seq } | null
+// A count, not just a latch. "PLAY arrived" and "PLAY arrived twice" are
+// different bugs — a button wired to both press and release toggles play on and
+// straight back off, which looks exactly like a button that does nothing.
+let transportSeq = 0;
 
 const io = createMidiIO({
   onEvent: (e) => {
@@ -607,17 +635,36 @@ const io = createMidiIO({
     }
     const named = sig ? unit.buttonFor(portName, sig) : '';
     if (named) { doButton(named, sig); return; }
-    if (e.transport) { transport(e.transport); return; }
+
+    // THE TRANSPORT, decoded from all four standards this class of unit uses.
+    // It runs AFTER learned buttons and is handed a `claimed` test, so nothing
+    // it recognises can ever steal a control the user taught. See
+    // ultimate/src/core/transport-in.js for why there are four of them.
+    const tr = decodeTransport(e, (kind, num, ch) => (
+      kind === 'cc' ? unit.knobFor(portName, S.knobBank, num) >= 0
+                    : unit.padFor(portName, S.padBank, num, ch) >= 0
+    ));
+    if (tr) {
+      if (tr.down && (tr.name === 'play' || tr.name === 'stop' || tr.name === 'rec' || tr.name === 'pause')) {
+        lastTransport = { name: tr.name, how: tr.how, seq: ++transportSeq };
+        transport(tr.name === 'pause' ? 'play' : tr.name);
+      }
+      return;   // claimed either way — a release must not fall through and play a note
+    }
 
     if (e.cmd === 0xB0) {
       if (learnKnob != null) { unit.teachKnob(portName, S.knobBank, learnKnob, e.d1, e.chan); toast('knob ' + (learnKnob + 1) + ' learned'); learnKnob = null; renderSetup(); return; }
       const k = unit.knobFor(portName, S.knobBank, e.d1);
       if (k >= 0) { setKnob(k, e.d2 / 127); return; }
+      // A CC nobody claimed. If it looks like a button being pressed it is very
+      // likely the transport on a CC this app has never heard of — remember it
+      // so SETUP can say what arrived instead of shrugging.
+      if (e.d2 >= 126 || e.d2 <= 1) { lastUnknown = describeMsg(e); renderSetup(); }
       return;
     }
     const on = e.cmd === 0x90 && e.d2 > 0;
     const off = e.cmd === 0x80 || (e.cmd === 0x90 && e.d2 === 0);
-    if (!on && !off) return;
+    if (!on && !off) { if (e.cmd === 0xC0 || e.status === 0xF0) { lastUnknown = describeMsg(e); renderSetup(); } return; }
 
     if (on && learnPad != null) {
       unit.teachPad(portName, S.padBank, learnPad, e.d1, e.chan);
@@ -887,6 +934,23 @@ function renderSetup() {
     + 'rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>'
     + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">'
         + esc(r.d) + '</span></span></div>').join('') + '</div>'
+    + '<div class="grp"><h3>PLAY · STOP · REC</h3><div class="dim">'
+    + 'A transport button has no standard, and this keyboard can send any of four things depending on how '
+    + 'it was set up. The app understands all four, so in most cases there is nothing to do here.'
+    + '<br><br><b>Out of the box the SMK-25 sends MMC over SysEx</b> — which the browser drops entirely '
+    + 'unless it was asked for SysEx permission at startup. That is the usual reason these buttons appear '
+    + 'dead in a DAW. SysEx here: <b>' + (d.sysex ? 'allowed' : 'REFUSED — reload and allow MIDI') + '</b>.'
+    + '<br>Also understood: system real-time (FA/FB/FC), Mackie notes 93–95, and CC 117/118/119 or 93–95 '
+    + 'if you reassigned them in M-VAVE’s editor. A CC you have taught to a knob stays a knob.'
+    + '<br><br>Last transport received: <b>'
+    + (lastTransport ? esc(lastTransport.name.toUpperCase() + ' · ' + HOW[lastTransport.how]) : 'none yet') + '</b>'
+    + (lastUnknown ? '<br>Last unrecognised message: <b>' + esc(lastUnknown) + '</b> — if that was a '
+        + 'transport button, teach it above.' : '')
+    + '<br><br>' + esc(whyQuiet({
+        sysex: d.sysex, ports: ins.length, everSpoke: d.bytes > 0,
+        taught: !!(bt.play || bt.stop || bt.rec) || !!lastTransport, seen: lastUnknown,
+      }))
+    + '</div></div>'
     + '<div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode)
     + ' · ' + d.inputs + ' in · ' + d.bytes + ' messages'
     + (d.liveNames && d.liveNames.length ? '<br>Sending: ' + esc(d.liveNames.join(', ')) : '')
@@ -927,6 +991,7 @@ $('#splashgo').addEventListener('click', () => {
 
 window.__smk = {
   get S() { return S; }, eng, io, lib, unit, loop,
+  get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
   get shift() { return shiftHeld; }, set shift(v) { shiftHeld = v; paintKeys(); },

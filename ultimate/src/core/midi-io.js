@@ -3,6 +3,7 @@
 // Ported from SKRiMPAD M2's proven handlers (hot-plug + BLE running-status parse).
 
 import { BLE_MIDI_SERVICE, BLE_MIDI_CHAR, createBleDecoder, looksLikeMidiName } from './ble-midi.js';
+import { MMC as MMC_CMD } from './transport-in.js';
 
 export function createMidiIO({ onEvent, onPorts, onGone } = {}) {
   let access = null;
@@ -49,12 +50,16 @@ export function createMidiIO({ onEvent, onPorts, onGone } = {}) {
     if (status === 0xfa || status === 0xfb) { fire({ transport: 'play' }); return; }
     if (status === 0xfc) { fire({ transport: 'stop' }); return; }
 
-    // MMC over SysEx — how most transport buttons actually report:
-    //   F0 7F <dev> 06 <cmd> F7   ·  01 stop · 02 play · 03 deferred play · 06 record
+    // MMC over SysEx — how most transport buttons actually report, and what
+    // an M-VAVE SMK-25 sends out of the box:
+    //   F0 7F <dev> 06 <cmd> F7
     if (status === 0xf0) {
+      // data[2] is the device ID and is deliberately NOT checked: 0x7F means
+      // "all devices" and is what most units send, but a unit that has been
+      // given an ID sends that instead, and refusing it would make the same
+      // button work on one keyboard and not the next.
       if (data.length >= 5 && data[1] === 0x7f && data[3] === 0x06) {
-        const c = data[4];
-        const name = c === 0x01 ? 'stop' : (c === 0x02 || c === 0x03) ? 'play' : (c === 0x06 || c === 0x07) ? 'rec' : null;
+        const name = MMC_CMD[data[4]];
         if (name) fire({ transport: name });
       }
       return;

@@ -56,8 +56,13 @@ button{border:0;background:none;cursor:pointer;}
 #link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
 #link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
 
+/* CENTRED, not bottom-aligned. Once the pads became square they stopped
+   growing to fill the stage, and flex-end pushed the whole instrument to the
+   floor with a third of a desktop window of dead black above it. The
+   instrument is the thing being looked at; it belongs in the middle of the
+   space it has. */
 #stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:var(--sp);
-  justify-content:flex-end;}
+  justify-content:center;}
 
 /* ---------- knobs ---------- */
 #knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
@@ -72,10 +77,17 @@ button{border:0;background:none;cursor:pointer;}
 .knob.live{border-color:var(--acc);}
 
 /* ---------- pads: 2 x 4, DP1 top-left ---------- */
-#pads{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);
-  gap:6px;flex:0 0 auto;}
+/* The pad's SIZE comes from its own aspect-ratio and the grid's width cap —
+   never from a row height. `grid-template-rows:repeat(2,1fr)` looked right and
+   was not: 1fr of a grid that is sized by its content is just the content, so
+   the columns stretched to the window while the rows stayed at min-height and
+   a pad came out six times wider than it was tall on a desktop. The width cap
+   is what keeps 4 columns from turning into 340px slabs on a wide screen. */
+#pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:0 0 auto;
+  width:100%;max-width:min(100%,520px);margin-inline:auto;}
 .pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
-  overflow:hidden;box-shadow:var(--e1),var(--lip);min-height:56px;padding:6px 8px;
+  aspect-ratio:1;min-width:0;
+  overflow:hidden;box-shadow:var(--e1),var(--lip);padding:6px 8px;
   background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
   display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
 .pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
@@ -1065,7 +1077,7 @@ button{border:0;background:none;cursor:pointer;}
       }
       return i;
     }
-    return function decode(bytes) {
+    return function decode2(bytes) {
       if (!bytes || bytes.length < 1) return;
       if (bytes.length < 2) return;
       let i = 1;
@@ -1155,6 +1167,61 @@ button{border:0;background:none;cursor:pointer;}
     };
   }
 
+  // ultimate/src/core/transport-in.js
+  var MCU_NOTES = {
+    91: "rew",
+    92: "ff",
+    93: "stop",
+    94: "play",
+    95: "rec",
+    96: "loop"
+  };
+  var CC_TRANSPORT = {
+    117: "play",
+    118: "stop",
+    119: "rec",
+    94: "play",
+    93: "stop",
+    95: "rec"
+  };
+  var MMC = { 1: "stop", 2: "play", 3: "play", 6: "rec", 7: "rec", 9: "pause" };
+  var buttonish = (v) => v >= 126 || v <= 1;
+  function decode(e, claimed) {
+    if (!e) return null;
+    if (e.transport) {
+      return { name: e.transport, how: e.status === 240 ? "mmc" : "realtime", down: true };
+    }
+    const cmd = e.cmd, d1 = e.d1, d2 = e.d2;
+    if ((cmd === 144 || cmd === 128) && MCU_NOTES[d1]) {
+      if (claimed && claimed("note", d1, e.chan)) return null;
+      return { name: MCU_NOTES[d1], how: "mackie", down: cmd === 144 && d2 > 0 };
+    }
+    if (cmd === 176 && CC_TRANSPORT[d1] && buttonish(d2)) {
+      if (claimed && claimed("cc", d1, e.chan)) return null;
+      return { name: CC_TRANSPORT[d1], how: "cc", down: d2 >= 126 };
+    }
+    return null;
+  }
+  function describe(e) {
+    if (!e) return "";
+    if (e.transport) return e.transport.toUpperCase() + " (" + (e.status === 240 ? "MMC SysEx" : "real-time") + ")";
+    if (e.status === 240) return "SysEx, " + (e.raw && e.raw.length || 0) + " bytes \u2014 not MMC";
+    const ch = (e.chan | 0) + 1;
+    if (e.cmd === 176) return "CC " + e.d1 + " = " + e.d2 + " on ch" + ch;
+    if (e.cmd === 144) return "note " + e.d1 + " on, vel " + e.d2 + ", ch" + ch;
+    if (e.cmd === 128) return "note " + e.d1 + " off, ch" + ch;
+    if (e.cmd === 192) return "program change " + e.d1 + " on ch" + ch;
+    return "status 0x" + (e.status || 0).toString(16) + " " + e.d1 + " " + e.d2;
+  }
+  function whyQuiet({ sysex, ports, everSpoke, taught, seen }) {
+    if (!ports) return "No MIDI ports at all. Plug the keyboard in, or connect it over Bluetooth.";
+    if (!everSpoke) return "The port exists but has never sent a byte. On Windows a paired BLE keyboard does this until you press CONNECT in the vendor panel.";
+    if (taught) return "";
+    if (seen) return "Something arrived that is not a transport message: " + seen + ". Learn it to PLAY, STOP or REC in SETUP.";
+    if (!sysex) return "SysEx was refused by the browser, and this keyboard sends its transport as MMC SysEx. Nothing downstream can recover it \u2014 reload and allow MIDI, or set the buttons to send CC in the vendor app.";
+    return "Press a transport button. If nothing appears here, the unit is not sending one.";
+  }
+
   // ultimate/src/core/midi-io.js
   function createMidiIO({ onEvent, onPorts, onGone } = {}) {
     let access = null;
@@ -1198,8 +1265,7 @@ button{border:0;background:none;cursor:pointer;}
       }
       if (status === 240) {
         if (data.length >= 5 && data[1] === 127 && data[3] === 6) {
-          const c = data[4];
-          const name = c === 1 ? "stop" : c === 2 || c === 3 ? "play" : c === 6 || c === 7 ? "rec" : null;
+          const name = MMC[data[4]];
           if (name) fire({ transport: name });
         }
         return;
@@ -2596,6 +2662,7 @@ button{border:0;background:none;cursor:pointer;}
   var $ = (s) => document.querySelector(s);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var NOTES = ["C", "C\u266F", "D", "D\u266F", "E", "F", "F\u266F", "G", "G\u266F", "A", "A\u266F", "B"];
+  var HOW = { realtime: "system real-time", mmc: "MMC SysEx", mackie: "Mackie note", cc: "CC" };
   var BLACK = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
   var LS2 = "skrimpad.smk.state.v1";
   function fresh() {
@@ -3060,6 +3127,9 @@ button{border:0;background:none;cursor:pointer;}
   var learnKnob = null;
   var learnBtn = "";
   var shiftHeld = "";
+  var lastTransport = null;
+  var lastUnknown = "";
+  var transportSeq = 0;
   var io = createMidiIO({
     onEvent: (e) => {
       const nm = e.port && e.port.name || "";
@@ -3080,8 +3150,12 @@ button{border:0;background:none;cursor:pointer;}
         doButton(named, sig);
         return;
       }
-      if (e.transport) {
-        transport(e.transport);
+      const tr = decode(e, (kind, num, ch) => kind === "cc" ? unit.knobFor(portName, S.knobBank, num) >= 0 : unit.padFor(portName, S.padBank, num, ch) >= 0);
+      if (tr) {
+        if (tr.down && (tr.name === "play" || tr.name === "stop" || tr.name === "rec" || tr.name === "pause")) {
+          lastTransport = { name: tr.name, how: tr.how, seq: ++transportSeq };
+          transport(tr.name === "pause" ? "play" : tr.name);
+        }
         return;
       }
       if (e.cmd === 176) {
@@ -3097,11 +3171,21 @@ button{border:0;background:none;cursor:pointer;}
           setKnob(k, e.d2 / 127);
           return;
         }
+        if (e.d2 >= 126 || e.d2 <= 1) {
+          lastUnknown = describe(e);
+          renderSetup();
+        }
         return;
       }
       const on = e.cmd === 144 && e.d2 > 0;
       const off = e.cmd === 128 || e.cmd === 144 && e.d2 === 0;
-      if (!on && !off) return;
+      if (!on && !off) {
+        if (e.cmd === 192 || e.status === 240) {
+          lastUnknown = describe(e);
+          renderSetup();
+        }
+        return;
+      }
       if (on && learnPad != null) {
         unit.teachPad(portName, S.padBank, learnPad, e.d1, e.chan);
         toast(PAD_LABELS[learnPad] + " learned");
@@ -3482,7 +3566,13 @@ button{border:0;background:none;cursor:pointer;}
     const d = io.diagnostics(), ins = io.listInputs();
     const mine = ins.filter((p) => identify(p.name).smk || p.ble);
     const bt = unit.buttons(portName), lr = unit.learned(portName);
-    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">' + (mine.length ? esc(unit.unitKey(mine[0].name)) + " \u2014 " + (lr.pads ? "pads learned" : "pads not taught yet") + ", " + (lr.knobs ? "knobs learned" : "knobs not taught yet") + "." : ins.length ? esc(ins.length + " MIDI port(s), none an SMK-25") : "Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the app reads all of them, because the pads and the transport arrive on the second.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="forget">FORGET THIS UNIT</button><button class="chip sm" id="clearall">' + (armed ? "TAP AGAIN TO WIPE" : "CLEAR ALL") + '</button></div></div><div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a published CC number or pad note \u2014 every one is reassignable in M-VAVE\u2019s editor, and units ship set up differently. So the app learns yours rather than guessing. Press a row, then move that control on the keyboard.</div><div class="opts" style="margin-top:8px">' + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase() + (bt[b] ? " \u2713" : "") + "</button>").join("") + '</div></div><div class="grp"><h3>WHAT THE KNOBS DO</h3>' + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>' + (i < KNOBS ? "A" : "B") + (i % KNOBS + 1) + " \xB7 " + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>' + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + "</div></div>";
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">' + (mine.length ? esc(unit.unitKey(mine[0].name)) + " \u2014 " + (lr.pads ? "pads learned" : "pads not taught yet") + ", " + (lr.knobs ? "knobs learned" : "knobs not taught yet") + "." : ins.length ? esc(ins.length + " MIDI port(s), none an SMK-25") : "Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the app reads all of them, because the pads and the transport arrive on the second.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="forget">FORGET THIS UNIT</button><button class="chip sm" id="clearall">' + (armed ? "TAP AGAIN TO WIPE" : "CLEAR ALL") + '</button></div></div><div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a published CC number or pad note \u2014 every one is reassignable in M-VAVE\u2019s editor, and units ship set up differently. So the app learns yours rather than guessing. Press a row, then move that control on the keyboard.</div><div class="opts" style="margin-top:8px">' + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase() + (bt[b] ? " \u2713" : "") + "</button>").join("") + '</div></div><div class="grp"><h3>WHAT THE KNOBS DO</h3>' + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>' + (i < KNOBS ? "A" : "B") + (i % KNOBS + 1) + " \xB7 " + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>' + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>PLAY \xB7 STOP \xB7 REC</h3><div class="dim">A transport button has no standard, and this keyboard can send any of four things depending on how it was set up. The app understands all four, so in most cases there is nothing to do here.<br><br><b>Out of the box the SMK-25 sends MMC over SysEx</b> \u2014 which the browser drops entirely unless it was asked for SysEx permission at startup. That is the usual reason these buttons appear dead in a DAW. SysEx here: <b>' + (d.sysex ? "allowed" : "REFUSED \u2014 reload and allow MIDI") + "</b>.<br>Also understood: system real-time (FA/FB/FC), Mackie notes 93\u201395, and CC 117/118/119 or 93\u201395 if you reassigned them in M-VAVE\u2019s editor. A CC you have taught to a knob stays a knob.<br><br>Last transport received: <b>" + (lastTransport ? esc(lastTransport.name.toUpperCase() + " \xB7 " + HOW[lastTransport.how]) : "none yet") + "</b>" + (lastUnknown ? "<br>Last unrecognised message: <b>" + esc(lastUnknown) + "</b> \u2014 if that was a transport button, teach it above." : "") + "<br><br>" + esc(whyQuiet({
+      sysex: d.sysex,
+      ports: ins.length,
+      everSpoke: d.bytes > 0,
+      taught: !!(bt.play || bt.stop || bt.rec) || !!lastTransport,
+      seen: lastUnknown
+    })) + '</div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + "</div></div>";
     $("#clearall").addEventListener("click", clearAll);
     $("#forget").addEventListener("click", () => {
       unit.reset(portName);
@@ -3556,6 +3646,12 @@ button{border:0;background:none;cursor:pointer;}
     lib,
     unit,
     loop,
+    get lastTransport() {
+      return lastTransport;
+    },
+    get lastUnknown() {
+      return lastUnknown;
+    },
     keyOn,
     keyOff,
     padHit,
