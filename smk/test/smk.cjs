@@ -373,6 +373,74 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(/DroppedLoop/.test(bedState.label), 'and the transport shows which loop it is', bedState.label);
   ok(bedState.offAfterStop, 'and STOP stops it along with everything else');
 
+  // ---- the library, organised --------------------------------------------
+  const org = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.renderList();
+    const row = document.querySelector('.snd');
+    return {
+      rows: document.querySelectorAll('.snd').length,
+      kind: row && row.querySelector('.k').textContent,
+      dur: row && row.querySelector('.d').textContent,
+      draggable: row && row.draggable,
+      filters: document.querySelectorAll('#libkinds [data-kind]').length,
+      hasSearch: !!document.querySelector('#libq'),
+    };
+  });
+  ok(org.rows > 0 && org.hasSearch, 'the library lists sounds and can be searched', org.rows + ' rows');
+  ok(!!org.kind && /^[A-Z]+$/.test(org.kind), 'each row carries its KIND, so four hundred rows are not identical',
+     org.kind);
+  ok(/\d\.\d\ds/.test(org.dur || ''), 'and its length', org.dur);
+  ok(org.draggable, 'and can be dragged onto a pad');
+  ok(org.filters >= 2, 'with a kind filter built from what is actually in the library',
+     org.filters + ' filters (ALL + the kinds present)');
+
+  const filtered = await p.evaluate(async () => {
+    const A = window.__smk;
+    const before = document.querySelectorAll('.snd').length;
+    document.querySelector('#libq').value = 'zzzznothing';
+    document.querySelector('#libq').dispatchEvent(new Event('input', { bubbles: true }));
+    const none = document.querySelectorAll('.snd').length;
+    document.querySelector('#libq').value = '';
+    document.querySelector('#libq').dispatchEvent(new Event('input', { bubbles: true }));
+    return { before, none, back: document.querySelectorAll('.snd').length };
+  });
+  ok(filtered.none === 0 && filtered.back === filtered.before, 'search really filters, and clearing it restores',
+     filtered.before + ' → ' + filtered.none + ' → ' + filtered.back);
+
+  // ---- the snip editor ----------------------------------------------------
+  const snipped = await p.evaluate(async () => {
+    const A = window.__smk;
+    const it = A.lib.items.find((x) => /DroppedLoop/.test(x.name));
+    const wasCount = A.lib.items.length;
+    await A.openSnip(it);
+    const panel = document.querySelector('#snip');
+    const e = A.snipEdit;
+    const opened = { hidden: panel.hidden, wave: !!document.querySelector('#snipwave'),
+                     sliders: panel.querySelectorAll('input[type=range]').length,
+                     start: e.start, end: e.end };
+    // Trim it to the middle half and save.
+    e.start = 0.25; e.end = 0.75;
+    await A.saveSnip();
+    await new Promise((r) => setTimeout(r, 400));
+    const made = A.lib.items.find((x) => /✂/.test(x.name));
+    return { opened, count: A.lib.items.length - wasCount,
+             name: made && made.name, dur: made && made.dur, orig: it.dur,
+             closed: document.querySelector('#snip').hidden };
+  });
+  ok(!snipped.opened.hidden && snipped.opened.wave, 'the snip editor opens with a waveform');
+  ok(snipped.opened.sliders === 5, 'start, end, two fades and gain', snipped.opened.sliders + ' sliders');
+  ok(snipped.opened.end <= 1 && snipped.opened.start >= 0 && snipped.opened.start < snipped.opened.end,
+     'and it opens already trimmed to where the sound actually is',
+     snipped.opened.start.toFixed(3) + '..' + snipped.opened.end.toFixed(3));
+  ok(snipped.count === 1, 'saving a snip makes ONE new sound — not a setting on a slot',
+     '+' + snipped.count + ' in the library');
+  ok(snipped.name && /✂/.test(snipped.name), 'named so you can tell it from its parent', snipped.name);
+  ok(snipped.dur > 0 && snipped.dur < snipped.orig,
+     'and it really is shorter than what it was cut from',
+     snipped.dur + 's from ' + snipped.orig + 's');
+  ok(snipped.closed, 'and the editor closes once it is saved');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;

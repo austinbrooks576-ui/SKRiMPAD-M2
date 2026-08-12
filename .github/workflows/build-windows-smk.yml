@@ -36,6 +36,7 @@ jobs:
           npm install --no-audit --no-fund playwright-core
           npx --yes playwright install --with-deps chromium
           node smk/test/mix.cjs
+          node smk/test/snip.cjs
           node smk/test/arp.cjs
           node smk/test/seq.cjs
           node smk/test/smk.cjs

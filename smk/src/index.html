@@ -22,6 +22,32 @@
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
 
+/* ---------- the library, organised ----------
+   A pack of four hundred sounds in one flat list is four hundred rows of
+   identical-looking text. The kind badge, the length and the pack name are
+   what make one row different from the next, and the search and the kind
+   filter are what stop you scrolling past the one you wanted. */
+#libq{width:100%;margin:8px 0 6px;padding:9px 11px;border-radius:11px;
+  border:1px solid var(--glass-line);background:var(--glass);color:var(--txt);
+  font-size:var(--fs-sm);}
+#libkinds{gap:5px;flex-wrap:wrap;margin-bottom:8px;}
+.snd{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:10px;
+  border:1px solid transparent;cursor:pointer;}
+.snd:hover{background:rgba(255,255,255,.05);}
+.snd.armed{border-color:var(--acc);background:rgba(75,227,200,.10);}
+.snd .k{flex:none;min-width:56px;font-size:9px;letter-spacing:.12em;color:var(--acc);
+  border:1px solid rgba(75,227,200,.35);border-radius:5px;padding:2px 5px;text-align:center;}
+.snd .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-sm);}
+.snd .n small{display:block;color:var(--dim);font-size:var(--fs-xs);}
+.snd .d{flex:none;color:var(--dim);font-size:var(--fs-xs);}
+/* ---------- the snip editor ---------- */
+#snip{border:1px solid var(--glass-line);border-radius:12px;padding:10px;margin-bottom:10px;
+  background:var(--glass);}
+#snipwave{display:block;width:100%;height:72px;border-radius:8px;background:rgba(0,0,0,.35);}
+#snip .rowl{display:flex;align-items:center;gap:8px;margin-top:7px;font-size:var(--fs-xs);color:var(--dim);}
+#snip .rowl input[type=range]{flex:1;}
+#snip .rowl b{min-width:64px;color:var(--txt);letter-spacing:.1em;}
+
 /* ---------- the drop-down menus ----------
    menu.js was imported and wired to every pad, key and knob in this edition,
    and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
@@ -311,6 +337,9 @@ button{border:0;background:none;cursor:pointer;}
   <div class="body">
     <div id="drop">DROP AUDIO OR A .ZIP PACK HERE<br><span class="dim">or tap to browse</span></div>
     <input type="file" id="file" multiple accept="audio/*,.zip,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff">
+    <input type="search" id="libq" placeholder="Search by name, kind or pack…" autocomplete="off">
+    <div class="opts" id="libkinds"></div>
+    <div id="snip" hidden></div>
     <div id="list"></div>
   </div>
 </div>
@@ -342,6 +371,7 @@ import { mountGalaxy } from './core/galaxy.js';
 import { createArp } from './core/arp.js';
 import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js';
 import { voiceLimits, pluck } from './core/mix.js';
+import { snip as cutSnip, encodeWav, findEdges, peaks, DEFAULT_EDIT } from './core/snip.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1078,6 +1108,7 @@ function scchMenu() {
 // ---------------------------------------------------------------------------
 function openSheet(id) { $('#scrim').classList.add('open'); $(id).classList.add('open'); }
 function closeSheets() { $('#scrim').classList.remove('open'); document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('open')); }
+$('#libq').addEventListener('input', (e) => { libQ = e.target.value.trim(); renderList(); });
 $('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
 $('#libx').addEventListener('click', closeSheets);
 $('#bed').addEventListener('click', () => (bed.playing ? bed.stop() : bed.start()));
@@ -1091,15 +1122,186 @@ $('#setx').addEventListener('click', closeSheets);
 $('#scrim').addEventListener('click', closeSheets);
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); closeSheets(); } });
 
+// The library, organised — ULTIMATE's arrangement, which this edition never
+// had: a KIND badge, the length, and which pack it came from, plus a search and
+// a row of kind filters. Four hundred sounds in a flat list of names is four
+// hundred rows that look identical; those three fields are what make one row
+// different from the next.
+//
+// Clicking a sound ARMS it and auditions it — you should hear what you picked
+// before you decide where it goes. Right-click for the menu, or drag it
+// straight onto a pad, a key or the loop bed.
+let libQ = '', libKind = '', armedSound = null;
+function libMatches(it) {
+  if (libKind && it.kind !== libKind) return false;
+  if (!libQ) return true;
+  const q = libQ.toLowerCase();
+  return (it.name + ' ' + it.kind + ' ' + (it.from || '')).toLowerCase().includes(q);
+}
 function renderList() {
-  const box = $('#list'), items = lib.items;
-  $('#libcount').textContent = items.length ? items.length + ' sounds' : '';
-  box.innerHTML = items.length
-    ? items.map((it) => '<div class="row" data-id="' + esc(it.id) + '"><span class="nm">' + esc(it.name)
-        + (it.from ? '<br><span class="sub">' + esc(it.from) + '</span>' : '') + '</span>'
-        + '<button class="chip sm" data-put>PUT IT SOMEWHERE</button>'
-        + '<button class="chip sm" data-del>✕</button></div>').join('')
-    : '<div class="dim">Nothing yet. Drop audio files or a .zip pack anywhere on the window — a pack unpacks itself.</div>';
+  const box = $('#list'), all = lib.items;
+  const items = all.filter(libMatches);
+  $('#libcount').textContent = all.length
+    ? (items.length === all.length ? all.length + ' sounds' : items.length + ' of ' + all.length)
+    : '';
+
+  // The kind row is built from what is ACTUALLY in the library, not from the
+  // full list of kinds — a filter for a category you own nothing in is a button
+  // that can only disappoint.
+  const kinds = [];
+  all.forEach((it) => { if (!kinds.includes(it.kind)) kinds.push(it.kind); });
+  kinds.sort();
+  $('#libkinds').innerHTML = all.length
+    ? '<button class="chip sm' + (libKind ? '' : ' on') + '" data-kind="">ALL</button>'
+      + kinds.map((k) => '<button class="chip sm' + (libKind === k ? ' on' : '') + '" data-kind="'
+          + esc(k) + '">' + esc(k) + '</button>').join('')
+    : '';
+  $('#libkinds').querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+    libKind = b.dataset.kind; renderList();
+  }));
+
+  if (!all.length) {
+    box.innerHTML = '<div class="dim">Nothing yet. Drop audio files or a .zip pack anywhere on the window — '
+      + 'a pack unpacks itself. Drop one straight onto a pad, a key or the loop bed to put it there.</div>';
+    return;
+  }
+  if (!items.length) { box.innerHTML = '<div class="dim">Nothing matches that.</div>'; return; }
+
+  box.innerHTML = '';
+  items.forEach((it) => {
+    const el = document.createElement('div');
+    el.className = 'snd' + (armedSound === it.id ? ' armed' : '');
+    el.draggable = true;
+    el.innerHTML = '<span class="k"></span><span class="n"></span><span class="d"></span>';
+    // textContent, never innerHTML: a file name is untrusted input and a pack
+    // somebody sent you can be called anything at all.
+    el.querySelector('.k').textContent = it.kind || 'SAMPLE';
+    el.querySelector('.n').textContent = it.name;
+    if (it.from) { const sm = document.createElement('small'); sm.textContent = it.from; el.querySelector('.n').appendChild(sm); }
+    el.querySelector('.d').textContent = (it.dur || 0).toFixed(2) + 's';
+    el.addEventListener('click', async () => {
+      armedSound = armedSound === it.id ? null : it.id;
+      renderList();
+      if (armedSound) audition(it.id);
+    });
+    el.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: soundMenu(it), title: it.name }); });
+    onLongPress(el, 480, (ev, x, y) => openMenu({ x, y, items: soundMenu(it), title: it.name }));
+    box.appendChild(el);
+  });
+}
+// ---------------------------------------------------------------------------
+// THE SNIP EDITOR. Trim, fade, gain, reverse — and the result goes back into
+// the library as its OWN SOUND rather than as a setting on a slot. That is the
+// decision that matters: a snip you can only use on the pad you made it on has
+// to be remade for every other pad, and is invisible everywhere else. As a
+// library entry it saves, survives a restart, drops onto anything, and can be
+// snipped again. See core/snip.js.
+let snipIt = null, snipBuf = null, snipEdit = null;
+async function openSnip(it) {
+  eng.init();
+  snipIt = it;
+  snipBuf = warm.get(it.id) || await lib.bufferFor(it.id);
+  if (!snipBuf) { toast('could not read that sound'); return; }
+  warm.set(it.id, snipBuf);
+  // Opens on the sound rather than on the whole file: the trim almost everybody
+  // wants is "take the silence off", so it is the starting point, not a chore.
+  snipEdit = Object.assign({}, DEFAULT_EDIT, findEdges(snipBuf));
+  drawSnip();
+}
+function closeSnip() { snipIt = null; snipBuf = null; $('#snip').hidden = true; }
+function drawSnip() {
+  const host = $('#snip'); if (!snipIt || !snipBuf) { host.hidden = true; return; }
+  host.hidden = false;
+  const e = snipEdit;
+  const secs = snipBuf.duration;
+  host.innerHTML =
+    '<div class="rowl" style="margin:0 0 6px"><b>SNIP</b><span style="flex:1">' + esc(snipIt.name) + '</span>'
+    + '<button class="chip sm" id="snipx">\u2715</button></div>'
+    + '<canvas id="snipwave"></canvas>'
+    + '<div class="rowl"><b>START</b><input type="range" id="s0" min="0" max="1000" value="' + Math.round(e.start * 1000) + '"><span>' + (e.start * secs).toFixed(2) + 's</span></div>'
+    + '<div class="rowl"><b>END</b><input type="range" id="s1" min="0" max="1000" value="' + Math.round(e.end * 1000) + '"><span>' + (e.end * secs).toFixed(2) + 's</span></div>'
+    + '<div class="rowl"><b>FADE IN</b><input type="range" id="fi" min="0" max="500" value="' + Math.round(e.fadeIn * 1000) + '"><span>' + Math.round(e.fadeIn * 1000) + 'ms</span></div>'
+    + '<div class="rowl"><b>FADE OUT</b><input type="range" id="fo" min="0" max="500" value="' + Math.round(e.fadeOut * 1000) + '"><span>' + Math.round(e.fadeOut * 1000) + 'ms</span></div>'
+    + '<div class="rowl"><b>GAIN</b><input type="range" id="gn" min="0" max="200" value="' + Math.round(e.gain * 100) + '"><span>' + Math.round(e.gain * 100) + '%</span></div>'
+    + '<div class="opts" style="margin-top:9px">'
+    + '<button class="chip sm' + (e.reverse ? ' on' : '') + '" id="rv">REVERSE</button>'
+    + '<button class="chip sm" id="sfit">FIT TO SOUND</button>'
+    + '<button class="chip sm" id="shear">HEAR IT</button>'
+    + '<button class="chip sm on" id="ssave">SAVE AS NEW SOUND</button>'
+    + '</div>';
+
+  drawWave();
+  const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('input', fn); };
+  bind('s0', (ev) => { snipEdit.start = Math.min(+ev.target.value / 1000, snipEdit.end - 0.005); drawSnip(); });
+  bind('s1', (ev) => { snipEdit.end = Math.max(+ev.target.value / 1000, snipEdit.start + 0.005); drawSnip(); });
+  bind('fi', (ev) => { snipEdit.fadeIn = +ev.target.value / 1000; drawSnip(); });
+  bind('fo', (ev) => { snipEdit.fadeOut = +ev.target.value / 1000; drawSnip(); });
+  bind('gn', (ev) => { snipEdit.gain = +ev.target.value / 100; drawSnip(); });
+  $('#rv').addEventListener('click', () => { snipEdit.reverse = !snipEdit.reverse; drawSnip(); });
+  $('#sfit').addEventListener('click', () => { Object.assign(snipEdit, findEdges(snipBuf)); drawSnip(); });
+  $('#shear').addEventListener('click', hearSnip);
+  $('#ssave').addEventListener('click', saveSnip);
+  $('#snipx').addEventListener('click', closeSnip);
+}
+function drawWave() {
+  const cv = $('#snipwave'); if (!cv || !snipBuf) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(1, Math.round(cv.clientWidth * dpr)), h = Math.round(72 * dpr);
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'); if (!g) return;
+  const pk = peaks(snipBuf, Math.min(400, Math.max(60, Math.round(w / 2))));
+  g.clearRect(0, 0, w, h);
+  // Outside the trim is drawn too, dimmed. Hiding it would make the trim
+  // impossible to judge — you need to see what you are leaving out.
+  for (let i = 0; i < pk.length; i++) {
+    const f = i / pk.length;
+    const inside = f >= snipEdit.start && f < snipEdit.end;
+    g.fillStyle = inside ? 'rgba(75,227,200,.85)' : 'rgba(255,255,255,.14)';
+    const y = Math.max(1, pk[i] * h * 0.46);
+    g.fillRect((i / pk.length) * w, h / 2 - y, Math.max(1, w / pk.length - 0.5), y * 2);
+  }
+  g.fillStyle = 'rgba(255,180,84,.9)';
+  g.fillRect(snipEdit.start * w, 0, 2 * dpr, h);
+  g.fillRect(snipEdit.end * w - 2 * dpr, 0, 2 * dpr, h);
+}
+function snipBuffer() { return cutSnip(eng.ctx, snipBuf, snipEdit); }
+function hearSnip() {
+  if (!snipBuf || !eng.ctx) return;
+  const out = snipBuffer();
+  const src = eng.ctx.createBufferSource();
+  src.buffer = out; src.connect(eng.bus); src.start();
+}
+async function saveSnip() {
+  if (!snipBuf) return;
+  const out = snipBuffer();
+  const name = snipIt.name.replace(/ \u2702.*$/, '') + ' \u2702';
+  // Back through the SAME path a dropped file takes — so the snip is stored,
+  // listed, cached and reloaded by code that already works rather than by a
+  // second system that only knows about snips.
+  const id = await lib.addRaw(name, encodeWav(out).buffer, snipIt.from || 'snips');
+  if (!id) { toast('could not save the snip'); return; }
+  toast(name + ' saved (' + out.duration.toFixed(2) + 's)');
+  closeSnip(); renderList();
+}
+
+function audition(id) {
+  eng.init();
+  const go = (buf) => { if (buf) eng.play(Object.assign({}, voiceLimits.pad, { kind: 'sample', sampleId: id, decay: 3, note: 60 }), 0, 100); };
+  const have = warm.get(id);
+  if (have) go(have); else lib.bufferFor(id).then((b) => { if (b) { warm.set(id, b); go(b); } });
+}
+// Standing on a SOUND, choose where it goes — which is how people think right
+// after importing something. The other direction (standing on a pad, choose a
+// sound) already existed; both are the same menu from opposite ends.
+function soundMenu(it) {
+  return [
+    { label: 'Hear it', run: () => audition(it.id) },
+    { label: 'Snip and fade it…', run: () => openSnip(it) },
+    { label: 'Put it on a pad', items: () => PAD_LABELS.map((l, i) => ({
+        label: l, run: () => { S.pads[S.padBank][i] = { id: it.id, name: it.name }; save(); warmUp(); paintPads(); toast(it.name + ' → ' + l); } })) },
+    { label: 'Use it as the loop bed', run: () => { bed.set(it.id, it.name); warmUp().then(() => bed.start()); } },
+    { label: 'Delete it', danger: true, run: () => { lib.remove(it.id); renderList(); toast('deleted'); } },
+  ];
 }
 $('#list').addEventListener('click', async (ev) => {
   const row = ev.target.closest('.row'); if (!row) return;
@@ -1427,10 +1629,10 @@ seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed,
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed, openSnip, saveSnip, get snipEdit() { return snipEdit; },
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
-  shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
+  shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,
   get shift() { return shiftHeld; }, set shift(v) { shiftHeld = v; paintKeys(); },
   KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND,
 };
