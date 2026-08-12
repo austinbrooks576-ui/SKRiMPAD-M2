@@ -37,7 +37,7 @@
 //    whose C4 secretly fires a snare is a keyboard you cannot play.
 
 export const KEYS = 25;
-export const FIRST_NOTE = 48;          // C3, before OCT± moves it
+export const FIRST_NOTE = 60;          // C4 (middle C), before OCT± moves it
 export const PADS = 8;
 export const PAD_ROWS = 2, PAD_COLS = 4;
 export const PAD_BANKS = 2;            // PAD-B
@@ -51,7 +51,15 @@ export const PAD_LABELS = ['DP1', 'DP2', 'DP3', 'DP4', 'DP5', 'DP6', 'DP7', 'DP8
 
 // Where a learn starts. General MIDI percussion from 36, channel 10 — what
 // these controllers ship as before anyone opens CubeSuite.
-export const FACTORY_PAD_NOTES = [36, 37, 38, 39, 40, 41, 42, 43];
+// THE BOTTOM ROW IS THE LOW NOTES. Pad hardware in this family is MPC-style:
+// the bottom-left pad sends the LOWEST note and the numbers climb upwards. The
+// screen puts DP1 in the top-left, as it is silkscreened on the unit — so
+// mapping 36,37,38... straight down the screen order puts the low notes on the
+// TOP row and the whole block plays upside down. Hitting bottom-left lit DP5.
+//
+// So the top row takes 40-43 and the bottom row 36-39, which makes the pad you
+// hit the pad that lights.
+export const FACTORY_PAD_NOTES = [40, 41, 42, 43, 36, 37, 38, 39];
 export const FACTORY_PAD_CH = 9;       // zero-based: MIDI channel 10
 
 // And the eight knobs, which conventionally start at CC 21.

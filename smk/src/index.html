@@ -48,6 +48,39 @@
 #snip .rowl input[type=range]{flex:1;}
 #snip .rowl b{min-width:64px;color:var(--txt);letter-spacing:.1em;}
 
+/* ---------- the two touch sensors ----------
+   The SMK-25 has no wheels. It has two capacitive STRIPS on the left-hand edge
+   that you run a finger along, so the app draws strips on the left rather than
+   wheels in the middle — the shape on screen should be the shape under your
+   hand.
+
+   They behave differently on purpose, and that difference is the instrument:
+   PITCH springs back to centre when you let go, because a bend you cannot undo
+   is a keyboard permanently out of tune. MOD stays where you left it, because
+   that is a setting, not a gesture. */
+/* The strips sit at the LEFT END OF THE KEYS, which is where they are on the
+   unit, and they are the height of the keybed — not the height of the app. The
+   first version pinned them to the stage and they came out twelve hundred
+   pixels tall with their labels clipped off the bottom. */
+#keyrow{display:flex;align-items:stretch;gap:8px;flex:0 0 auto;
+  width:100%;max-width:min(100%,640px);margin-right:auto;}
+#sensors{display:flex;gap:6px;flex:0 0 auto;width:52px;}
+.sens{position:relative;flex:1;border-radius:10px;overflow:hidden;touch-action:none;cursor:ns-resize;
+  border:1px solid var(--glass-line);
+  background:linear-gradient(180deg,rgba(20,25,38,.75),rgba(8,11,18,.85));
+  box-shadow:inset 0 2px 7px rgba(0,0,0,.7),inset 0 0 0 1px rgba(255,255,255,.05);}
+.sens i{position:absolute;left:0;right:0;height:18px;border-radius:8px;
+  background:linear-gradient(180deg,rgba(75,227,200,.85),rgba(30,158,139,.7));
+  box-shadow:0 0 12px rgba(75,227,200,.55);transition:top .06s linear;top:calc(50% - 9px);}
+.sens .sl{position:absolute;bottom:3px;left:0;right:0;text-align:center;font-size:7px;
+  letter-spacing:0;color:var(--dim);pointer-events:none;}
+.sens .sv{position:absolute;top:3px;left:0;right:0;text-align:center;font-size:9px;
+  color:var(--txt);pointer-events:none;}
+/* Centre line, so the pitch strip's home position is visible rather than felt
+   for. */
+#sPitch::after{content:'';position:absolute;left:5px;right:5px;top:50%;height:1px;
+  background:rgba(255,255,255,.18);pointer-events:none;}
+
 /* ---------- the loop deck, and the voice row ----------
    A chip on a toolbar does not read as part of an instrument. The loop deck is
    a PANEL: recessed screen, brushed face, a real button with a lip and a level
@@ -175,7 +208,7 @@ button{border:0;background:none;cursor:pointer;}
    instrument is the thing being looked at; it belongs in the middle of the
    space it has. */
 #stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:var(--sp);
-  justify-content:center;}
+  justify-content:flex-start;}
 
 /* ---------- knobs ---------- */
 #knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
@@ -220,7 +253,12 @@ button{border:0;background:none;cursor:pointer;}
   50%{box-shadow:0 0 0 4px rgba(75,227,200,.8),var(--e1);}}
 
 /* ---------- the 25 keys ---------- */
-#keys{position:relative;flex:0 0 auto;height:clamp(88px,15vh,132px);
+/* A REAL 25-KEY CONTROLLER IS NARROW. Letting the keybed span a desktop window
+   makes each white key about eighty pixels wide and four hundred tall in feel —
+   the "weird elongated keyboard". Fifteen white keys at a plausible width is
+   roughly 560px, so that is the cap; the deck and pads sit above it and the
+   whole instrument reads as one unit rather than a stretched strip. */
+#keys{position:relative;flex:1 1 auto;min-width:0;height:clamp(84px,13vh,116px);
   border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);
   background:linear-gradient(180deg,rgba(10,13,22,.72),rgba(4,6,11,.86));
   -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
@@ -341,6 +379,7 @@ button{border:0;background:none;cursor:pointer;}
 
   <div id="stage">
     <div id="knobs"></div>
+
     <div id="deckrow">
       <div id="bed">
         <div class="dl">LOOP</div>
@@ -357,11 +396,20 @@ button{border:0;background:none;cursor:pointer;}
       </div>
     </div>
     <div id="pads"></div>
-    <div id="keys"></div>
+    <div id="keyrow">
+      <div id="sensors">
+        <div class="sens" id="sPitch" role="slider" aria-label="Pitch" tabindex="0">
+          <i></i><span class="sl">PB</span><span class="sv">0</span>
+        </div>
+        <div class="sens" id="sMod" role="slider" aria-label="Modulation" tabindex="0">
+          <i></i><span class="sl">MOD</span><span class="sv">0</span>
+        </div>
+      </div>
+      <div id="keys"></div>
+    </div>
   </div>
 
   <div class="rail">
-    <button class="chip" id="bed" title="Drop a loop here">\u21bb DROP A LOOP</button>
     <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
     <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
     <button class="chip" id="arp">ARP</button>
@@ -438,7 +486,7 @@ function fresh() {
   return {
     bpm: 100, octave: 0, padBank: 0, knobBank: 0,
     arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '', octaves: 1 },
-    voice: null,
+    voice: null, bendRange: 2,
     scale: 'off', chord: 'off', root: 0,
     // A voice per PAD, and a voice per KEY. Both are addressable individually,
     // which is the whole point of "clear all, even the individually set keys" —
@@ -684,6 +732,72 @@ function voiceMenu() {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// PITCH AND MOD — the two capacitive strips on the left edge of the unit.
+//
+// Neither of them reached the app at all. Pitch bend is status 0xE0 and the
+// event handler had no case for it, so it fell through to the note branch and
+// was dropped on the floor; mod is CC 1, which went to the knob lookup, matched
+// nothing, and was dropped there instead. Two of the most expressive controls
+// on the keyboard, silently discarded.
+//
+// They are applied to every SOUNDING note, not stored and used by the next one.
+// That is the whole point of a bend: it has to move the note that is already
+// under your finger.
+let bendSemis = 0, modAmt = 0;
+// Two semitones is the near-universal default and what a DAW assumes when
+// nothing says otherwise. It is a setting because a lead player wants twelve.
+const BEND_RANGES = [1, 2, 3, 5, 7, 12, 24];
+
+function setBend(v) {                       // v is -1..1
+  bendSemis = Math.max(-1, Math.min(1, v)) * (S.bendRange || 2);
+  held.forEach((h) => { try { h.bend(bendSemis); } catch (e) {} });
+  paintSensors();
+}
+function setMod(v) {                        // v is 0..1
+  modAmt = Math.max(0, Math.min(1, v));
+  // The engine takes vibrato depth in CENTS. Half a semitone at full travel is
+  // a vibrato; a whole tone is a siren.
+  held.forEach((h) => { try { h.vib(modAmt * 50); } catch (e) {} });
+  paintSensors();
+}
+function paintSensors() {
+  const p = $('#sPitch'), m = $('#sMod');
+  if (p) {
+    const f = 0.5 - (bendSemis / Math.max(1, S.bendRange || 2)) * 0.5;   // up = higher
+    p.firstElementChild.style.top = 'calc(' + (f * 100).toFixed(1) + '% - 9px)';
+    p.querySelector('.sv').textContent = (bendSemis >= 0 ? '+' : '') + bendSemis.toFixed(1);
+  }
+  if (m) {
+    m.firstElementChild.style.top = 'calc(' + ((1 - modAmt) * 100).toFixed(1) + '% - 9px)';
+    m.querySelector('.sv').textContent = Math.round(modAmt * 127);
+  }
+}
+// A strip is dragged, not clicked. `spring` is what makes pitch different from
+// mod: a bend you cannot undo is a keyboard left permanently out of tune, so it
+// returns to centre the moment you let go; mod is a setting and stays put.
+function wireSensor(el, spring, apply) {
+  if (!el) return;
+  const from = (ev) => {
+    const b = el.getBoundingClientRect();
+    const f = 1 - Math.max(0, Math.min(1, (ev.clientY - b.top) / b.height));
+    apply(spring ? f * 2 - 1 : f);
+  };
+  let id = null;
+  el.addEventListener('pointerdown', (ev) => {
+    id = ev.pointerId; el.setPointerCapture(id); from(ev); ev.preventDefault();
+  });
+  el.addEventListener('pointermove', (ev) => { if (id === ev.pointerId) from(ev); });
+  const up = (ev) => {
+    if (id !== ev.pointerId) return;
+    try { el.releasePointerCapture(id); } catch (e) {}
+    id = null;
+    if (spring) apply(0);
+  };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+}
+
 const held = new Map();
 
 // THE ARPEGGIATOR. It does not hold notes itself — it asks for one at a time
@@ -729,6 +843,10 @@ function keyOn(note, vel) {
 
   if (held.has(n)) { try { held.get(n).off(); } catch (e) {} }
   const h = eng.hold(keyVoice(n), n, vel, 0);
+  // A note started while the strips are held has to START there, not jump to
+  // it on the next move — otherwise every note you add to a bent chord comes
+  // in at the wrong pitch.
+  try { if (bendSemis) h.bend(bendSemis); if (modAmt) h.vib(modAmt * 50); } catch (e) {}
   held.set(n, h);
   paintKeys();
   loop.capture(1000 + n, vel, 0.25);
@@ -1024,9 +1142,21 @@ const io = createMidiIO({
     // It runs AFTER learned buttons and is handed a `claimed` test, so nothing
     // it recognises can ever steal a control the user taught. See
     // ultimate/src/core/transport-in.js for why there are four of them.
+    // A NOTE YOU CAN PLAY IS NEVER A TRANSPORT BUTTON.
+    //
+    // Mackie's transport codes are notes 93, 94 and 95 — which are also A6, A#6
+    // and B6, and those are REAL KEYS on this keyboard as soon as the octave is
+    // shifted up. This guard originally only asked "is that note a pad?", so
+    // with the octave up three the top of the keybed silently became STOP, PLAY
+    // and RECORD: playing a phrase up there stopped the transport.
+    //
+    // The keyboard wins, always. Mackie support survives for the case it was
+    // added for — a unit in DAW mode whose keys sit somewhere else — but it can
+    // never take a note the player can physically reach.
+    const keyLo = firstNote(), keyHi = keyLo + KEYS - 1;
     const tr = decodeTransport(e, (kind, num, ch) => (
       kind === 'cc' ? unit.knobFor(portName, S.knobBank, num) >= 0
-                    : unit.padFor(portName, S.padBank, num, ch) >= 0
+                    : (unit.padFor(portName, S.padBank, num, ch) >= 0 || (num >= keyLo && num <= keyHi))
     ));
     if (tr) {
       if (tr.down && (tr.name === 'play' || tr.name === 'stop' || tr.name === 'rec' || tr.name === 'pause')) {
@@ -1036,10 +1166,18 @@ const io = createMidiIO({
       return;   // claimed either way — a release must not fall through and play a note
     }
 
+    // PITCH BEND. Fourteen bits across two data bytes, centre 8192 — and it
+    // has its own status byte, so it never reached the note branch that was
+    // silently swallowing it.
+    if (e.cmd === 0xE0) { setBend((((e.d2 << 7) | e.d1) - 8192) / 8192); return; }
+
     if (e.cmd === 0xB0) {
       if (learnKnob != null) { unit.teachKnob(portName, S.knobBank, learnKnob, e.d1, e.chan); toast('knob ' + (learnKnob + 1) + ' learned'); learnKnob = null; renderSetup(); return; }
       const k = unit.knobFor(portName, S.knobBank, e.d1);
       if (k >= 0) { setKnob(k, e.d2 / 127); return; }
+      // CC 1 is the modulation strip. Checked AFTER the taught knobs, so a
+      // player who has deliberately mapped CC 1 to a knob keeps their knob.
+      if (e.d1 === 1) { setMod(e.d2 / 127); return; }
       // A CC nobody claimed. If it looks like a button being pressed it is very
       // likely the transport on a CC this app has never heard of — remember it
       // so SETUP can say what arrived instead of shrugging.
@@ -1290,6 +1428,10 @@ function renderList() {
     const el = document.createElement('div');
     el.className = 'snd' + (armedSound === it.id ? ' armed' : '');
     el.draggable = true;
+    el.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/skrimpad-sound', it.id);
+      ev.dataTransfer.effectAllowed = 'copy';
+    });
     el.innerHTML = '<span class="k"></span><span class="n"></span><span class="d"></span>';
     // textContent, never innerHTML: a file name is untrusted input and a pack
     // somebody sent you can be called anything at all.
@@ -1457,10 +1599,24 @@ $('#list').addEventListener('click', async (ev) => {
 // itself nowhere in sight.
 let dropTarget = null;
 function armDropTarget(el, place, label) {
-  el.addEventListener('dragenter', (e) => { e.preventDefault(); dropTarget = { place, label }; el.classList.add('hot'); });
-  el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropTarget = { place, label }; el.classList.add('hot'); });
+  const mark = (e) => { e.preventDefault(); e.stopPropagation(); dropTarget = { place, label }; el.classList.add('hot'); };
+  el.addEventListener('dragenter', mark);
+  el.addEventListener('dragover', mark);
   el.addEventListener('dragleave', () => { el.classList.remove('hot'); });
-  el.addEventListener('drop', () => { el.classList.remove('hot'); });
+  // A DRAG FROM THE LIBRARY IS NOT A FILE DROP. Dragging a row carries a sound
+  // that is already imported — there is nothing to read, decode or store, so it
+  // has to be handled here and now rather than falling through to takeFiles(),
+  // which waits for files that never arrive. That is why dragging out of the
+  // library did nothing at all: every target was listening for the wrong event.
+  el.addEventListener('drop', (e) => {
+    el.classList.remove('hot');
+    const id = e.dataTransfer && e.dataTransfer.getData('text/skrimpad-sound');
+    if (!id) return;                       // a real file: takeFiles() handles it
+    e.preventDefault(); e.stopPropagation();
+    dropTarget = null;
+    const it = lib.find(id);
+    if (it) { place(it.id, it.name); toast(it.name + ' \u2192 ' + label); paintVoice(); }
+  });
 }
 // The newest sound in the library, which is the one that was just imported.
 function newestSound() {
@@ -1748,11 +1904,17 @@ loadSeq();
 loadBed();
 paintBed();
 paintVoice();
+wireSensor($('#sPitch'), true, setBend);
+wireSensor($('#sMod'), false, setMod);
+paintSensors();
+$('#sPitch').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, title: 'Bend range',
+  items: BEND_RANGES.map((n) => ({ label: '\u00b1' + n + ' semitone' + (n === 1 ? '' : 's'), on: (S.bendRange || 2) === n,
+    run: () => { S.bendRange = n; save(); setBend(0); } })) }); });
 seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed, setVoice, paintVoice, openSnip, saveSnip, get snipEdit() { return snipEdit; },
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, setVoice, paintVoice, setBend, setMod, get bendSemis() { return bendSemis; }, get modAmt() { return modAmt; }, openSnip, saveSnip, get snipEdit() { return snipEdit; },
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,

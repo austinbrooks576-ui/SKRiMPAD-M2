@@ -137,6 +137,49 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(r.got === 'play/mackie' && r.times === 1, 'a Mackie note-off does not fire it a second time',
      r.got + ' × ' + r.times);
 
+  // A NOTE YOU CAN PLAY IS NEVER A TRANSPORT BUTTON.
+  //
+  // Mackie's codes 93/94/95 are also A6/A#6/B6, which are real keys on this
+  // keyboard once the octave is shifted up. The original guard only asked "is
+  // that note a pad?", so at octave +3 the top of the keybed became STOP, PLAY
+  // and RECORD and playing a phrase up there stopped the transport.
+  //
+  // SWEPT ACROSS EVERY OCTAVE, because that is what hid it: at the default
+  // octave the keys are 48..72 and 93 is nowhere near them, so every earlier
+  // test of this passed while the bug was live.
+  const octaveSweep = await p.evaluate(async () => {
+    const A = window.__smk;
+    const bad = [];
+    for (let oct = -4; oct <= 4; oct++) {
+      A.setOctave(oct);
+      // The keybed's real window, clamped exactly as the app clamps it. Hard
+      // coding a base here is how this drifted: the keyboard now starts at C4,
+      // and a test that still assumed C3 called notes playable that were not.
+      const lo = Math.max(0, Math.min(103, 60 + A.S.octave * 12)), hi = lo + 24;
+      // Only 93/94/95. 91, 92 and 96 are rewind, fast-forward and loop: they
+      // are DECODED so they cannot fall through and play a note, but nothing
+      // acts on them, so expecting them to move the transport is wrong.
+      for (const n of [0x5d, 0x5e, 0x5f]) {
+        A.transport('stop');
+        const was = (A.lastTransport && A.lastTransport.seq) || 0;
+        const lit0 = document.querySelectorAll('#keys .on').length;
+        A.io._emit([0x90, n, 100], window.PORT);
+        A.io._emit([0x80, n, 0], window.PORT);
+        await new Promise((r) => setTimeout(r, 10));
+        const fired = !!(A.lastTransport && A.lastTransport.seq > was);
+        const playable = n >= lo && n <= hi;
+        if (playable && fired) bad.push('oct' + oct + ' note' + n + ' fired the transport');
+        if (!playable && !fired) bad.push('oct' + oct + ' note' + n + ' did NOT reach the transport');
+      }
+    }
+    A.setOctave(0);
+    A.transport('stop');
+    return bad;
+  });
+  ok(octaveSweep.length === 0,
+     'across every octave, a note inside the keybed plays and a Mackie code outside it works the transport',
+     octaveSweep.length ? octaveSweep.slice(0, 3).join('; ') : '9 octaves x 3 transport codes swept, all correct');
+
   // A transport note must never leak through and sound. Mackie note 94 is
   // inside the range a 25-key keyboard can reach with the octave up.
   const leaked = await p.evaluate(async () => {
@@ -356,6 +399,65 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
      dropped.name || 'nothing');
   ok(!dropped.libOpened, 'and the library does not slide up over the pad you just aimed at');
 
+  // ---- DRAGGING A SOUND OUT OF THE LIBRARY --------------------------------
+  // Not a file drop. The rows were marked draggable and every target listened
+  // only for files, so a drag from the library reached the target and then fell
+  // through to the file importer, which waited for files that never came.
+  const dragOut = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.renderList();
+    const row = document.querySelector('.snd');
+    const id = A.lib.items[0].id, name = A.lib.items[0].name;
+    A.S.pads[A.S.padBank][5] = null;
+    const pad = document.querySelectorAll('.pad')[5];
+    const dt = new DataTransfer();
+    row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    const carried = dt.getData('text/skrimpad-sound');
+    pad.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    pad.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    await new Promise((r) => setTimeout(r, 120));
+    const slot = A.S.pads[A.S.padBank][5];
+    // ...and onto the loop deck.
+    A.bed.clear();
+    const deck = document.querySelector('#bed');
+    deck.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    deck.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    await new Promise((r) => setTimeout(r, 120));
+    return { carried, expect: id, padGot: slot && slot.name, want: name, bedGot: A.bed.name };
+  });
+  ok(dragOut.carried === dragOut.expect, 'dragging a library row actually carries the sound',
+     dragOut.carried || 'nothing on the dataTransfer');
+  ok(dragOut.padGot === dragOut.want, 'and dropping it on a pad puts it on that pad',
+     dragOut.padGot || 'nothing landed');
+  ok(dragOut.bedGot === dragOut.want, 'and dropping it on the loop deck loads the deck',
+     dragOut.bedGot || 'nothing landed');
+
+  // ---- THE LOOP ACTUALLY LOOPS -------------------------------------------
+  // "it needs to run the sample over and over so I can play keys behind it."
+  // A source that plays once and stops is not a loop, and nothing until now
+  // checked that the flag was even set.
+  const loops = await p.evaluate(async () => {
+    const A = window.__smk;
+    const it = A.lib.items[0];
+    A.bed.set(it.id, it.name);
+    await A.__warm();
+    A.bed.start();
+    await new Promise((r) => setTimeout(r, 120));
+    const src = A.bed.src;
+    const out = { started: !!src, looping: !!(src && src.loop), dur: src && src.buffer && src.buffer.duration };
+    // Playing keys over the top must not disturb it.
+    A.keyOn(64, 100); A.keyOn(67, 100);
+    await new Promise((r) => setTimeout(r, 200));
+    out.stillGoing = A.bed.playing && A.bed.src === src;
+    A.keyOff(64); A.keyOff(67);
+    A.transport('stop');
+    return out;
+  });
+  ok(loops.started, 'a loop on the deck starts');
+  ok(loops.looping, 'and it LOOPS — the source repeats rather than playing once',
+     'loop flag ' + loops.looping + ' on a ' + (loops.dur || 0).toFixed(3) + 's buffer');
+  ok(loops.stillGoing, 'and playing keys over the top does not interrupt it');
+
   // ---- the loop bed -------------------------------------------------------
   const bedState = await p.evaluate(async () => {
     const A = window.__smk;
@@ -424,6 +526,69 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(heard2.first > 0, 'clicking a sound in the library plays it');
   ok(heard2.second > 0, 'and clicking it AGAIN plays it again — the audition is not tied to arming',
      heard2.first + ' then ' + heard2.second);
+
+  // ---- the two touch strips ----------------------------------------------
+  // Both were being dropped: pitch bend has its own status byte (0xE0) and the
+  // handler had no case for it, and mod (CC 1) fell through the knob lookup.
+  const strips = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.setBend(0); A.setMod(0);
+    const out = {};
+    out.onScreen = { pitch: !!document.querySelector('#sPitch'), mod: !!document.querySelector('#sMod') };
+
+    // Pitch bend from the hardware: 14 bits, centre 8192.
+    A.io._emit([0xe0, 0x00, 0x60], window.PORT);        // (0x60<<7) = 12288 → +0.5
+    await new Promise((r) => setTimeout(r, 30));
+    out.bentUp = A.bendSemis;
+    A.io._emit([0xe0, 0x00, 0x00], window.PORT);        // 0 → fully down
+    await new Promise((r) => setTimeout(r, 30));
+    out.bentDown = A.bendSemis;
+    A.io._emit([0xe0, 0x00, 0x40], window.PORT);        // 8192 → centre
+    await new Promise((r) => setTimeout(r, 30));
+    out.centred = A.bendSemis;
+
+    // Mod from the hardware.
+    A.io._emit([0xb0, 1, 127], window.PORT);
+    await new Promise((r) => setTimeout(r, 30));
+    out.mod = A.modAmt;
+
+    // It must reach a note that is ALREADY sounding.
+    A.setBend(0); A.setMod(0);
+    let bends = 0;
+    const realHold = A.eng.hold;
+    A.eng.hold = function () {
+      const h = realHold.apply(this, arguments);
+      const rb = h.bend; h.bend = function (x) { bends++; return rb.apply(this, arguments); };
+      return h;
+    };
+    A.keyOn(60, 100);
+    A.io._emit([0xe0, 0x00, 0x60], window.PORT);
+    await new Promise((r) => setTimeout(r, 40));
+    out.reachedLiveNote = bends;
+    // ...and a note started WHILE bent must start bent.
+    A.keyOn(64, 100);
+    await new Promise((r) => setTimeout(r, 30));
+    out.newNoteInherits = bends > out.reachedLiveNote;
+    A.keyOff(60); A.keyOff(64); A.eng.hold = realHold;
+    A.setBend(0); A.setMod(0);
+
+    // The pitch strip reads its position from the bend, so the handle moves.
+    A.setBend(1);
+    out.handleMoved = document.querySelector('#sPitch i').style.top;
+    A.setBend(0);
+    out.handleHome = document.querySelector('#sPitch i').style.top;
+    return out;
+  });
+  ok(strips.onScreen.pitch && strips.onScreen.mod, 'both strips are drawn, on the left where the sensors are');
+  ok(Math.abs(strips.bentUp - 1) < 0.01, 'pitch bend from the keyboard reaches the app', '+' + strips.bentUp.toFixed(2) + ' semitones');
+  ok(Math.abs(strips.bentDown + 2) < 0.01, 'in both directions', strips.bentDown.toFixed(2) + ' semitones at the bottom');
+  ok(strips.centred === 0, 'and 8192 is dead centre, not a small permanent detune', strips.centred + '');
+  ok(strips.mod === 1, 'the modulation strip (CC 1) reaches it too', 'mod ' + strips.mod);
+  ok(strips.reachedLiveNote > 0, 'a bend moves the note ALREADY under your finger',
+     strips.reachedLiveNote + ' bend calls on a sounding note');
+  ok(strips.newNoteInherits, 'and a note started while bent starts bent, rather than jumping later');
+  ok(strips.handleMoved !== strips.handleHome, 'the handle on screen follows the bend',
+     strips.handleMoved + ' → ' + strips.handleHome);
 
   // ---- the keyboard voice, splashed across all 25 keys --------------------
   const splashed = await p.evaluate(async () => {
