@@ -21,6 +21,30 @@
   --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
+/* ---------- the sky, and the glass in front of it ----------
+   The galaxy is a canvas painted ONCE per size change (see core/galaxy.js) and
+   pinned behind everything. It is not animated, because the only thread that
+   could animate it is the thread that has to hand notes to the audio clock on
+   time.
+
+   Every panel in front of it is glass: a translucent fill, a blur of what is
+   behind, a bright top lip and a dark base. Two rules make that read as glass
+   rather than as a grey box —
+     · the panel must be TRANSLUCENT, so the arms actually show through and the
+       colour under each panel differs. An opaque panel with a blur behind it
+       is just a grey box with extra cost.
+     · the top edge catches light and the bottom does not. That single
+       asymmetry is what the eye reads as a physical surface.
+   backdrop-filter is the expensive part, so it is asked for once per surface
+   class and never on anything that moves. */
+#sky{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block;
+  pointer-events:none;background:var(--bg);}
+:root{
+  --glass:rgba(18,22,34,.52);
+  --glass-hi:rgba(30,38,58,.62);
+  --glass-line:rgba(255,255,255,.12);
+  --blur:saturate(135%) blur(14px);
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
   font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -28,7 +52,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hi
 button,input{font-family:inherit;color:inherit;}
 button{border:0;background:none;cursor:pointer;}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
-#app{position:fixed;inset:0;display:flex;flex-direction:column;gap:var(--sp);
+#app{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;gap:var(--sp);
   padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
           max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));}
 
@@ -66,8 +90,10 @@ button{border:0;background:none;cursor:pointer;}
 
 /* ---------- knobs ---------- */
 #knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
-.knob{border:1px solid var(--line);border-radius:10px;background:var(--panel);
-  padding:5px 4px;text-align:center;box-shadow:var(--lip);min-height:52px;
+.knob{border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  padding:5px 4px;text-align:center;min-height:52px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(0,0,0,.5),0 6px 18px rgba(0,0,0,.4);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
 .knob .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.06em;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:100%;}
@@ -84,11 +110,14 @@ button{border:0;background:none;cursor:pointer;}
    a pad came out six times wider than it was tall on a desktop. The width cap
    is what keeps 4 columns from turning into 340px slabs on a wide screen. */
 #pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:0 0 auto;
-  width:100%;max-width:min(100%,520px);margin-inline:auto;}
-.pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
+  width:100%;max-width:min(100%,520px);margin-left:auto;}
+.pad{position:relative;border-radius:13px;border:1px solid rgba(255,255,255,.14);
   aspect-ratio:1;min-width:0;
-  overflow:hidden;box-shadow:var(--e1),var(--lip);padding:6px 8px;
-  background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
+  overflow:hidden;padding:6px 8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 6px rgba(0,0,0,.45),
+             0 8px 22px rgba(0,0,0,.45);
+  background:linear-gradient(160deg,hsl(var(--h) 62% 30% / .82),hsl(var(--h) 58% 14% / .88));
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
   display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
 .pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
 .pad .t{font-size:var(--fs-xs);font-weight:600;line-height:1.15;word-break:break-word;
@@ -103,10 +132,17 @@ button{border:0;background:none;cursor:pointer;}
 
 /* ---------- the 25 keys ---------- */
 #keys{position:relative;flex:0 0 auto;height:clamp(88px,15vh,132px);
-  border-radius:10px;overflow:hidden;background:#05060A;border:1px solid var(--line);}
+  border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);
+  background:linear-gradient(180deg,rgba(10,13,22,.72),rgba(4,6,11,.86));
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.5);}
 .kw,.kk{position:absolute;top:0;bottom:0;border-radius:0 0 5px 5px;}
-.kw{background:linear-gradient(180deg,#e8edf4,#b9c2ce);border:1px solid #7d8698;}
-.kk{background:linear-gradient(180deg,#2a2f3a,#0d1016);border:1px solid #000;z-index:2;
+.kw{background:linear-gradient(180deg,rgba(243,247,252,.93),rgba(176,187,203,.88));
+  border:1px solid rgba(120,132,152,.9);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -6px 10px rgba(90,102,124,.35);}
+.kk{background:linear-gradient(180deg,rgba(52,59,74,.96),rgba(10,13,19,.98));
+  border:1px solid rgba(0,0,0,.9);z-index:2;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 3px 8px rgba(0,0,0,.6);
   bottom:36%;border-radius:0 0 4px 4px;}
 .kw.on{background:linear-gradient(180deg,var(--acc),#1e9e8b);}
 .kk.on{background:linear-gradient(180deg,var(--acc),#12786a);}
@@ -117,8 +153,10 @@ button{border:0;background:none;cursor:pointer;}
 
 .rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
 .chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
-  border:1px solid var(--line);border-radius:11px;background:var(--panel);
-  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+  border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  font-size:var(--fs-sm);white-space:nowrap;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 14px rgba(0,0,0,.38);}
 .chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
 .chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
 .chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
@@ -194,6 +232,8 @@ button{border:0;background:none;cursor:pointer;}
   </svg>
   <button class="go" id="splashgo">START</button>
 </div>
+
+<canvas id="sky" aria-hidden="true"></canvas>
 
 <div id="app">
   <div id="top">
@@ -2658,6 +2698,160 @@ button{border:0;background:none;cursor:pointer;}
     return null;
   }
 
+  // smk/src/core/galaxy.js
+  var TAU = Math.PI * 2;
+  function rng(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s ^= s << 13;
+      s >>>= 0;
+      s ^= s >> 17;
+      s ^= s << 5;
+      s >>>= 0;
+      return s / 4294967296;
+    };
+  }
+  function gauss(r) {
+    const u = Math.max(1e-9, r()), v = r();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  }
+  function paintGalaxy(canvas, opts = {}) {
+    const w = Math.max(1, canvas.width), h = Math.max(1, canvas.height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const R = rng(opts.seed || 6062503);
+    const cx = w * (opts.cx == null ? 0.3 : opts.cx);
+    const cy = h * (opts.cy == null ? 0.42 : opts.cy);
+    const rad = Math.max(w, h) * 0.62;
+    const tilt = opts.tilt == null ? -0.42 : opts.tilt;
+    const squash = opts.squash == null ? 0.46 : opts.squash;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#04060b";
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < Math.round(w * h / 5200); i++) {
+      const x = R() * w, y = R() * h;
+      const a = 0.06 + R() * 0.42;
+      const s = R() < 0.94 ? 0.6 : 1.3;
+      ctx.fillStyle = "rgba(200,214,240," + a.toFixed(3) + ")";
+      ctx.fillRect(x, y, s, s);
+    }
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(tilt);
+    ctx.scale(1, squash);
+    const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, rad * 1.15);
+    halo.addColorStop(0, "rgba(120,150,230,0.20)");
+    halo.addColorStop(0.35, "rgba(80,100,190,0.09)");
+    halo.addColorStop(1, "rgba(30,40,90,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 1.15, 0, TAU);
+    ctx.fill();
+    const ARMS = opts.arms || 2;
+    const TMAX = 6.9;
+    const START = 0.055;
+    const b = Math.log(1 / START) / TMAX;
+    const perArm = Math.round(w * h / 900);
+    ctx.globalCompositeOperation = "lighter";
+    for (let arm = 0; arm < ARMS; arm++) {
+      const phase = arm / ARMS * TAU;
+      for (let i = 0; i < perArm; i++) {
+        const t = Math.pow(R(), 0.62) * TMAX;
+        const r0 = rad * START * Math.exp(b * t);
+        if (r0 > rad) continue;
+        const th = t + phase;
+        const spread = rad * (0.02 + 0.055 * (r0 / rad));
+        const jr = gauss(R) * spread;
+        const jt = gauss(R) * (spread / Math.max(rad * 0.08, r0)) * 0.9;
+        const r = r0 + jr, a = th + jt;
+        const x = Math.cos(a) * r, y = Math.sin(a) * r;
+        if (!isFinite(x) || !isFinite(y)) continue;
+        const f = Math.min(1, r / rad);
+        const near = 1 - f;
+        const hot = R() < 0.1 - 0.07 * f;
+        const cr = Math.round(120 + 135 * near + (hot ? 0 : 0));
+        const cg = Math.round(150 + 80 * near);
+        const cb = Math.round(255 - 40 * near);
+        const alpha = (0.16 + 0.62 * Math.pow(1 - f, 1.25)) * (hot ? 2.2 : 1);
+        ctx.fillStyle = "rgba(" + cr + "," + cg + "," + cb + "," + Math.min(0.9, alpha).toFixed(3) + ")";
+        const size = hot ? 1.5 : R() < 0.2 ? 1.1 : 0.7;
+        ctx.fillRect(x, y, size, size);
+      }
+    }
+    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, rad * 0.3);
+    core.addColorStop(0, "rgba(255,242,214,0.75)");
+    core.addColorStop(0.18, "rgba(255,206,150,0.38)");
+    core.addColorStop(0.55, "rgba(210,140,110,0.12)");
+    core.addColorStop(1, "rgba(120,80,90,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 0.3, 0, TAU);
+    ctx.fill();
+    ctx.globalCompositeOperation = "destination-out";
+    for (let arm = 0; arm < ARMS; arm++) {
+      const phase = arm / ARMS * TAU + 0.3;
+      for (let i = 0; i < perArm / 3; i++) {
+        const t = Math.pow(R(), 0.6) * TMAX;
+        const r0 = rad * START * Math.exp(b * t);
+        if (r0 > rad * 0.95 || r0 < rad * 0.1) continue;
+        const spread = rad * (0.012 + 0.03 * (r0 / rad));
+        const r = r0 + gauss(R) * spread;
+        const a = t + phase + gauss(R) * 0.05;
+        const x = Math.cos(a) * r, y = Math.sin(a) * r;
+        ctx.fillStyle = "rgba(0,0,0," + (0.05 + R() * 0.1).toFixed(3) + ")";
+        ctx.fillRect(x, y, 2.2, 2.2);
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+    const vig = ctx.createRadialGradient(
+      w * 0.5,
+      h * 0.5,
+      Math.min(w, h) * 0.25,
+      w * 0.5,
+      h * 0.5,
+      Math.max(w, h) * 0.78
+    );
+    vig.addColorStop(0, "rgba(4,6,11,0)");
+    vig.addColorStop(1, "rgba(2,3,7,0.52)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, w, h);
+  }
+  function mountGalaxy(canvas, opts = {}) {
+    let lastW = 0, lastH = 0, pending = 0;
+    const draw = () => {
+      pending = 0;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.round((canvas.clientWidth || window.innerWidth) * dpr);
+      const h = Math.round((canvas.clientHeight || window.innerHeight) * dpr);
+      if (!w || !h || w === lastW && h === lastH) return;
+      lastW = w;
+      lastH = h;
+      canvas.width = w;
+      canvas.height = h;
+      try {
+        paintGalaxy(canvas, opts);
+      } catch (e) {
+      }
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = requestAnimationFrame(draw);
+    };
+    draw();
+    window.addEventListener("resize", schedule);
+    if (window.ResizeObserver) {
+      try {
+        new ResizeObserver(schedule).observe(canvas);
+      } catch (e) {
+      }
+    }
+    return { repaint: () => {
+      lastW = 0;
+      draw();
+    } };
+  }
+
   // smk/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -3637,6 +3831,7 @@ button{border:0;background:none;cursor:pointer;}
       if (s) s.style.display = "none";
     }, 500);
   });
+  var sky = mountGalaxy($("#sky"));
   window.__smk = {
     get S() {
       return S;
@@ -3646,6 +3841,7 @@ button{border:0;background:none;cursor:pointer;}
     lib,
     unit,
     loop,
+    sky,
     get lastTransport() {
       return lastTransport;
     },

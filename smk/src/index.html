@@ -21,6 +21,30 @@
   --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
+/* ---------- the sky, and the glass in front of it ----------
+   The galaxy is a canvas painted ONCE per size change (see core/galaxy.js) and
+   pinned behind everything. It is not animated, because the only thread that
+   could animate it is the thread that has to hand notes to the audio clock on
+   time.
+
+   Every panel in front of it is glass: a translucent fill, a blur of what is
+   behind, a bright top lip and a dark base. Two rules make that read as glass
+   rather than as a grey box —
+     · the panel must be TRANSLUCENT, so the arms actually show through and the
+       colour under each panel differs. An opaque panel with a blur behind it
+       is just a grey box with extra cost.
+     · the top edge catches light and the bottom does not. That single
+       asymmetry is what the eye reads as a physical surface.
+   backdrop-filter is the expensive part, so it is asked for once per surface
+   class and never on anything that moves. */
+#sky{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block;
+  pointer-events:none;background:var(--bg);}
+:root{
+  --glass:rgba(18,22,34,.52);
+  --glass-hi:rgba(30,38,58,.62);
+  --glass-line:rgba(255,255,255,.12);
+  --blur:saturate(135%) blur(14px);
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
   font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -28,7 +52,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hi
 button,input{font-family:inherit;color:inherit;}
 button{border:0;background:none;cursor:pointer;}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
-#app{position:fixed;inset:0;display:flex;flex-direction:column;gap:var(--sp);
+#app{position:fixed;inset:0;z-index:1;display:flex;flex-direction:column;gap:var(--sp);
   padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
           max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));}
 
@@ -66,8 +90,10 @@ button{border:0;background:none;cursor:pointer;}
 
 /* ---------- knobs ---------- */
 #knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
-.knob{border:1px solid var(--line);border-radius:10px;background:var(--panel);
-  padding:5px 4px;text-align:center;box-shadow:var(--lip);min-height:52px;
+.knob{border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  padding:5px 4px;text-align:center;min-height:52px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(0,0,0,.5),0 6px 18px rgba(0,0,0,.4);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
 .knob .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.06em;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:100%;}
@@ -84,11 +110,14 @@ button{border:0;background:none;cursor:pointer;}
    a pad came out six times wider than it was tall on a desktop. The width cap
    is what keeps 4 columns from turning into 340px slabs on a wide screen. */
 #pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:0 0 auto;
-  width:100%;max-width:min(100%,520px);margin-inline:auto;}
-.pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
+  width:100%;max-width:min(100%,520px);margin-left:auto;}
+.pad{position:relative;border-radius:13px;border:1px solid rgba(255,255,255,.14);
   aspect-ratio:1;min-width:0;
-  overflow:hidden;box-shadow:var(--e1),var(--lip);padding:6px 8px;
-  background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
+  overflow:hidden;padding:6px 8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 6px rgba(0,0,0,.45),
+             0 8px 22px rgba(0,0,0,.45);
+  background:linear-gradient(160deg,hsl(var(--h) 62% 30% / .82),hsl(var(--h) 58% 14% / .88));
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
   display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
 .pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
 .pad .t{font-size:var(--fs-xs);font-weight:600;line-height:1.15;word-break:break-word;
@@ -103,10 +132,17 @@ button{border:0;background:none;cursor:pointer;}
 
 /* ---------- the 25 keys ---------- */
 #keys{position:relative;flex:0 0 auto;height:clamp(88px,15vh,132px);
-  border-radius:10px;overflow:hidden;background:#05060A;border:1px solid var(--line);}
+  border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);
+  background:linear-gradient(180deg,rgba(10,13,22,.72),rgba(4,6,11,.86));
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.5);}
 .kw,.kk{position:absolute;top:0;bottom:0;border-radius:0 0 5px 5px;}
-.kw{background:linear-gradient(180deg,#e8edf4,#b9c2ce);border:1px solid #7d8698;}
-.kk{background:linear-gradient(180deg,#2a2f3a,#0d1016);border:1px solid #000;z-index:2;
+.kw{background:linear-gradient(180deg,rgba(243,247,252,.93),rgba(176,187,203,.88));
+  border:1px solid rgba(120,132,152,.9);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -6px 10px rgba(90,102,124,.35);}
+.kk{background:linear-gradient(180deg,rgba(52,59,74,.96),rgba(10,13,19,.98));
+  border:1px solid rgba(0,0,0,.9);z-index:2;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 3px 8px rgba(0,0,0,.6);
   bottom:36%;border-radius:0 0 4px 4px;}
 .kw.on{background:linear-gradient(180deg,var(--acc),#1e9e8b);}
 .kk.on{background:linear-gradient(180deg,var(--acc),#12786a);}
@@ -117,8 +153,10 @@ button{border:0;background:none;cursor:pointer;}
 
 .rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
 .chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
-  border:1px solid var(--line);border-radius:11px;background:var(--panel);
-  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+  border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  font-size:var(--fs-sm);white-space:nowrap;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 14px rgba(0,0,0,.38);}
 .chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
 .chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
 .chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
@@ -195,6 +233,8 @@ button{border:0;background:none;cursor:pointer;}
   <button class="go" id="splashgo">START</button>
 </div>
 
+<canvas id="sky" aria-hidden="true"></canvas>
+
 <div id="app">
   <div id="top">
     <span id="brand">SKRiMPAD <b>SMK</b></span>
@@ -256,6 +296,7 @@ import {
   identify, createUnitMap, signature,
 } from './core/smk25.js';
 import { decode as decodeTransport, describe as describeMsg, whyQuiet } from '../../ultimate/src/core/transport-in.js';
+import { mountGalaxy } from './core/galaxy.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -989,8 +1030,13 @@ $('#splashgo').addEventListener('click', () => {
   setTimeout(() => { const s = $('#splash'); if (s) s.style.display = 'none'; }, 500);
 });
 
+// The sky. Mounted last so nothing waits on it, and it repaints only when the
+// window changes size — see core/galaxy.js for why it is a still image and not
+// an animation.
+const sky = mountGalaxy($('#sky'));
+
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop,
+  get S() { return S; }, eng, io, lib, unit, loop, sky,
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
