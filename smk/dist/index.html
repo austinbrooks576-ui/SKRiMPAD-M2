@@ -62,9 +62,37 @@
    unit, and they are the height of the keybed — not the height of the app. The
    first version pinned them to the stage and they came out twelve hundred
    pixels tall with their labels clipped off the bottom. */
-#keyrow{display:flex;align-items:stretch;gap:8px;flex:0 0 auto;
-  width:100%;max-width:min(100%,640px);margin-right:auto;}
-#sensors{display:flex;gap:6px;flex:0 0 auto;width:52px;}
+/* THE PANEL, mirroring the unit: three blocks in a row above a full-width
+   keybed. The proportions come from the photograph — the left block is about
+   a fifth of the face, the middle a little over a third, the pads the rest. */
+#panel{display:flex;gap:var(--sp);align-items:flex-start;flex:0 0 auto;
+  width:100%;max-width:1080px;margin-right:auto;}
+#left{flex:0 0 clamp(96px,13%,140px);display:flex;flex-direction:column;gap:6px;}
+#sensors{display:flex;gap:6px;height:clamp(72px,11vh,104px);}
+#octs{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+.ctr{text-align:center;}
+#mid{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:7px;}
+#midtop{display:flex;gap:8px;align-items:stretch;}
+/* The three-character readout. On the unit it shows a preset number; here it
+   shows whatever you just changed, then falls back to the tempo — the same
+   job, which is telling you what the last knob did without a screen. */
+#lcd{flex:0 0 auto;min-width:74px;display:flex;align-items:center;justify-content:center;
+  border-radius:7px;padding:0 9px;font-size:var(--fs-md);letter-spacing:.08em;
+  color:#7CF3D9;text-shadow:0 0 9px rgba(75,227,200,.75);
+  background:radial-gradient(120% 160% at 50% 0%,rgba(4,10,9,.98),rgba(1,3,3,.99));
+  box-shadow:inset 0 2px 7px rgba(0,0,0,.85),inset 0 0 0 1px rgba(255,255,255,.06);}
+#btns{flex:1 1 auto;display:grid;grid-template-columns:repeat(4,1fr);
+  grid-template-rows:repeat(2,1fr);gap:5px;min-width:0;}
+/* A face button: hard plastic with a lip, not a chip. */
+.fb{min-height:30px;border-radius:7px;font-size:var(--fs-xs);letter-spacing:.06em;
+  color:var(--txt);border:1px solid rgba(255,255,255,.14);
+  background:linear-gradient(180deg,rgba(60,68,88,.92),rgba(22,27,38,.96));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 2px 6px rgba(0,0,0,.5);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;}
+.fb:active{transform:translateY(1px);box-shadow:inset 0 2px 5px rgba(0,0,0,.6);}
+.fb.on{color:#04140F;background:linear-gradient(180deg,var(--acc),#1e9e8b);}
+.fb.rec.on{color:#fff;background:linear-gradient(180deg,var(--rec),#a3162f);}
+#keyrow{display:flex;flex:0 0 auto;width:100%;max-width:1080px;margin-right:auto;}
 .sens{position:relative;flex:1;border-radius:10px;overflow:hidden;touch-action:none;cursor:ns-resize;
   border:1px solid var(--glass-line);
   background:linear-gradient(180deg,rgba(20,25,38,.75),rgba(8,11,18,.85));
@@ -86,7 +114,8 @@
    a PANEL: recessed screen, brushed face, a real button with a lip and a level
    fader — on the machine surface next to the pads, because that is where a loop
    deck is on hardware that has one. */
-#deckrow{display:flex;gap:var(--sp);flex:0 0 auto;align-items:stretch;flex-wrap:wrap;}
+#deckrow{display:flex;gap:var(--sp);flex:0 0 auto;align-items:stretch;flex-wrap:wrap;
+  width:100%;max-width:1080px;margin-right:auto;margin-top:auto;}
 #bed{width:min(100%,320px);flex:0 0 auto;border-radius:14px;padding:9px 11px 10px;
   border:1px solid var(--glass-line);
   background:linear-gradient(168deg,rgba(38,45,64,.62),rgba(12,15,23,.72));
@@ -215,7 +244,7 @@ button{border:0;background:none;cursor:pointer;}
    panel is 2x4 and the labels read across it, so a single row means the knob
    you are looking for is never where the hardware says it is. */
 #knobs{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,auto);
-  gap:5px;flex:0 0 auto;width:100%;max-width:min(100%,520px);margin-right:auto;}
+  gap:5px;flex:0 0 auto;width:100%;}
 .knob{border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
   -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
   padding:5px 4px;text-align:center;min-height:52px;
@@ -235,8 +264,8 @@ button{border:0;background:none;cursor:pointer;}
    the columns stretched to the window while the rows stayed at min-height and
    a pad came out six times wider than it was tall on a desktop. The width cap
    is what keeps 4 columns from turning into 340px slabs on a wide screen. */
-#pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:0 0 auto;
-  width:100%;max-width:min(100%,520px);margin-left:auto;}
+#pads{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;
+  flex:0 0 clamp(180px,38%,430px);}
 .pad{position:relative;border-radius:13px;border:1px solid rgba(255,255,255,.14);
   aspect-ratio:1;min-width:0;
   overflow:hidden;padding:6px 8px;
@@ -262,7 +291,7 @@ button{border:0;background:none;cursor:pointer;}
    the "weird elongated keyboard". Fifteen white keys at a plausible width is
    roughly 560px, so that is the cap; the deck and pads sit above it and the
    whole instrument reads as one unit rather than a stretched strip. */
-#keys{position:relative;flex:1 1 auto;min-width:0;height:clamp(84px,13vh,116px);
+#keys{position:relative;flex:1 1 auto;min-width:0;height:clamp(96px,17vh,150px);
   border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);
   background:linear-gradient(180deg,rgba(10,13,22,.72),rgba(4,6,11,.86));
   -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
@@ -382,8 +411,50 @@ button{border:0;background:none;cursor:pointer;}
   </div>
 
   <div id="stage">
-    <div id="knobs"></div>
+    <!-- THE PANEL, laid out as the unit is: strips and octave buttons at the
+         left, the display and the two button rows and the knob block in the
+         middle, the eight pads at the right, the keybed underneath all of it. -->
+    <div id="panel">
+      <div id="left">
+        <div id="sensors">
+          <div class="sens" id="sPitch" role="slider" aria-label="Pitch" tabindex="0">
+            <i></i><span class="sl">PITCH</span><span class="sv">0</span>
+          </div>
+          <div class="sens" id="sMod" role="slider" aria-label="Modulation" tabindex="0">
+            <i></i><span class="sl">MOD</span><span class="sv">0</span>
+          </div>
+        </div>
+        <div id="octs">
+          <button class="fb" id="octdn">OCT−</button>
+          <button class="fb" id="octup">OCT+</button>
+        </div>
+        <div class="dl ctr">TRANSPOSE</div>
+      </div>
 
+      <div id="mid">
+        <div id="midtop">
+          <div id="lcd" aria-live="polite">100</div>
+          <div id="btns">
+            <button class="fb" id="play">PLAY</button>
+            <button class="fb" id="stop">STOP</button>
+            <button class="fb rec" id="rec">REC</button>
+            <button class="fb" id="btbtn2">BT</button>
+            <button class="fb" id="arp">ARP</button>
+            <button class="fb" id="scch">SC/CH</button>
+            <button class="fb" id="kbank">KNOB-B</button>
+            <button class="fb" id="bank">PAD-B</button>
+          </div>
+        </div>
+        <div id="knobs"></div>
+      </div>
+
+      <div id="pads"></div>
+    </div>
+
+    <div id="keyrow"><div id="keys"></div></div>
+
+    <!-- The app's own section, below the instrument: things the hardware does
+         not have and therefore has nowhere to be. -->
     <div id="deckrow">
       <div id="bed">
         <div class="dl">LOOP</div>
@@ -399,34 +470,10 @@ button{border:0;background:none;cursor:pointer;}
         <div class="opts" id="voicepick"></div>
       </div>
     </div>
-    <div id="pads"></div>
-    <div id="keyrow">
-      <div id="sensors">
-        <div class="sens" id="sPitch" role="slider" aria-label="Pitch" tabindex="0">
-          <i></i><span class="sl">PB</span><span class="sv">0</span>
-        </div>
-        <div class="sens" id="sMod" role="slider" aria-label="Modulation" tabindex="0">
-          <i></i><span class="sl">MOD</span><span class="sv">0</span>
-        </div>
-      </div>
-      <div id="keys"></div>
-    </div>
-  </div>
-
-  <div class="rail">
-    <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
-    <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
-    <button class="chip" id="arp">ARP</button>
-    <button class="chip" id="scch">SC/CH</button>
-    <button class="chip sm" id="octdn" aria-label="Octave down">OCT−</button>
-    <button class="chip sm" id="octup" aria-label="Octave up">OCT+</button>
   </div>
 
   <div class="rail">
     <span class="chip pair"><input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo"><button id="tap">TAP</button></span>
-    <button class="chip rec" id="rec" aria-label="Record">●</button>
-    <button class="chip" id="play" aria-label="Play or pause">▶</button>
-    <button class="chip" id="stop" aria-label="Stop">■</button>
     <div id="loopbar"><i></i></div>
     <button class="chip sm" id="undo" aria-label="Undo">↶</button>
   </div>
@@ -4105,6 +4152,17 @@ button{border:0;background:none;cursor:pointer;}
     }
     paintKnobs();
   }
+  function paintBanks() {
+    const k = $("#kbank"), p2 = $("#bank");
+    if (k) {
+      k.textContent = "KNOB-B";
+      k.classList.toggle("on", !!S.knobBank);
+    }
+    if (p2) {
+      p2.textContent = "PAD-B";
+      p2.classList.toggle("on", !!S.padBank);
+    }
+  }
   function paintKnobs() {
     for (let i = 0; i < KNOBS; i++) {
       const r = knobRole(i), v = K(i), el = knobEls[i];
@@ -4115,7 +4173,7 @@ button{border:0;background:none;cursor:pointer;}
     }
     $("#kbank").textContent = "KNOB-" + (S.knobBank ? "B" : "A");
     $("#kbank").classList.toggle("warm", !!S.knobBank);
-    $("#kbank").classList.toggle("on", !!S.knobBank);
+    paintBanks();
   }
   function buildPads() {
     const host = $("#pads");
@@ -4159,7 +4217,7 @@ button{border:0;background:none;cursor:pointer;}
     }
     $("#bank").textContent = "PAD-" + (S.padBank ? "B" : "A");
     $("#bank").classList.toggle("warm", !!S.padBank);
-    $("#bank").classList.toggle("on", !!S.padBank);
+    paintBanks();
   }
   var padT = new Array(PADS).fill(0);
   function flashPad(i) {
@@ -4558,6 +4616,7 @@ button{border:0;background:none;cursor:pointer;}
   function setTempo(v) {
     S.bpm = Math.max(20, Math.min(300, v | 0));
     $("#tempo").value = S.bpm;
+    lcd(S.bpm);
     syncArp();
     seq.setBpm(S.bpm);
     save();
@@ -4573,6 +4632,7 @@ button{border:0;background:none;cursor:pointer;}
     held.clear();
     save();
     buildKeys();
+    lcd("OCT " + (S.octave > 0 ? "+" : "") + S.octave);
     toast("octave " + (S.octave > 0 ? "+" : "") + S.octave);
   }
   function setPadBank(b) {
@@ -4581,12 +4641,16 @@ button{border:0;background:none;cursor:pointer;}
     paintPads();
     paintVoice();
     warmUp();
+    paintBanks();
+    lcd("PAD-" + (b ? "B" : "A"));
     toast("PAD-" + (b ? "B" : "A"));
   }
   function setKnobBank(b) {
     S.knobBank = b % KNOB_BANKS;
     save();
     paintKnobs();
+    paintBanks();
+    lcd("KNOB-" + (b ? "B" : "A"));
     toast("KNOB-" + (b ? "B" : "A"));
   }
   function transport(name) {
@@ -4623,9 +4687,20 @@ button{border:0;background:none;cursor:pointer;}
     const st = info.state, playing = st === "playing" || st === "overdub";
     $("#rec").classList.toggle("on", st === "recording" || st === "armed" || st === "overdub");
     $("#play").classList.toggle("on", playing);
-    $("#play").textContent = playing ? "\u2759\u2759" : "\u25B6";
+    $("#play").textContent = "PLAY";
     $("#undo").disabled = !info.canUndo;
     $("#loopbar").firstElementChild.style.width = Math.round(info.pos * 100) + "%";
+  }
+  var lcdT = 0;
+  function lcd(txt) {
+    const el = $("#lcd");
+    if (!el) return;
+    el.textContent = String(txt).slice(0, 9);
+    clearTimeout(lcdT);
+    lcdT = setTimeout(() => {
+      const e2 = $("#lcd");
+      if (e2) e2.textContent = String(S.bpm);
+    }, 1600);
   }
   function paintRail() {
     syncArp();
@@ -4758,6 +4833,17 @@ button{border:0;background:none;cursor:pointer;}
     openSheet("#lib");
   });
   $("#libx").addEventListener("click", closeSheets);
+  $("#btbtn2").addEventListener("click", async () => {
+    try {
+      const r = await io.connectBluetooth({ onStatus: (st) => {
+        if (st && st.hint) lcd(st.hint.slice(0, 8));
+      } });
+      toast("bluetooth: " + (r && r.mode));
+    } catch (e) {
+      toast(String(e && e.message || e).slice(0, 80));
+    }
+    paintLink();
+  });
   $("#bedgo").addEventListener("click", () => bed.playing ? bed.stop() : bed.start());
   $("#bedlev").addEventListener("input", (e) => bed.setLevel(+e.target.value / 100));
   $("#bed").addEventListener("contextmenu", (ev) => {
@@ -5301,6 +5387,7 @@ button{border:0;background:none;cursor:pointer;}
   loadBed();
   paintBed();
   paintVoice();
+  paintBanks();
   wireSensor($("#sPitch"), true, setBend);
   wireSensor($("#sMod"), false, setMod);
   paintSensors();

@@ -527,6 +527,28 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(heard2.second > 0, 'and clicking it AGAIN plays it again — the audition is not tied to arming',
      heard2.first + ' then ' + heard2.second);
 
+  // ---- the face mirrors the unit -----------------------------------------
+  const face = await p.evaluate(() => {
+    const q = (x) => document.querySelector(x);
+    const box = (x) => { const e = q(x); return e ? e.getBoundingClientRect() : null; };
+    const L = box('#left'), M = box('#mid'), P = box('#pads'), K = box('#keys');
+    const btns = Array.from(document.querySelectorAll('#btns .fb')).map((b) => b.textContent.trim());
+    return {
+      order: !!(L && M && P && L.right <= M.left + 2 && M.right <= P.left + 2),
+      keysBelow: !!(K && P && K.top >= P.bottom - 4),
+      keysFullWidth: !!(K && L && P && K.left <= L.left + 4 && K.right >= P.right - 6),
+      btns, lcd: !!q('#lcd'),
+      strips: !!(q('#sPitch') && q('#sMod')),
+      stripsAboveOct: !!(box('#sensors') && box('#octs') && box('#sensors').bottom <= box('#octs').top + 2),
+    };
+  });
+  ok(face.order, 'the face runs left to right as the unit does: strips, then the middle block, then the pads');
+  ok(face.stripsAboveOct, 'with PITCH and MOD above OCT- / OCT+, in the top-left corner');
+  ok(face.keysBelow && face.keysFullWidth, 'and the keybed underneath all of it, full width');
+  ok(face.btns.join(' ') === 'PLAY STOP REC BT ARP SC/CH KNOB-B PAD-B',
+     'the eight face buttons are the eight on the unit, in order', face.btns.join(' '));
+  ok(face.lcd, 'and the three-character readout is there');
+
   // ---- the knobs are what the unit says they are --------------------------
   // The panel silkscreens MODE OCT LATCH GATE / SWING TEMPO RATE TRANSPOSE.
   // These were CUTOFF/RESO/ATTACK/... — sensible synth controls, and not what
