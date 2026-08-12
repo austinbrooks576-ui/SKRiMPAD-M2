@@ -39,6 +39,7 @@ jobs:
           node smk/test/snip.cjs
           node smk/test/arp.cjs
           node smk/test/seq.cjs
+          node smk/test/roll.cjs
           node smk/test/smk.cjs
           node smk/test/stress.cjs
           node smk/test/fx.cjs

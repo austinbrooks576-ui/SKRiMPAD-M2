@@ -22,6 +22,15 @@
   --lip:inset 0 1px 0 rgba(255,255,255,.07);
 }
 
+/* ---------- the piano roll and the timeline ---------- */
+.sheet.wide{max-width:min(96vw,1180px);}
+#rollcv,#dawcv{display:block;width:100%;border-radius:10px;touch-action:none;cursor:crosshair;
+  background:radial-gradient(120% 160% at 50% 0%,rgba(8,11,18,.96),rgba(3,5,9,.99));
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.8),inset 0 0 0 1px rgba(255,255,255,.05);}
+#rollcv{height:380px;}
+#dawcv{height:300px;cursor:pointer;}
+#rollbar,#dawbar{gap:5px;flex-wrap:wrap;margin-bottom:8px;}
+
 /* ---------- the library, organised ----------
    A pack of four hundred sounds in one flat list is four hundred rows of
    identical-looking text. The kind badge, the length and the pack name are
@@ -411,6 +420,8 @@ button{border:0;background:none;cursor:pointer;}
     <span id="brand">SKRiMPAD <b>SMK</b></span>
     <button id="link"><span class="dot"></span><span id="linktxt">looking for your SMK-25…</span></button>
     <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="rollbtn">ROLL</button>
+    <button class="chip sm" id="dawbtn">DAW</button>
     <button class="chip sm" id="seqbtn">SEQ</button>
     <button class="chip sm" id="setbtn" aria-label="Setup">⚙</button>
   </div>
@@ -500,6 +511,27 @@ button{border:0;background:none;cursor:pointer;}
     <div id="list"></div>
   </div>
 </div>
+<div class="sheet wide" id="roll" role="dialog" aria-modal="true" aria-label="Piano roll">
+  <header><h2>PIANO ROLL</h2><span class="sub" id="rolllab"></span><button class="x" id="rollx">✕</button></header>
+  <div class="body">
+    <div class="opts" id="rollbar"></div>
+    <canvas id="rollcv"></canvas>
+    <div class="dim" style="margin-top:8px">Click empty space to draw a note. Drag it to move it, drag its
+      right-hand edge to lengthen it, right-click to delete. Seven octaves — scroll with the ▲▼ buttons.</div>
+  </div>
+</div>
+
+<div class="sheet wide" id="daw" role="dialog" aria-modal="true" aria-label="Timeline">
+  <header><h2>TIMELINE</h2><span class="sub" id="dawlab"></span><button class="x" id="dawx">✕</button></header>
+  <div class="body">
+    <div class="opts" id="dawbar"></div>
+    <canvas id="dawcv"></canvas>
+    <div class="dim" style="margin-top:8px">Every channel across the arrangement. A short part draws its
+      repeats, so you can see it come round without anyone copying it out. Click a lane to mute it, click its
+      name to open that channel in the piano roll.</div>
+  </div>
+</div>
+
 <div class="sheet" id="seq" role="dialog" aria-modal="true" aria-label="Sequencer">
   <header><h2>SEQUENCER</h2><button class="x" id="seqx">✕</button></header>
   <div class="body" id="seqbody"></div>
@@ -530,6 +562,10 @@ import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js'
 import { voiceLimits, pluck } from './core/mix.js';
 import { snip as cutSnip, encodeWav, findEdges, peaks, DEFAULT_EDIT } from './core/snip.js';
 import { buildFxChain, FX_UNITS, defaultFx } from './core/fx.js';
+import {
+  rollGeom, beatToX, xToBeat, noteToY, yToNote, rectFor, hitTest, onResizeEdge, placeAt,
+  isBlack, ROLL_LO, ROLL_HI, laneGeom, laneBeatToX, laneToY, yToLane, blocksFor, BEATS_PER_BAR,
+} from './core/roll.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -667,7 +703,13 @@ const seq = createSeq({
     if (e.k === 'pad') { eng.play(padVoice(e.pad), when, e.vel, e.pad); flashPad(e.pad); }
     else { eng.play(pluck(keyVoice(e.note), e.len || 0.25), when, e.vel); flashKey(e.note, e.len || 0.25); }
   },
-  onTick: () => paintSeqHeads(),
+  onTick: () => {
+    paintSeqHeads();
+    // Only the sheet that is OPEN gets redrawn. A canvas repaint per scheduler
+    // tick on a hidden view is main-thread time stolen from the note queue.
+    if ($('#roll').classList.contains('open')) drawRoll();
+    else if ($('#daw').classList.contains('open')) drawDaw();
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -1516,6 +1558,10 @@ $('#bedlev').addEventListener('input', (e) => bed.setLevel(+e.target.value / 100
 $('#bed').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: bedMenu(), title: 'Loop bed' }); });
 onLongPress($('#bed'), 420, (ev, x, y) => openMenu({ x, y, items: bedMenu(), title: 'Loop bed' }));
 armDropTarget($('#bed'), (id, name) => { bed.set(id, name); warmUp().then(() => bed.start()); }, 'the loop bed');
+$('#rollbtn').addEventListener('click', () => openRoll());
+$('#rollx').addEventListener('click', closeSheets);
+$('#dawbtn').addEventListener('click', () => { renderDaw(); openSheet('#daw'); });
+$('#dawx').addEventListener('click', closeSheets);
 $('#seqbtn').addEventListener('click', () => { renderSeq(); openSheet('#seq'); });
 $('#seqx').addEventListener('click', closeSheets);
 $('#setbtn').addEventListener('click', () => { renderSetup(); openSheet('#setup'); });
@@ -1906,6 +1952,234 @@ function exportMid() {
   toast('exported skrimpad-smk.mid');
 }
 
+// ---------------------------------------------------------------------------
+// THE PIANO ROLL. One channel at a time, seven octaves deep, drawn on a canvas
+// and edited by pointer. All the geometry is in core/roll.js — this file only
+// paints and routes events, so the off-by-a-half-cell bugs live somewhere they
+// can be swept rather than squinted at.
+let rollCh = 0, rollLo = 48, rollRows = 24, rollDrag = null;
+const rollBars = () => Math.max(1, seq.channels[rollCh].bars);
+
+function rollG() {
+  const cv = $('#rollcv');
+  return rollGeom({ w: cv.clientWidth, h: cv.clientHeight, bars: rollBars(),
+                    startBeat: 0, loNote: rollLo, rows: rollRows, keyW: 34 });
+}
+function openRoll(ch) {
+  rollCh = ch == null ? rollCh : ch;
+  // Open where the MUSIC is. A roll that always opens at C3 makes you scroll
+  // to your own part every single time.
+  const evs = seq.channels[rollCh].events;
+  if (evs.length) {
+    const lo = Math.min(...evs.map((e) => e.note));
+    rollLo = Math.max(ROLL_LO, Math.min(ROLL_HI - rollRows + 1, lo - 3));
+  }
+  renderRoll(); openSheet('#roll');
+}
+function renderRoll() {
+  const c = seq.channels[rollCh];
+  $('#rolllab').textContent = c.name + ' · ' + c.events.length + ' notes · ' + c.bars + ' bar' + (c.bars === 1 ? '' : 's');
+  $('#rollbar').innerHTML =
+    seq.channels.map((ch, i) => '<button class="chip sm' + (i === rollCh ? ' on' : '') + '" data-rch="' + i + '">'
+      + esc(ch.name) + '</button>').join('')
+    + '<button class="chip sm" data-roct="1">\u25b2</button><button class="chip sm" data-roct="-1">\u25bc</button>'
+    + '<button class="chip sm" data-rzoom="1">ZOOM +</button><button class="chip sm" data-rzoom="-1">ZOOM \u2212</button>'
+    + '<button class="chip sm" id="rollclear">CLEAR CHANNEL</button>';
+  $('#rollbar').querySelectorAll('[data-rch]').forEach((b) => b.addEventListener('click', () => { rollCh = +b.dataset.rch; renderRoll(); }));
+  $('#rollbar').querySelectorAll('[data-roct]').forEach((b) => b.addEventListener('click', () => {
+    rollLo = Math.max(ROLL_LO, Math.min(ROLL_HI - rollRows + 1, rollLo + (+b.dataset.roct) * 12));
+    drawRoll();
+  }));
+  $('#rollbar').querySelectorAll('[data-rzoom]').forEach((b) => b.addEventListener('click', () => {
+    rollRows = Math.max(12, Math.min(48, rollRows + (+b.dataset.rzoom) * -6));
+    rollLo = Math.min(rollLo, ROLL_HI - rollRows + 1);
+    drawRoll();
+  }));
+  $('#rollclear').addEventListener('click', () => { seq.clear(rollCh); saveSeq(); renderRoll(); });
+  drawRoll();
+}
+function drawRoll() {
+  const cv = $('#rollcv'); if (!cv || !cv.clientWidth) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
+  const x = cv.getContext('2d'); if (!x) return;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const g = rollG();
+  x.clearRect(0, 0, g.w, g.h);
+
+  // Rows: black keys darker, so a chord is readable as a shape rather than
+  // counted from the bottom.
+  for (let n = g.loNote; n < g.loNote + g.rows; n++) {
+    const y = noteToY(g, n);
+    x.fillStyle = isBlack(n) ? 'rgba(255,255,255,.028)' : 'rgba(255,255,255,.055)';
+    x.fillRect(g.keyW, y, g.gridW, g.rowH);
+    x.fillStyle = isBlack(n) ? '#14181f' : '#dfe6ee';
+    x.fillRect(0, y + 0.5, g.keyW - 3, g.rowH - 1);
+    if (n % 12 === 0) {
+      x.fillStyle = 'rgba(120,130,150,.9)'; x.font = '8px sans-serif';
+      x.fillText('C' + (Math.floor(n / 12) - 1), 3, y + g.rowH - 3);
+    }
+  }
+  // Beat and bar lines. The bar line is brighter, because "where am I" is
+  // answered by bars and not by beats.
+  for (let bt = 0; bt <= g.beats; bt++) {
+    const px = beatToX(g, bt);
+    x.fillStyle = bt % BEATS_PER_BAR === 0 ? 'rgba(255,255,255,.30)' : 'rgba(255,255,255,.10)';
+    x.fillRect(px, 0, bt % BEATS_PER_BAR === 0 ? 1.5 : 1, g.h);
+  }
+  // The notes.
+  seq.channels[rollCh].events.forEach((e) => {
+    const r = rectFor(g, e);
+    const a = 0.45 + Math.min(1, (e.vel || 100) / 127) * 0.5;
+    x.fillStyle = 'rgba(75,227,200,' + a.toFixed(2) + ')';
+    x.fillRect(r.x, r.y + 1, r.w, Math.max(2, r.h - 2));
+    x.fillStyle = 'rgba(255,255,255,.28)';
+    x.fillRect(r.x + r.w - 2, r.y + 1, 2, Math.max(2, r.h - 2));
+  });
+  // The playhead, only while it is real.
+  if (seq.playing) {
+    const len = rollBars() * BEATS_PER_BAR;
+    const px = beatToX(g, ((seq.beat % len) + len) % len);
+    x.fillStyle = 'rgba(255,180,84,.9)'; x.fillRect(px, 0, 2, g.h);
+  }
+}
+
+// Pointer editing. One handler for all three gestures: the gesture is decided
+// at pointerdown from WHERE the press landed, so nothing can change mode
+// half-way through a drag.
+function wireRoll() {
+  const cv = $('#rollcv');
+  const at = (ev) => { const b = cv.getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
+  cv.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    const g = rollG(), pt = at(ev);
+    const i = hitTest(seq.channels[rollCh].events, g, pt.x, pt.y);
+    if (i >= 0) { seq.channels[rollCh].events.splice(i, 1); saveSeq(); renderRoll(); }
+  });
+  cv.addEventListener('pointerdown', (ev) => {
+    const g = rollG(), pt = at(ev);
+    if (pt.x < g.keyW) { audKey(yToNote(g, pt.y)); return; }
+    const evs = seq.channels[rollCh].events;
+    const i = hitTest(evs, g, pt.x, pt.y);
+    cv.setPointerCapture(ev.pointerId);
+    if (i >= 0) {
+      rollDrag = onResizeEdge(g, evs[i], pt.x)
+        ? { mode: 'len', i }
+        : { mode: 'move', i, dx: pt.x - rectFor(g, evs[i]).x };
+      audKey(evs[i].note);
+    } else {
+      // Draw a new one, at the grid, one grid-step long — the length you get
+      // is the length you can see, so the next click is predictable.
+      const grid = seq.quantize.grid || 0.25;
+      const p = placeAt(g, pt.x, pt.y, grid, rollBars() * BEATS_PER_BAR);
+      evs.push({ k: 'key', note: p.note, vel: 100, at: p.at, len: grid, raw: p.at });
+      rollDrag = { mode: 'len', i: evs.length - 1 };
+      audKey(p.note);
+    }
+    drawRoll();
+  });
+  cv.addEventListener('pointermove', (ev) => {
+    if (!rollDrag) return;
+    const g = rollG(), pt = at(ev);
+    const e = seq.channels[rollCh].events[rollDrag.i]; if (!e) return;
+    const grid = seq.quantize.grid || 0.25;
+    const loop = rollBars() * BEATS_PER_BAR;
+    if (rollDrag.mode === 'len') {
+      const end = xToBeat(g, pt.x);
+      e.len = Math.max(grid, Math.min(loop - e.at, grid > 0 ? Math.round((end - e.at) / grid) * grid : end - e.at));
+    } else {
+      const p = placeAt(g, pt.x - rollDrag.dx, pt.y, grid, loop);
+      e.at = Math.min(p.at, loop - e.len); e.raw = e.at; e.note = p.note;
+    }
+    drawRoll();
+  });
+  const up = () => { if (rollDrag) { rollDrag = null; saveSeq(); renderRoll(); } };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+}
+// Hearing the row you touched is what makes a roll playable rather than a
+// spreadsheet.
+function audKey(note) { eng.init(); eng.play(pluck(keyVoice(note), 0.22), 0, 100); }
+
+// ---------------------------------------------------------------------------
+// THE TIMELINE. Every channel at once, with its repeats drawn — the view that
+// answers "what is this arrangement" rather than "what is in this bar".
+let dawBars = 8;
+function dawG() {
+  const cv = $('#dawcv');
+  return laneGeom({ w: cv.clientWidth, h: cv.clientHeight, bars: dawBars,
+                    lanes: seq.channels.length, laneH: Math.floor(cv.clientHeight / seq.channels.length), headW: 92 });
+}
+function renderDaw() {
+  const used = seq.channels.filter((c) => c.events.length).length;
+  $('#dawlab').textContent = used + ' of 8 channels · ' + dawBars + ' bars · ' + S.bpm + 'bpm';
+  $('#dawbar').innerHTML =
+    [4, 8, 16, 32].map((n) => '<button class="chip sm' + (dawBars === n ? ' on' : '') + '" data-dbars="' + n + '">'
+      + n + ' BARS</button>').join('')
+    + '<button class="chip sm' + (seq.playing ? ' on' : '') + '" id="dawplay">' + (seq.playing ? '\u25a0 STOP' : '\u25b6 PLAY') + '</button>'
+    + '<button class="chip sm" id="dawexport">EXPORT .MID</button>';
+  $('#dawbar').querySelectorAll('[data-dbars]').forEach((b) => b.addEventListener('click', () => { dawBars = +b.dataset.dbars; renderDaw(); }));
+  $('#dawplay').addEventListener('click', () => { seq.playing ? seq.stop() : seq.play(); renderDaw(); });
+  $('#dawexport').addEventListener('click', exportMid);
+  drawDaw();
+}
+function drawDaw() {
+  const cv = $('#dawcv'); if (!cv || !cv.clientWidth) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr);
+  const x = cv.getContext('2d'); if (!x) return;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const g = dawG();
+  x.clearRect(0, 0, g.w, g.h);
+  for (let bar = 0; bar <= g.bars; bar++) {
+    const px = laneBeatToX(g, bar * BEATS_PER_BAR);
+    x.fillStyle = 'rgba(255,255,255,.13)'; x.fillRect(px, 0, 1, g.h);
+    if (bar < g.bars) { x.fillStyle = 'rgba(120,130,150,.75)'; x.font = '9px sans-serif'; x.fillText(String(bar + 1), px + 3, 10); }
+  }
+  seq.channels.forEach((c, i) => {
+    const y = laneToY(g, i);
+    x.fillStyle = i % 2 ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.05)';
+    x.fillRect(0, y, g.w, g.laneH - 1);
+    x.fillStyle = c.on ? 'var' : 'var';
+    x.fillStyle = c.on ? '#EAF0F6' : '#5b6473';
+    x.font = '10px sans-serif';
+    x.fillText(c.name + (c.on ? '' : ' (mute)'), 6, y + g.laneH / 2 + 3);
+    if (!c.events.length) return;
+    // The blocks, and inside each one a smear of its notes — enough to tell a
+    // sparse part from a busy one at a glance, which is what a timeline is for.
+    blocksFor(g, c.bars, g.bars).forEach((bk, rep) => {
+      x.fillStyle = c.on ? 'rgba(75,227,200,.18)' : 'rgba(140,150,170,.10)';
+      x.fillRect(bk.x, y + 2, Math.max(2, bk.w - 2), g.laneH - 5);
+      x.strokeStyle = c.on ? 'rgba(75,227,200,.5)' : 'rgba(140,150,170,.25)';
+      x.strokeRect(bk.x + 0.5, y + 2.5, Math.max(2, bk.w - 3), g.laneH - 6);
+      const chanBeats = c.bars * BEATS_PER_BAR;
+      c.events.forEach((e) => {
+        if (e.at >= bk.beats) return;
+        const px = bk.x + (e.at / chanBeats) * (chanBeats * g.pxPerBeat);
+        x.fillStyle = c.on ? 'rgba(75,227,200,.85)' : 'rgba(140,150,170,.4)';
+        x.fillRect(px, y + 4, Math.max(1.5, (e.len || 0.25) * g.pxPerBeat), g.laneH - 9);
+      });
+    });
+  });
+  if (seq.playing) {
+    const total = g.bars * BEATS_PER_BAR;
+    const px = laneBeatToX(g, ((seq.beat % total) + total) % total);
+    x.fillStyle = 'rgba(255,180,84,.95)'; x.fillRect(px, 0, 2, g.h);
+  }
+}
+function wireDaw() {
+  const cv = $('#dawcv');
+  cv.addEventListener('pointerdown', (ev) => {
+    const b = cv.getBoundingClientRect(), g = dawG();
+    const px = ev.clientX - b.left, py = ev.clientY - b.top;
+    const i = yToLane(g, py);
+    if (i < 0 || i >= seq.channels.length) return;
+    // The name column opens that channel in the roll; the lane itself mutes.
+    if (px < g.headW) { closeSheets(); openRoll(i); }
+    else { seq.toggle(i); saveSeq(); renderDaw(); }
+  });
+}
+
 function renderSetup() {
   const d = io.diagnostics(), ins = io.listInputs();
   const mine = ins.filter((p) => identify(p.name).smk || p.ble);
@@ -2059,6 +2333,8 @@ paintBanks();
 if (!S.fx) S.fx = defaultFx();
 paintFx();
 if (FX_UNITS.some((u) => S.fx[u.id])) applyFx();
+wireRoll();
+wireDaw();
 wireSensor($('#sPitch'), true, setBend);
 wireSensor($('#sMod'), false, setMod);
 paintSensors();
@@ -2069,7 +2345,12 @@ seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, applyFx, setVoice, paintVoice, setBend, setMod, get bendSemis() { return bendSemis; }, get modAmt() { return modAmt; }, openSnip, saveSnip, get snipEdit() { return snipEdit; },
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, applyFx, openRoll, renderDaw, drawRoll, drawDaw,
+  // The roll's own geometry, so a test can click where a note actually IS
+  // rather than where it guessed the note would be. Guessing is how the first
+  // version of that test "moved" a note by creating a second one beside it.
+  rollRectFor: (i) => { const e = seq.channels[rollCh].events[i]; return e ? rectFor(rollG(), e) : null; },
+  setVoice, paintVoice, setBend, setMod, get bendSemis() { return bendSemis; }, get modAmt() { return modAmt; }, openSnip, saveSnip, get snipEdit() { return snipEdit; },
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,

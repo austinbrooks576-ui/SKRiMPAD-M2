@@ -763,6 +763,99 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(rack.onAfterClick === true && rack.gotChain, 'switching one on patches a real chain into the engine');
   ok(rack.clearedChain, 'and switching it off restores the straight wire — null chain, not a chain of wires');
 
+  // ---- the piano roll, through the app -------------------------------------
+  // roll.cjs proves the geometry. This proves the canvas is wired to it: a
+  // click on empty grid makes a real note in the real channel, dragging moves
+  // it, and right-click removes it.
+  const roll = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.seq.stop(); A.seq.clear(); A.seq.setBars(0, 2); A.seq.setQuantize(0.25, 1);
+    A.openRoll(0);
+    await new Promise((r) => setTimeout(r, 120));
+    const cv = document.querySelector('#rollcv');
+    const b = cv.getBoundingClientRect();
+    const down = (x, y, btn) => cv.dispatchEvent(new PointerEvent('pointerdown',
+      { bubbles: true, clientX: b.left + x, clientY: b.top + y, pointerId: 1, button: btn || 0 }));
+    const move = (x, y) => cv.dispatchEvent(new PointerEvent('pointermove',
+      { bubbles: true, clientX: b.left + x, clientY: b.top + y, pointerId: 1 }));
+    const up = () => cv.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+
+    // draw one
+    down(200, 150); up();
+    const made = A.seq.channels[0].events.length;
+    const first = Object.assign({}, A.seq.channels[0].events[0]);
+
+    // MOVE IT — from the note's ACTUAL rectangle, not from where the click
+    // that made it landed. Those differ: a new note snaps back to the grid
+    // line, so pressing at the original x can be past its right-hand edge, and
+    // the first version of this test "moved" the note by quietly creating a
+    // second one beside it and then comparing the first with itself.
+    await new Promise((r) => setTimeout(r, 40));
+    // Grabbed by its LEFT portion, not its centre. A note one grid-step long
+    // is ~17px wide and the resize handle is the last 7.5px of it, so "the
+    // middle" is a few pixels from the handle and the gesture flips to a
+    // resize on the smallest layout difference — which is exactly what
+    // happened, and it made a working drag look broken.
+    let rc = A.rollRectFor(0);
+    down(rc.x + 3, rc.y + rc.h / 2); move(rc.x + 90, rc.y - 40); up();
+    const moved = Object.assign({}, A.seq.channels[0].events[0]);
+
+    // right-click it away, again from where it now actually is
+    const removedFrom = A.seq.channels[0].events.length;
+    rc = A.rollRectFor(0);
+    cv.dispatchEvent(new MouseEvent('contextmenu',
+      { bubbles: true, cancelable: true, clientX: b.left + rc.x + rc.w / 2, clientY: b.top + rc.y + rc.h / 2 }));
+    await new Promise((r) => setTimeout(r, 40));
+    const after = A.seq.channels[0].events.length;
+
+    const lanes = document.querySelectorAll('#rollbar [data-rch]').length;
+    A.seq.clear();
+    return { made, first, moved, removedFrom, after, lanes,
+             inLoop: moved.at >= 0 && moved.at < 8, note: moved.note };
+  });
+  ok(roll.made === 1, 'clicking empty grid in the piano roll draws a real note', roll.made + ' note');
+  ok(roll.first.len > 0 && roll.first.note >= 24 && roll.first.note <= 107,
+     'at a real pitch and a visible length', 'note ' + roll.first.note + ', len ' + roll.first.len);
+  ok(roll.moved.at !== roll.first.at || roll.moved.note !== roll.first.note,
+     'dragging it moves it',
+     roll.first.note + '@' + roll.first.at + ' → ' + roll.moved.note + '@' + roll.moved.at);
+  ok(roll.inLoop, 'and never outside the loop, where it would be stored and never played',
+     'at ' + roll.moved.at + ' of 8 beats');
+  ok(roll.after === roll.removedFrom - 1, 'right-clicking a note deletes it',
+     roll.removedFrom + ' → ' + roll.after);
+  ok(roll.lanes === 8, 'and all eight channels are switchable from the roll', roll.lanes + '');
+
+  // ---- the timeline --------------------------------------------------------
+  const daw = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.seq.stop(); A.seq.clear();
+    A.seq.setBars(0, 2);
+    // SET THE PRECONDITION. An earlier section mutes channel 0 to prove that
+    // muting silences it and never unmutes — so this test inherited a muted
+    // channel and asserted the wrong direction. A test that depends on where
+    // the last one left things is not testing what it says.
+    A.seq.channels[0].on = true;
+    A.seq.channels[0].events = [{ note: 60, vel: 100, at: 0, len: 0.5 }];
+    A.renderDaw();
+    await new Promise((r) => setTimeout(r, 120));
+    const cv = document.querySelector('#dawcv');
+    const b = cv.getBoundingClientRect();
+    const wasOn = A.seq.channels[0].on;
+    // a click in the lane BODY mutes
+    cv.dispatchEvent(new PointerEvent('pointerdown',
+      { bubbles: true, clientX: b.left + 300, clientY: b.top + 8, pointerId: 1 }));
+    await new Promise((r) => setTimeout(r, 60));
+    const muted = A.seq.channels[0].on;
+    const bars = document.querySelectorAll('#dawbar [data-dbars]').length;
+    const painted = cv.width > 0 && cv.height > 0;
+    A.seq.channels[0].on = wasOn; A.seq.clear();
+    return { wasOn, muted, bars, painted };
+  });
+  ok(daw.painted, 'the timeline paints');
+  ok(daw.wasOn === true && daw.muted === false, 'and clicking a lane mutes that channel',
+     daw.wasOn + ' → ' + daw.muted);
+  ok(daw.bars === 4, 'with four arrangement lengths to view it at', daw.bars + '');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;
