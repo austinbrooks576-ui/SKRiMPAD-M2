@@ -76,10 +76,21 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
+      # RETRIED. The gradle wrapper downloads its own distribution on first run,
+      # and that download fails on the runner often enough to matter — a build
+      # was lost to `SocketException: Unexpected end of file from server` with
+      # nothing wrong in the repo at all. Three attempts with a backoff turns a
+      # transient network blip into a slower green build instead of a red one.
       - name: Build APK
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon; then exit 0; fi
+            echo "gradle attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "gradle failed three times"
+          exit 1
 
       - name: Name the download file
         run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD SMK ${{ github.run_number }}.apk"
