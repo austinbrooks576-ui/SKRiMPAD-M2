@@ -33,6 +33,7 @@ import { needsShift, playPitched, createGrainStream } from './pitch.js';
 // for this. See pitch.js for why the two cannot be the same code path.
 export function createEngine({ sampleFor, context, onFail, preserveLength } = {}) {
   let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
+  let fxA = null, fxB = null;
   const meters = new Float32Array(64);
   let ready = false;
 
@@ -111,7 +112,15 @@ export function createEngine({ sampleFor, context, onFail, preserveLength } = {}
     ceiling.oversample = '4x';
 
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.7;
-    master.connect(comp); comp.connect(ceiling); ceiling.connect(analyser);
+    // THE FX SEAM. Two pass-through gains between the mix and the compressor,
+    // so an effects chain can be patched in and out at runtime without the
+    // engine knowing what an effect is. It sits BEFORE the compressor and the
+    // ceiling on purpose: whatever a chain does — resonant filters, delay
+    // feedback, distortion make-up gain — the same limiter catches it, so no
+    // effect can ever be the thing that clips the output.
+    fxA = ctx.createGain(); fxB = ctx.createGain();
+    master.connect(fxA); fxA.connect(fxB); fxB.connect(comp);
+    comp.connect(ceiling); ceiling.connect(analyser);
     analyser.connect(ctx.destination);
     ready = true;
     return ctx;
@@ -754,6 +763,21 @@ export function createEngine({ sampleFor, context, onFail, preserveLength } = {}
     // straight to ctx.destination it would bypass the limiter entirely and be
     // the one thing in the app that can clip.
     get bus() { return init(), master; },
+    // Patch an effects chain into the seam. `build(ctx, input, output)` wires
+    // whatever it likes between the two nodes and returns a handle the caller
+    // keeps; passing null restores the straight wire. The seam always
+    // reconnects input→output first, so a builder that throws half way cannot
+    // leave the app silent — the dry path is never broken, only paralleled.
+    patchFx(build) {
+      if (!init() || !fxA) return null;
+      try { fxA.disconnect(); } catch (e) {}
+      fxA.connect(fxB);
+      if (!build) return null;
+      let out = null;
+      try { out = build(ctx, fxA, fxB); } catch (e) { return null; }
+      if (out) { try { fxA.disconnect(fxB); } catch (e) {} }
+      return out;
+    },
     get analyser() { return analyser; },
     get meters() { return meters; },
     get playing() { return playing; },

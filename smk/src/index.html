@@ -143,6 +143,11 @@
   -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 8px 22px rgba(0,0,0,.4);}
 #voicepick{flex-wrap:wrap;gap:5px;}
+#fxbox{flex:0 1 300px;min-width:200px;border-radius:14px;padding:9px 11px 10px;
+  border:1px solid var(--glass-line);background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 8px 22px rgba(0,0,0,.4);}
+#fxrow{flex-wrap:wrap;gap:5px;}
 
 /* ---------- the drop-down menus ----------
    menu.js was imported and wired to every pad, key and knob in this edition,
@@ -469,6 +474,10 @@ button{border:0;background:none;cursor:pointer;}
         <div class="dl">KEYBOARD VOICE — SPLASH IT ACROSS ALL 25 KEYS</div>
         <div class="opts" id="voicepick"></div>
       </div>
+      <div id="fxbox">
+        <div class="dl">FX — THE MASTER RACK</div>
+        <div class="opts" id="fxrow"></div>
+      </div>
     </div>
   </div>
 
@@ -520,6 +529,7 @@ import { createArp } from './core/arp.js';
 import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js';
 import { voiceLimits, pluck } from './core/mix.js';
 import { snip as cutSnip, encodeWav, findEdges, peaks, DEFAULT_EDIT } from './core/snip.js';
+import { buildFxChain, FX_UNITS, defaultFx } from './core/fx.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -537,7 +547,7 @@ function fresh() {
   return {
     bpm: 100, octave: 0, padBank: 0, knobBank: 0,
     arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '', octaves: 1 },
-    voice: null, bendRange: 2, transpose: 0,
+    voice: null, bendRange: 2, transpose: 0, fx: defaultFx(),
     scale: 'off', chord: 'off', root: 0,
     // A voice per PAD, and a voice per KEY. Both are addressable individually,
     // which is the whole point of "clear all, even the individually set keys" —
@@ -847,6 +857,30 @@ function wireSensor(el, spring, apply) {
   };
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
+}
+
+// THE FX RACK — M2's set, as toggles: EQ, COMP, DRIVE, FILTER, DELAY, VERB.
+// Any change rebuilds the whole chain through the engine's seam, which is
+// microseconds at six nodes deep and leaves no per-unit enable state to rot.
+// The delay is tempo-synced, so a tempo change rebuilds too — but only when
+// the delay is actually in the chain, because a rebuild mid-echo clears the
+// delay line and a knob-nudge of the tempo should not swallow a tail that has
+// nothing to do with tempo.
+function applyFx() {
+  eng.init();
+  eng.patchFx(buildFxChain(S.fx, S.bpm));
+  paintFx();
+  save();
+}
+function paintFx() {
+  const host = $('#fxrow'); if (!host) return;
+  host.innerHTML = FX_UNITS.map((u) => '<button class="chip sm' + (S.fx && S.fx[u.id] ? ' on' : '')
+    + '" data-fx="' + u.id + '" title="' + esc(u.d) + '">' + u.l + '</button>').join('');
+  host.querySelectorAll('[data-fx]').forEach((b) => b.addEventListener('click', () => {
+    S.fx[b.dataset.fx] = !S.fx[b.dataset.fx];
+    applyFx();
+    lcd('FX ' + b.dataset.fx.toUpperCase() + (S.fx[b.dataset.fx] ? ' ON' : ' OFF'));
+  }));
 }
 
 const held = new Map();
@@ -1352,7 +1386,7 @@ function setKnob(i, v) {
   setTimeout(() => knobEls[i] && knobEls[i].classList.remove('live'), 220);
   save(); paintKnobs();
 }
-function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; lcd(S.bpm); syncArp(); seq.setBpm(S.bpm); save(); }
+function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; lcd(S.bpm); syncArp(); seq.setBpm(S.bpm); if (S.fx && S.fx.delay) applyFx(); save(); }
 function setOctave(o) {
   S.octave = Math.max(-4, Math.min(4, o));
   held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
@@ -1948,6 +1982,12 @@ function renderSetup() {
     + 'the arpeggiator on, those notes are handed to it — so one finger arpeggiates a full chord.'
     + '<br><br>Hold <b>SC/CH</b> and the keys become the shortcut row printed on the unit.'
     + '</div></div>'
+    + '<div class="grp"><h3>THE FX RACK</h3><div class="dim">Six master effects, each a single '
+    + 'toggle voiced like a pedal: flipping one is always safe and always sounds like something. '
+    + 'They run in a fixed order — EQ, COMP, DRIVE, FILTER, DELAY, VERB — before the master limiter, '
+    + 'so nothing the rack does can clip the output.</div>'
+    + FX_UNITS.map((u) => '<div class="row"><span class="nm"><b>' + esc(u.l) + '</b><br><span class="sub">'
+        + esc(u.d) + '</span></span></div>').join('') + '</div>'
     + '<div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a '
     + 'rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>'
     + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">'
@@ -2016,6 +2056,9 @@ loadBed();
 paintBed();
 paintVoice();
 paintBanks();
+if (!S.fx) S.fx = defaultFx();
+paintFx();
+if (FX_UNITS.some((u) => S.fx[u.id])) applyFx();
 wireSensor($('#sPitch'), true, setBend);
 wireSensor($('#sMod'), false, setMod);
 paintSensors();
@@ -2026,12 +2069,12 @@ seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, setVoice, paintVoice, setBend, setMod, get bendSemis() { return bendSemis; }, get modAmt() { return modAmt; }, openSnip, saveSnip, get snipEdit() { return snipEdit; },
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, applyFx, setVoice, paintVoice, setBend, setMod, get bendSemis() { return bendSemis; }, get modAmt() { return modAmt; }, openSnip, saveSnip, get snipEdit() { return snipEdit; },
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,
   get shift() { return shiftHeld; }, set shift(v) { shiftHeld = v; paintKeys(); },
-  KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES,
+  KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES, FX_UNITS,
 };
 </script>
 </body>

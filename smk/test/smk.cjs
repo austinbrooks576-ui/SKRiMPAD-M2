@@ -737,6 +737,32 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
      snipped.dur + 's from ' + snipped.orig + 's');
   ok(snipped.closed, 'and the editor closes once it is saved');
 
+  // ---- the FX rack, through the app ----------------------------------------
+  // fx.cjs proves each unit's audio signature offline. This proves the panel
+  // is wired: six toggles exist, clicking one patches the engine's seam, and
+  // the state survives a reload.
+  const rack = await p.evaluate(async () => {
+    const A = window.__smk;
+    const chips = document.querySelectorAll('#fxrow [data-fx]');
+    let patched = null;
+    const real = A.eng.patchFx;
+    A.eng.patchFx = function (b) { patched = b; return real.call(this, b); };
+    document.querySelector('[data-fx="delay"]').click();
+    const onAfterClick = A.S.fx.delay;
+    const chainWhenOn = patched;
+    document.querySelector('[data-fx="delay"]').click();
+    const chainWhenOff = patched;
+    A.eng.patchFx = real;
+    return { chips: chips.length,
+             labels: Array.from(chips).map((c) => c.textContent).join(' '),
+             onAfterClick, gotChain: typeof chainWhenOn === 'function', clearedChain: chainWhenOff === null,
+             saved: JSON.parse(localStorage.getItem('skrimpad.smk.state.v1') || '{}').fx !== undefined };
+  });
+  ok(rack.chips === 6 && rack.labels === 'EQ COMP DRIVE FILTER DELAY VERB',
+     'the rack is six toggles in the unit order', rack.labels);
+  ok(rack.onAfterClick === true && rack.gotChain, 'switching one on patches a real chain into the engine');
+  ok(rack.clearedChain, 'and switching it off restores the straight wire — null chain, not a chain of wires');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;

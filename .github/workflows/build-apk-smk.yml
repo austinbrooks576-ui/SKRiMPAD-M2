@@ -41,6 +41,7 @@ jobs:
           node smk/test/seq.cjs
           node smk/test/smk.cjs
           node smk/test/stress.cjs
+          node smk/test/fx.cjs
           node ultimate/test/pitch.cjs
 
       - name: Install the bundle as the app
