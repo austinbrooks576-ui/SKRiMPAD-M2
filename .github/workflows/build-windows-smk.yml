@@ -40,6 +40,7 @@ jobs:
           node smk/test/arp.cjs
           node smk/test/seq.cjs
           node smk/test/smk.cjs
+          node smk/test/stress.cjs
           node ultimate/test/pitch.cjs
 
       - name: Stage the app

@@ -1254,12 +1254,24 @@ const io = createMidiIO({
       // A CC nobody claimed. If it looks like a button being pressed it is very
       // likely the transport on a CC this app has never heard of — remember it
       // so SETUP can say what arrived instead of shrugging.
-      if (e.d2 >= 126 || e.d2 <= 1) { lastUnknown = describeMsg(e); renderSetup(); }
+      if (e.d2 >= 126 || e.d2 <= 1) {
+        lastUnknown = describeMsg(e);
+        // Repaint only if SETUP is actually open. Rebuilding that sheet costs
+        // milliseconds, and a chattering controller sends these constantly —
+        // the record is kept either way and shown when the sheet next opens.
+        if ($('#setup').classList.contains('open')) renderSetup();
+      }
       return;
     }
     const on = e.cmd === 0x90 && e.d2 > 0;
     const off = e.cmd === 0x80 || (e.cmd === 0x90 && e.d2 === 0);
-    if (!on && !off) { if (e.cmd === 0xC0 || e.status === 0xF0) { lastUnknown = describeMsg(e); renderSetup(); } return; }
+    if (!on && !off) {
+      if (e.cmd === 0xC0 || e.status === 0xF0) {
+        lastUnknown = describeMsg(e);
+        if ($('#setup').classList.contains('open')) renderSetup();
+      }
+      return;
+    }
 
     if (on && learnPad != null) {
       unit.teachPad(portName, S.padBank, learnPad, e.d1, e.chan);

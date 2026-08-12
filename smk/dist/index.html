@@ -4501,7 +4501,7 @@ button{border:0;background:none;cursor:pointer;}
         }
         if (e.d2 >= 126 || e.d2 <= 1) {
           lastUnknown = describe(e);
-          renderSetup();
+          if ($("#setup").classList.contains("open")) renderSetup();
         }
         return;
       }
@@ -4510,7 +4510,7 @@ button{border:0;background:none;cursor:pointer;}
       if (!on && !off) {
         if (e.cmd === 192 || e.status === 240) {
           lastUnknown = describe(e);
-          renderSetup();
+          if ($("#setup").classList.contains("open")) renderSetup();
         }
         return;
       }
