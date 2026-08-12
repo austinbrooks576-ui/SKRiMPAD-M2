@@ -32,16 +32,23 @@ const root = path.join(__dirname, '..', 'android', 'app');
 const gradleFile = path.join(root, 'build.gradle');
 const stringsFile = path.join(root, 'src', 'main', 'res', 'values', 'strings.xml');
 
+// Fail loudly if the pattern is not there. A silent no-op produces an APK that
+// looks perfectly fine and uninstalls somebody's other edition, which is
+// invisible until after it has happened.
+//
+// The check is on the PATTERN, not on whether the text changed. Comparing
+// before and after conflates "I could not find it" with "it was already
+// right" — and it is already right for exactly one edition, ULTIMATE, whose id
+// is the one hard-coded in the file. So the first run of this failed the
+// ULTIMATE build and passed everything else, which is the opposite of a useful
+// guard.
+const APP_ID = /applicationId\s+"[^"]*"/;
 let gradle = fs.readFileSync(gradleFile, 'utf8');
-const before = gradle;
-gradle = gradle.replace(/applicationId\s+"[^"]*"/, 'applicationId "' + e.id + '"');
-if (gradle === before) {
-  // Fail loudly. A silent no-op here produces an APK that looks fine and
-  // uninstalls somebody's other edition, which is the worst possible outcome
-  // and completely invisible until it has already happened.
+if (!APP_ID.test(gradle)) {
   console.error('could not find applicationId in ' + gradleFile);
   process.exit(1);
 }
+gradle = gradle.replace(APP_ID, 'applicationId "' + e.id + '"');
 // A rising versionCode, so a newer build is an UPGRADE rather than a refusal.
 // Android compares this integer and nothing else.
 if (run) {
@@ -50,13 +57,13 @@ if (run) {
 }
 fs.writeFileSync(gradleFile, gradle);
 
+const APP_NAME = /(<string name="app_name">)[^<]*(<\/string>)/;
 let strings = fs.readFileSync(stringsFile, 'utf8');
-const sBefore = strings;
-strings = strings.replace(/(<string name="app_name">)[^<]*(<\/string>)/, '$1' + e.name + '$2');
-if (strings === sBefore) {
+if (!APP_NAME.test(strings)) {
   console.error('could not find app_name in ' + stringsFile);
   process.exit(1);
 }
+strings = strings.replace(APP_NAME, '$1' + e.name + '$2');
 fs.writeFileSync(stringsFile, strings);
 
 console.log('android prepped: ' + e.name + ' (' + e.id + ')' + (run ? ' versionCode ' + run : ''));
