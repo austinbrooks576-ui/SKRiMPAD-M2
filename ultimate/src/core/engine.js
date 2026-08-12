@@ -347,7 +347,15 @@ export function createEngine({ sampleFor, context, onFail, preserveLength } = {}
     flt.type = 'lowpass';
     // Musical taper: linear cutoff spends its whole travel where the ear hears
     // nothing. 60Hz..14kHz over an exponential curve is what a knob should do.
-    flt.frequency.setValueAtTime(60 * Math.pow(233, clamp(voice.cutoff, 0, 1)), t);
+    // VELOCITY OPENS THE FILTER HERE TOO. hold() has always done this for held
+    // keys; play() did not — so a pad, a sequenced note and an arpeggiated note
+    // got LOUDER when struck harder and never BRIGHTER. A real instrument
+    // struck harder makes more high harmonics, and the ear reads brightness as
+    // effort far more readily than it reads level, which is exactly why a
+    // velocity-sensitive pad that only changes volume feels like a volume knob
+    // instead of like somebody playing.
+    flt.frequency.setValueAtTime(
+      Math.min(18000, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75)), t);
     flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
 
     const a = clamp(voice.attack, 0.001, 2), d = clamp(voice.decay, 0.01, 3);

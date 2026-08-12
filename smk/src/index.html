@@ -562,6 +562,7 @@ import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js'
 import { voiceLimits, pluck } from './core/mix.js';
 import { snip as cutSnip, encodeWav, findEdges, peaks, DEFAULT_EDIT } from './core/snip.js';
 import { buildFxChain, FX_UNITS, defaultFx } from './core/fx.js';
+import { CURVES, DEFAULT_CURVE, applyCurve } from './core/velocity.js';
 import {
   rollGeom, beatToX, xToBeat, noteToY, yToNote, rectFor, hitTest, onResizeEdge, placeAt,
   isBlack, ROLL_LO, ROLL_HI, laneGeom, laneBeatToX, laneToY, yToLane, blocksFor, BEATS_PER_BAR,
@@ -583,7 +584,7 @@ function fresh() {
   return {
     bpm: 100, octave: 0, padBank: 0, knobBank: 0,
     arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '', octaves: 1 },
-    voice: null, bendRange: 2, transpose: 0, fx: defaultFx(),
+    voice: null, bendRange: 2, transpose: 0, fx: defaultFx(), curve: DEFAULT_CURVE,
     scale: 'off', chord: 'off', root: 0,
     // A voice per PAD, and a voice per KEY. Both are addressable individually,
     // which is the whole point of "clear all, even the individually set keys" —
@@ -953,8 +954,9 @@ function syncArp() {
   });
 }
 
-function keyOn(note, vel) {
+function keyOn(note, rawVel) {
   eng.init();
+  const vel = applyCurve(rawVel, S.curve);
   const n = applyScale(note + (S.transpose || 0));
 
   // WITH THE ARPEGGIATOR ON, a key is not a note — it is a note added to the
@@ -1021,8 +1023,13 @@ function chordNotes(root) {
   return out;
 }
 
-function padHit(i, vel) {
+function padHit(i, rawVel) {
   eng.init();
+  // THE CURVE IS APPLIED AT THE DOOR, once. Everything downstream — the sound,
+  // the looper, the sequencer, the exported MIDI — then agrees about how hard
+  // that hit was. Applying it at the engine instead would record one velocity
+  // and play another.
+  const vel = applyCurve(rawVel, S.curve);
   eng.play(padVoice(i), 0, vel, i);
   flashPad(i);
   loop.capture(i, vel, 0.25);
@@ -1194,6 +1201,16 @@ function flipPadRows() {
   }
   toast('pad rows flipped');
   paintPads(); renderSetup();
+}
+
+// VEL — the shifted function on PAD-B, as silkscreened. On the unit you hold
+// the button to reach it; here it is a right-click or a long press, which is
+// the same "there is more behind this button" gesture the rest of the app uses.
+function velMenu() {
+  return CURVES.map((c) => ({
+    label: c.l, hint: c.d.slice(0, 46) + '…', on: (S.curve || DEFAULT_CURVE) === c.id,
+    run: () => { S.curve = c.id; save(); lcd('VEL ' + c.l); toast('velocity: ' + c.l); },
+  }));
 }
 
 function padMenu(i) {
@@ -1558,6 +1575,8 @@ $('#bedlev').addEventListener('input', (e) => bed.setLevel(+e.target.value / 100
 $('#bed').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: bedMenu(), title: 'Loop bed' }); });
 onLongPress($('#bed'), 420, (ev, x, y) => openMenu({ x, y, items: bedMenu(), title: 'Loop bed' }));
 armDropTarget($('#bed'), (id, name) => { bed.set(id, name); warmUp().then(() => bed.start()); }, 'the loop bed');
+$('#bank').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, title: 'VEL — velocity response', items: velMenu() }); });
+onLongPress($('#bank'), 420, (ev, x, y) => openMenu({ x, y, title: 'VEL — velocity response', items: velMenu() }));
 $('#rollbtn').addEventListener('click', () => openRoll());
 $('#rollx').addEventListener('click', closeSheets);
 $('#dawbtn').addEventListener('click', () => { renderDaw(); openSheet('#daw'); });
@@ -2256,6 +2275,16 @@ function renderSetup() {
     + 'the arpeggiator on, those notes are handed to it — so one finger arpeggiates a full chord.'
     + '<br><br>Hold <b>SC/CH</b> and the keys become the shortcut row printed on the unit.'
     + '</div></div>'
+    + '<div class="grp"><h3>VEL — HOW HARD YOU HIT IT</h3><div class="dim">'
+    + 'The shifted function on <b>PAD-B</b> — right-click or hold that button. Velocity does two things '
+    + 'here, and most apps only do the first: a harder hit is <b>louder</b>, and a harder hit is also '
+    + '<b>brighter</b>. A real instrument struck harder makes more high harmonics, and the ear reads '
+    + 'brightness as effort far more readily than it reads level — which is why a pad that only changes '
+    + 'volume feels like a volume knob instead of like somebody playing.'
+    + '<br><br>The curve is what makes the instrument fit your hands. It is applied once, at the door, so '
+    + 'the sound, the looper, the sequencer and the exported MIDI all agree about how hard you hit it.</div>'
+    + CURVES.map((c) => '<div class="row"><span class="nm"><b>' + esc(c.l) + '</b><br><span class="sub">'
+        + esc(c.d) + '</span></span></div>').join('') + '</div>'
     + '<div class="grp"><h3>THE FX RACK</h3><div class="dim">Six master effects, each a single '
     + 'toggle voiced like a pedal: flipping one is always safe and always sounds like something. '
     + 'They run in a fixed order — EQ, COMP, DRIVE, FILTER, DELAY, VERB — before the master limiter, '
@@ -2345,7 +2374,7 @@ seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, applyFx, openRoll, renderDaw, drawRoll, drawDaw,
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, __warm: warmUp, seq, renderSeq, exportMid, bed, flipPadRows, applyFx, velMenu, openRoll, renderDaw, drawRoll, drawDaw,
   // The roll's own geometry, so a test can click where a note actually IS
   // rather than where it guessed the note would be. Guessing is how the first
   // version of that test "moved" a note by creating a second one beside it.
@@ -2355,7 +2384,7 @@ window.__smk = {
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,
   get shift() { return shiftHeld; }, set shift(v) { shiftHeld = v; paintKeys(); },
-  KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES, FX_UNITS,
+  KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES, FX_UNITS, CURVES, applyCurve,
 };
 </script>
 </body>

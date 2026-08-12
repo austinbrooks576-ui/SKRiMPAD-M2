@@ -771,7 +771,12 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
     const A = window.__smk;
     A.seq.stop(); A.seq.clear(); A.seq.setBars(0, 2); A.seq.setQuantize(0.25, 1);
     A.openRoll(0);
-    await new Promise((r) => setTimeout(r, 120));
+    // WAIT FOR THE SHEET TO SETTLE. The open animation is a transform, so
+    // getBoundingClientRect (transformed) and clientWidth (not) disagree while
+    // it runs — the geometry the test reads and the pixel it clicks are then
+    // from two different coordinate systems, and the drag lands nowhere. A
+    // player clicks after the animation; the test has to as well.
+    await new Promise((r) => setTimeout(r, 450));
     const cv = document.querySelector('#rollcv');
     const b = cv.getBoundingClientRect();
     const down = (x, y, btn) => cv.dispatchEvent(new PointerEvent('pointerdown',
@@ -855,6 +860,39 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(daw.wasOn === true && daw.muted === false, 'and clicking a lane mutes that channel',
      daw.wasOn + ' → ' + daw.muted);
   ok(daw.bars === 4, 'with four arrangement lengths to view it at', daw.bars + '');
+
+  // ---- VEL, the shifted function on PAD-B ---------------------------------
+  const vel = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.S.curve = 'linear';
+    document.querySelectorAll('.menu').forEach((m) => m.remove());
+    document.querySelector('#bank').dispatchEvent(new MouseEvent('contextmenu',
+      { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+    await new Promise((r) => setTimeout(r, 260));
+    const m = document.querySelector('.menu');
+    const items = m ? Array.from(m.querySelectorAll('.mitem .ml')).map((x) => x.textContent.trim()) : [];
+    document.querySelectorAll('.menu').forEach((x) => x.remove());
+
+    // The curve must be applied AT THE DOOR — what is recorded is what was
+    // played, so the sound, the loop and the exported file all agree.
+    A.S.curve = 'fixed';
+    A.seq.stop(); A.seq.clear(); A.seq.setBars(0, 1);
+    A.seq.arm(0); A.seq.play();
+    let heard = 0;
+    const real = A.eng.play;
+    A.eng.play = function (v, when, vv) { if (vv != null) heard = vv; return real.apply(this, arguments); };
+    A.padHit(0, 20);
+    await new Promise((r) => setTimeout(r, 60));
+    const recorded = A.seq.channels[0].events.length ? A.seq.channels[0].events[0].vel : null;
+    A.eng.play = real; A.seq.stop(); A.seq.clear(); A.S.curve = 'linear';
+    return { items, heard, recorded };
+  });
+  ok(vel.items.join(' ') === 'SOFT LINEAR HARD FIXED',
+     'VEL is on PAD-B, with four curves', vel.items.join(' '));
+  ok(vel.heard === 100, 'FIXED plays a soft hit at the fixed strength', 'velocity 20 → ' + vel.heard);
+  ok(vel.recorded === vel.heard,
+     'and what is RECORDED is what was played — the curve is applied once, at the door',
+     'heard ' + vel.heard + ', recorded ' + vel.recorded);
 
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
