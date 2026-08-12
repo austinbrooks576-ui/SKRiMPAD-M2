@@ -217,6 +217,84 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
      arpRan.order);
   ok(arpRan.settled, 'and letting go of every key stops it dead');
 
+  // ---- the sequencer, through the app -------------------------------------
+  // seq.cjs proves the arithmetic. This proves the panel is wired to it: that
+  // arming a channel and hitting pads really records, that a muted channel
+  // really goes quiet, and that EXPORT really produces a file.
+  const panel = await p.evaluate(() => {
+    const A = window.__smk;
+    A.seq.stop(); A.seq.clear();
+    A.renderSeq();
+    const body = document.querySelector('#seqbody');
+    return {
+      rows: body.querySelectorAll('[data-mute]').length,
+      arms: body.querySelectorAll('[data-arm]').length,
+      grids: body.querySelectorAll('[data-grid]').length,
+      heads: body.querySelectorAll('[data-head]').length,
+      hasExport: !!document.querySelector('#seqexport'),
+    };
+  });
+  ok(panel.rows === 8 && panel.arms === 8, 'eight channels, each with its own mute and arm',
+     panel.rows + ' / ' + panel.arms);
+  ok(panel.heads === 8, 'and its own playhead, because eight lengths at once are unreadable as numbers');
+  ok(panel.grids === 7, 'seven quantise grids, triplets included', panel.grids + '');
+  ok(panel.hasExport, 'and an export button');
+
+  const recorded = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.seq.stop(); A.seq.clear();
+    A.seq.setBpm(200); A.seq.setBars(0, 1); A.seq.setQuantize(0.25, 1);
+    A.seq.arm(0); A.seq.play();
+    A.padHit(0, 110);
+    await new Promise((r) => setTimeout(r, 160));
+    A.padHit(2, 100);
+    await new Promise((r) => setTimeout(r, 60));
+    const n = A.seq.channels[0].events.length;
+    const onGrid = A.seq.channels[0].events.every((e) => Math.abs(e.at / 0.25 - Math.round(e.at / 0.25)) < 1e-9);
+    const kept = A.seq.channels[0].events.every((e) => typeof e.raw === 'number');
+    A.seq.stop();
+    return { n, onGrid, kept };
+  });
+  ok(recorded.n === 2, 'arming a channel and hitting pads records them', recorded.n + ' notes');
+  ok(recorded.onGrid, 'each one snapped to the grid as it was played, not on playback');
+  ok(recorded.kept, 'and the original timing is kept, so it can be re-quantised from the take');
+
+  const heard = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.seq.stop();
+    let fired = 0;
+    const real = A.eng.play;
+    A.eng.play = function () { fired++; return real.apply(this, arguments); };
+    A.seq.channels[0].on = true;
+    A.seq.setBpm(240); A.seq.play();
+    await new Promise((r) => setTimeout(r, 500));
+    const withSound = fired;
+    A.seq.toggle(0);                       // mute
+    fired = 0;
+    await new Promise((r) => setTimeout(r, 500));
+    const muted = fired;
+    A.seq.stop(); A.eng.play = real;
+    return { withSound, muted, kept: A.seq.channels[0].events.length };
+  });
+  ok(heard.withSound > 0, 'the recorded channel plays back', heard.withSound + ' notes in 0.5s');
+  ok(heard.muted === 0, 'and muting it really silences it', heard.muted + ' while muted');
+  ok(heard.kept === 2, 'without losing the notes', heard.kept + ' still there');
+
+  const exported = await p.evaluate(() => {
+    const A = window.__smk;
+    const bytes = window.__toMidi ? null : null;
+    // Reach the export through the same button the user presses, and intercept
+    // the download rather than performing it.
+    let got = null;
+    const realCreate = URL.createObjectURL;
+    URL.createObjectURL = (b) => { got = b; return 'blob:test'; };
+    A.exportMid();
+    URL.createObjectURL = realCreate;
+    return got ? { size: got.size, type: got.type } : null;
+  });
+  ok(exported && exported.size > 40, 'EXPORT produces an actual MIDI file',
+     exported ? exported.size + ' bytes, ' + exported.type : 'nothing');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;

@@ -169,6 +169,12 @@ button{border:0;background:none;cursor:pointer;}
 #tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 #loopbar{flex:1 1 80px;height:6px;min-width:60px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;}
 #loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+/* A channel's playhead. Eight parts of different lengths running at once are
+   unreadable as numbers; as eight bars filling at different rates they are
+   obvious at a glance. */
+.seqbar{display:block;height:4px;margin-top:5px;border-radius:2px;overflow:hidden;
+  background:rgba(255,255,255,.09);max-width:190px;}
+.seqbar i{display:block;height:100%;width:0;background:var(--acc);transition:width .08s linear;}
 
 .scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
   transition:opacity .2s;z-index:40;}
@@ -240,6 +246,7 @@ button{border:0;background:none;cursor:pointer;}
     <span id="brand">SKRiMPAD <b>SMK</b></span>
     <button id="link"><span class="dot"></span><span id="linktxt">looking for your SMK-25…</span></button>
     <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="seqbtn">SEQ</button>
     <button class="chip sm" id="setbtn" aria-label="Setup">⚙</button>
   </div>
 
@@ -277,6 +284,11 @@ button{border:0;background:none;cursor:pointer;}
     <div id="list"></div>
   </div>
 </div>
+<div class="sheet" id="seq" role="dialog" aria-modal="true" aria-label="Sequencer">
+  <header><h2>SEQUENCER</h2><button class="x" id="seqx">✕</button></header>
+  <div class="body" id="seqbody"></div>
+</div>
+
 <div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
   <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
   <div class="body" id="setupbody"></div>
@@ -2990,6 +3002,262 @@ button{border:0;background:none;cursor:pointer;}
     };
   }
 
+  // smk/src/core/seq.js
+  var MAX_CHANNELS = 8;
+  var MAX_BARS = 32;
+  var BEATS_PER_BAR = 4;
+  var GRIDS = [
+    { id: "off", l: "Off", beats: 0 },
+    { id: "1/4", l: "1/4", beats: 1 },
+    { id: "1/8", l: "1/8", beats: 0.5 },
+    { id: "1/8T", l: "1/8T", beats: 1 / 3 },
+    { id: "1/16", l: "1/16", beats: 0.25 },
+    { id: "1/16T", l: "1/16T", beats: 1 / 6 },
+    { id: "1/32", l: "1/32", beats: 0.125 }
+  ];
+  var blankChannel = (i) => ({
+    id: i,
+    name: "CH" + (i + 1),
+    on: true,
+    bars: 4,
+    events: [],
+    vel: 1
+  });
+  function snapOne(at, grid, strength, loopBeats) {
+    if (!grid || grid <= 0) return at;
+    const s = Math.max(0, Math.min(1, strength == null ? 1 : strength));
+    if (s === 0) return at;
+    const target = Math.round(at / grid) * grid;
+    let out = at + (target - at) * s;
+    if (loopBeats > 0) {
+      out = (out % loopBeats + loopBeats) % loopBeats;
+      if (Math.abs(out - loopBeats) < 1e-9) out = 0;
+    }
+    return out;
+  }
+  function createSeq({ now, onFire, onTick } = {}) {
+    const AHEAD = 0.2, TICK = 25;
+    const chans = Array.from({ length: MAX_CHANNELS }, (_, i) => blankChannel(i));
+    let bpm = 100;
+    let playing = false, timer = 0;
+    let originAt = 0;
+    let scannedTo = 0;
+    let recording = -1;
+    let grid = 0.25, strength = 1;
+    const spb = () => 60 / Math.max(20, bpm);
+    const loopBeats = (c) => Math.max(1, Math.min(MAX_BARS, c.bars)) * BEATS_PER_BAR;
+    const beatNow = () => playing ? (now() - originAt) / spb() : 0;
+    function fill() {
+      if (!playing) return;
+      const t = now();
+      const from = scannedTo;
+      const to = (t + AHEAD - originAt) / spb();
+      if (to <= from) return;
+      for (const c of chans) {
+        if (!c.on || !c.events.length) continue;
+        const len = loopBeats(c);
+        const firstRep = Math.floor(from / len);
+        const lastRep = Math.floor(to / len);
+        for (let rep = firstRep; rep <= lastRep; rep++) {
+          const base = rep * len;
+          for (const e of c.events) {
+            const beat = base + e.at;
+            if (beat < from || beat >= to) continue;
+            const when = originAt + beat * spb();
+            if (when < t - 0.05) continue;
+            onFire && onFire(e, Math.max(when, t + 8e-3), c);
+          }
+        }
+      }
+      scannedTo = to;
+      onTick && onTick(beatNow());
+    }
+    return {
+      channels: chans,
+      get playing() {
+        return playing;
+      },
+      // Top the queue up now rather than at the next tick. The interval calls
+      // exactly this, so a caller driving it by hand — a test with its own clock —
+      // exercises the real scheduler instead of a second copy of it.
+      pump() {
+        fill();
+      },
+      get bpm() {
+        return bpm;
+      },
+      setBpm(v) {
+        const b = beatNow();
+        bpm = Math.max(20, Math.min(300, v || 100));
+        if (playing) {
+          originAt = now() - b * spb();
+          scannedTo = b;
+        }
+      },
+      setQuantize(g, s) {
+        grid = g;
+        strength = s == null ? strength : s;
+      },
+      get quantize() {
+        return { grid, strength };
+      },
+      get beat() {
+        return beatNow();
+      },
+      // Where each channel is inside its own loop, 0..1 — for drawing playheads.
+      positions() {
+        const b = beatNow();
+        return chans.map((c) => b % loopBeats(c) / loopBeats(c));
+      },
+      play() {
+        if (playing) return;
+        playing = true;
+        originAt = now() + 0.03;
+        scannedTo = 0;
+        fill();
+        timer = setInterval(fill, TICK);
+      },
+      stop() {
+        playing = false;
+        recording = -1;
+        if (timer) {
+          clearInterval(timer);
+          timer = 0;
+        }
+      },
+      toggle(i) {
+        const c = chans[i];
+        if (c) c.on = !c.on;
+        return c && c.on;
+      },
+      setBars(i, n) {
+        const c = chans[i];
+        if (!c) return;
+        c.bars = Math.max(1, Math.min(MAX_BARS, n | 0));
+        const len = loopBeats(c);
+        c.events = c.events.map((e) => e.at < len ? e : Object.assign({}, e, { at: e.at % len }));
+      },
+      arm(i) {
+        recording = i >= 0 && i < MAX_CHANNELS ? i : -1;
+      },
+      get armed() {
+        return recording;
+      },
+      // Record one event, at the moment it happened. Quantised on the way IN so
+      // what you see is what you will hear — quantising only on playback means the
+      // grid lies about where the note is.
+      capture(ev) {
+        if (recording < 0 || !playing) return false;
+        const c = chans[recording];
+        const len = loopBeats(c);
+        const raw = (beatNow() % len + len) % len;
+        c.events.push(Object.assign({}, ev, {
+          at: snapOne(raw, grid, strength, len),
+          raw
+        }));
+        return true;
+      },
+      // Put a note somewhere by hand — the drag-and-drop and grid-editing path.
+      add(i, ev) {
+        const c = chans[i];
+        if (!c) return;
+        const len = loopBeats(c);
+        c.events.push(Object.assign({}, ev, { at: (ev.at % len + len) % len }));
+      },
+      clear(i) {
+        if (i == null) chans.forEach((c) => {
+          c.events = [];
+        });
+        else if (chans[i]) chans[i].events = [];
+      },
+      // Re-quantise what is already recorded, from the ORIGINAL timing every
+      // time. Quantising a quantised part again would compound the error and
+      // eventually flatten everything onto the grid however gentle each pass was.
+      requantize(i, g, s) {
+        const c = chans[i];
+        if (!c) return;
+        const len = loopBeats(c);
+        c.events = c.events.map((e) => Object.assign({}, e, {
+          at: snapOne(e.raw == null ? e.at : e.raw, g, s, len)
+        }));
+      },
+      // Everything, as plain data — for saving, and for export.
+      snapshot() {
+        return { bpm, channels: chans.map((c) => ({ id: c.id, name: c.name, on: c.on, bars: c.bars, vel: c.vel, events: c.events.map((e) => Object.assign({}, e)) })) };
+      },
+      restore(s) {
+        if (!s || !Array.isArray(s.channels)) return;
+        bpm = s.bpm || bpm;
+        s.channels.forEach((sc, i) => {
+          const c = chans[i];
+          if (!c || !sc) return;
+          c.name = sc.name || c.name;
+          c.on = sc.on !== false;
+          c.bars = Math.max(1, Math.min(MAX_BARS, sc.bars || 4));
+          c.vel = sc.vel == null ? 1 : sc.vel;
+          c.events = Array.isArray(sc.events) ? sc.events.map((e) => Object.assign({}, e)) : [];
+        });
+      }
+    };
+  }
+  function toMidi(snap, ppq = 480) {
+    const bytes = [];
+    const push = (...b) => b.forEach((x) => bytes.push(x & 255));
+    const push16 = (v) => push(v >> 8, v);
+    const push32 = (v) => push(v >> 24, v >> 16, v >> 8, v);
+    const vlq = (v) => {
+      const out = [v & 127];
+      v >>= 7;
+      while (v > 0) {
+        out.unshift(v & 127 | 128);
+        v >>= 7;
+      }
+      return out;
+    };
+    const live = snap.channels.filter((c) => c.events.length);
+    const trackCount = live.length + 1;
+    push(77, 84, 104, 100);
+    push32(6);
+    push16(1);
+    push16(trackCount);
+    push16(ppq);
+    const track = (events) => {
+      const body = [];
+      let last = 0;
+      events.forEach((e) => {
+        const delta = Math.max(0, Math.round(e.tick - last));
+        body.push(...vlq(delta), ...e.data);
+        last = e.tick;
+      });
+      body.push(...vlq(0), 255, 47, 0);
+      push(77, 84, 114, 107);
+      push32(body.length);
+      body.forEach((b) => push(b));
+    };
+    const us = Math.round(6e7 / Math.max(20, snap.bpm || 100));
+    track([{ tick: 0, data: [255, 81, 3, us >> 16 & 255, us >> 8 & 255, us & 255] }]);
+    live.forEach((c, idx) => {
+      const longest = Math.max(...snap.channels.filter((x) => x.events.length).map((x) => x.bars)) * BEATS_PER_BAR;
+      const len = c.bars * BEATS_PER_BAR;
+      const reps = Math.max(1, Math.round(longest / len));
+      const ch = Math.min(15, idx);
+      const list = [];
+      for (let r = 0; r < reps; r++) {
+        c.events.forEach((e) => {
+          const start = (r * len + e.at) * ppq;
+          const dur = Math.max(ppq / 16, (e.len || 0.25) * ppq);
+          const note = Math.max(0, Math.min(127, e.note | 0));
+          const vel = Math.max(1, Math.min(127, e.vel | 0 || 100));
+          list.push({ tick: start, data: [144 | ch, note, vel] });
+          list.push({ tick: start + dur, data: [128 | ch, note, 0] });
+        });
+      }
+      list.sort((a, b) => a.tick - b.tick || (a.data[0] & 240) - (b.data[0] & 240));
+      track(list);
+    });
+    return new Uint8Array(bytes);
+  }
+
   // smk/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -3129,6 +3397,22 @@ button{border:0;background:none;cursor:pointer;}
     },
     onState: (i) => paintTransport(i)
   });
+  var seq = createSeq({
+    now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+    onFire: (e, when) => {
+      if (e.k === "pad") {
+        eng.play(padVoice(e.pad), when, e.vel, e.pad);
+        flashPad(e.pad);
+      } else {
+        const v = keyVoice(e.note);
+        v.decay = Math.max(0.05, (e.len || 0.25) * 0.7);
+        v.sustain = 0;
+        eng.play(v, when, e.vel);
+        flashKey(e.note, e.len || 0.25);
+      }
+    },
+    onTick: () => paintSeqHeads()
+  });
   var held = /* @__PURE__ */ new Map();
   var arp = createArp({
     now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
@@ -3174,6 +3458,7 @@ button{border:0;background:none;cursor:pointer;}
     held.set(n, h);
     paintKeys();
     loop.capture(1e3 + n, vel, 0.25);
+    seq.capture({ k: "key", note: n, vel, len: 0.25 });
     chordNotes(n).forEach((x) => {
       const hh = eng.hold(keyVoice(x), x, Math.round(vel * 0.8), 0);
       held.set(x, hh);
@@ -3232,6 +3517,7 @@ button{border:0;background:none;cursor:pointer;}
     eng.play(padVoice(i), 0, vel, i);
     flashPad(i);
     loop.capture(i, vel, 0.25);
+    seq.capture({ k: "pad", pad: i, note: 36 + i, vel, len: 0.25 });
   }
   var padEls = [];
   var knobEls = [];
@@ -3662,6 +3948,7 @@ button{border:0;background:none;cursor:pointer;}
     S.bpm = Math.max(20, Math.min(300, v | 0));
     $("#tempo").value = S.bpm;
     syncArp();
+    seq.setBpm(S.bpm);
     save();
   }
   function setOctave(o) {
@@ -3694,9 +3981,11 @@ button{border:0;background:none;cursor:pointer;}
     if (name === "play") {
       const st = loop.info.state;
       st === "playing" || st === "overdub" ? loop.pause() : loop.play();
+      seq.playing ? seq.stop() : seq.play();
     } else if (name === "stop") {
       loop.stop();
       arp.clear();
+      seq.stop();
       held.forEach((h) => {
         try {
           h.off();
@@ -3705,7 +3994,14 @@ button{border:0;background:none;cursor:pointer;}
       });
       held.clear();
       paintKeys();
-    } else if (name === "rec") loop.arm();
+    } else if (name === "rec") {
+      loop.arm();
+      if (seq.armed < 0) {
+        const free = seq.channels.findIndex((c) => !c.events.length);
+        seq.arm(free < 0 ? 0 : free);
+        if (!seq.playing) seq.play();
+      }
+    }
     paintTransport(loop.info);
     toast(name);
   }
@@ -3844,6 +4140,11 @@ button{border:0;background:none;cursor:pointer;}
     openSheet("#lib");
   });
   $("#libx").addEventListener("click", closeSheets);
+  $("#seqbtn").addEventListener("click", () => {
+    renderSeq();
+    openSheet("#seq");
+  });
+  $("#seqx").addEventListener("click", closeSheets);
   $("#setbtn").addEventListener("click", () => {
     renderSetup();
     openSheet("#setup");
@@ -3947,6 +4248,94 @@ button{border:0;background:none;cursor:pointer;}
     await takeFiles(e.dataTransfer.files);
   });
   var BUTTONS = ["play", "stop", "rec", "arp", "scch", "padB", "knobB", "oct+", "oct-"];
+  function renderSeq() {
+    const q = seq.quantize;
+    $("#seqbody").innerHTML = '<div class="grp"><div class="opts"><button class="chip sm" id="seqplay">' + (seq.playing ? "\u25A0 STOP" : "\u25B6 PLAY") + '</button><button class="chip sm" id="seqexport">EXPORT .MID</button><button class="chip sm" id="seqclear">CLEAR ALL CHANNELS</button></div><div class="dim" style="margin-top:8px"><b>Timing.</b> Notes are pulled onto the grid as you play them, so what you see is what you will hear. Strength below 100% keeps the feel and takes out the mistakes; the original timing is always kept, so changing your mind re-quantises the take rather than the last quantise.</div><div class="opts" style="margin-top:8px">' + GRIDS.map((g) => '<button class="chip sm' + (Math.abs(q.grid - g.beats) < 1e-9 ? " on" : "") + '" data-grid="' + g.beats + '">' + g.l + "</button>").join("") + '</div><div class="opts" style="margin-top:6px">' + [0, 0.5, 0.75, 1].map((v) => '<button class="chip sm' + (Math.abs(q.strength - v) < 1e-9 ? " on" : "") + '" data-str="' + v + '">' + Math.round(v * 100) + "%</button>").join("") + '</div></div><div class="grp"><h3>EIGHT CHANNELS</h3>' + seq.channels.map((c) => '<div class="row"><span class="nm"><b>' + esc(c.name) + '</b><br><span class="sub">' + c.events.length + " note" + (c.events.length === 1 ? "" : "s") + " \xB7 " + c.bars + " bar" + (c.bars === 1 ? "" : "s") + '</span><span class="seqbar"><i data-head="' + c.id + '"></i></span></span><span class="opts"><button class="chip sm' + (c.on ? " on" : "") + '" data-mute="' + c.id + '">' + (c.on ? "ON" : "MUTE") + '</button><button class="chip sm' + (seq.armed === c.id ? " on" : "") + '" data-arm="' + c.id + '">REC</button><button class="chip sm" data-bars="' + c.id + '">' + c.bars + '\u25BE</button><button class="chip sm" data-cl="' + c.id + '">\u2715</button></span></div>').join("") + "</div>";
+    $("#seqplay").addEventListener("click", () => {
+      seq.playing ? seq.stop() : seq.play();
+      renderSeq();
+    });
+    $("#seqclear").addEventListener("click", () => {
+      seq.clear();
+      saveSeq();
+      renderSeq();
+      toast("all channels cleared");
+    });
+    $("#seqexport").addEventListener("click", exportMid);
+    $("#seqbody").querySelectorAll("[data-grid]").forEach((b) => b.addEventListener("click", () => {
+      seq.setQuantize(parseFloat(b.dataset.grid));
+      renderSeq();
+    }));
+    $("#seqbody").querySelectorAll("[data-str]").forEach((b) => b.addEventListener("click", () => {
+      seq.setQuantize(seq.quantize.grid, parseFloat(b.dataset.str));
+      renderSeq();
+    }));
+    $("#seqbody").querySelectorAll("[data-mute]").forEach((b) => b.addEventListener("click", () => {
+      seq.toggle(+b.dataset.mute);
+      saveSeq();
+      renderSeq();
+    }));
+    $("#seqbody").querySelectorAll("[data-arm]").forEach((b) => b.addEventListener("click", () => {
+      const i = +b.dataset.arm;
+      seq.arm(seq.armed === i ? -1 : i);
+      if (seq.armed === i && !seq.playing) seq.play();
+      renderSeq();
+    }));
+    $("#seqbody").querySelectorAll("[data-bars]").forEach((b) => b.addEventListener("click", (ev) => {
+      const i = +b.dataset.bars;
+      openMenu(ev, [1, 2, 4, 8, 16, 32].map((n) => ({
+        label: n + (n === 1 ? " bar" : " bars"),
+        on: seq.channels[i].bars === n,
+        run: () => {
+          seq.setBars(i, n);
+          saveSeq();
+          renderSeq();
+        }
+      })), { title: seq.channels[i].name });
+    }));
+    $("#seqbody").querySelectorAll("[data-cl]").forEach((b) => b.addEventListener("click", () => {
+      seq.clear(+b.dataset.cl);
+      saveSeq();
+      renderSeq();
+    }));
+  }
+  function paintSeqHeads() {
+    if (!$("#seq").classList.contains("open")) return;
+    const pos = seq.positions();
+    $("#seqbody").querySelectorAll("[data-head]").forEach((el) => {
+      el.style.width = Math.round(pos[+el.dataset.head] * 100) + "%";
+    });
+  }
+  function saveSeq() {
+    try {
+      localStorage.setItem(LS2 + ".seq", JSON.stringify(seq.snapshot()));
+    } catch (e) {
+    }
+  }
+  function loadSeq() {
+    try {
+      seq.restore(JSON.parse(localStorage.getItem(LS2 + ".seq") || "null"));
+    } catch (e) {
+    }
+  }
+  function exportMid() {
+    const snap = seq.snapshot();
+    if (!snap.channels.some((c) => c.events.length)) {
+      toast("nothing recorded yet");
+      return;
+    }
+    const blob = new Blob([toMidi(snap)], { type: "audio/midi" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "skrimpad-smk.mid";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 2e3);
+    toast("exported skrimpad-smk.mid");
+  }
   function renderSetup() {
     const d = io.diagnostics(), ins = io.listInputs();
     const mine = ins.filter((p) => identify(p.name).smk || p.ble);
@@ -4023,6 +4412,9 @@ button{border:0;background:none;cursor:pointer;}
     }, 500);
   });
   var sky = mountGalaxy($("#sky"));
+  loadSeq();
+  seq.setBpm(S.bpm);
+  setInterval(saveSeq, 4e3);
   window.__smk = {
     get S() {
       return S;
@@ -4035,6 +4427,9 @@ button{border:0;background:none;cursor:pointer;}
     sky,
     arp,
     syncArp,
+    seq,
+    renderSeq,
+    exportMid,
     get lastTransport() {
       return lastTransport;
     },

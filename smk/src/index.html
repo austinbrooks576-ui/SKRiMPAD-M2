@@ -169,6 +169,12 @@ button{border:0;background:none;cursor:pointer;}
 #tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 #loopbar{flex:1 1 80px;height:6px;min-width:60px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;}
 #loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+/* A channel's playhead. Eight parts of different lengths running at once are
+   unreadable as numbers; as eight bars filling at different rates they are
+   obvious at a glance. */
+.seqbar{display:block;height:4px;margin-top:5px;border-radius:2px;overflow:hidden;
+  background:rgba(255,255,255,.09);max-width:190px;}
+.seqbar i{display:block;height:100%;width:0;background:var(--acc);transition:width .08s linear;}
 
 .scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
   transition:opacity .2s;z-index:40;}
@@ -240,6 +246,7 @@ button{border:0;background:none;cursor:pointer;}
     <span id="brand">SKRiMPAD <b>SMK</b></span>
     <button id="link"><span class="dot"></span><span id="linktxt">looking for your SMK-25…</span></button>
     <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="seqbtn">SEQ</button>
     <button class="chip sm" id="setbtn" aria-label="Setup">⚙</button>
   </div>
 
@@ -277,6 +284,11 @@ button{border:0;background:none;cursor:pointer;}
     <div id="list"></div>
   </div>
 </div>
+<div class="sheet" id="seq" role="dialog" aria-modal="true" aria-label="Sequencer">
+  <header><h2>SEQUENCER</h2><button class="x" id="seqx">✕</button></header>
+  <div class="body" id="seqbody"></div>
+</div>
+
 <div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
   <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
   <div class="body" id="setupbody"></div>
@@ -298,6 +310,7 @@ import {
 import { decode as decodeTransport, describe as describeMsg, whyQuiet } from '../../ultimate/src/core/transport-in.js';
 import { mountGalaxy } from './core/galaxy.js';
 import { createArp } from './core/arp.js';
+import { createSeq, toMidi, GRIDS, MAX_CHANNELS, MAX_BARS } from './core/seq.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -408,6 +421,19 @@ const loop = createLooper({
   onState: (i) => paintTransport(i),
 });
 
+// THE SEQUENCER. Eight channels that each wrap on their own length, so a
+// one-bar hat part and a thirty-two-bar arrangement coexist without either
+// being copied out. See core/seq.js.
+const seq = createSeq({
+  now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+  onFire: (e, when) => {
+    if (e.k === 'pad') { eng.play(padVoice(e.pad), when, e.vel, e.pad); flashPad(e.pad); }
+    else { const v = keyVoice(e.note); v.decay = Math.max(0.05, (e.len || 0.25) * 0.7); v.sustain = 0;
+           eng.play(v, when, e.vel); flashKey(e.note, e.len || 0.25); }
+  },
+  onTick: () => paintSeqHeads(),
+});
+
 const held = new Map();
 
 // THE ARPEGGIATOR. It does not hold notes itself — it asks for one at a time
@@ -457,6 +483,7 @@ function keyOn(note, vel) {
   held.set(n, h);
   paintKeys();
   loop.capture(1000 + n, vel, 0.25);
+  seq.capture({ k: 'key', note: n, vel, len: 0.25 });
   // Chord mode stacks the extra notes as their own voices, so releasing the key
   // releases the chord rather than leaving the upper notes hanging.
   chordNotes(n).forEach((x) => {
@@ -505,6 +532,7 @@ function padHit(i, vel) {
   eng.play(padVoice(i), 0, vel, i);
   flashPad(i);
   loop.capture(i, vel, 0.25);
+  seq.capture({ k: 'pad', pad: i, note: 36 + i, vel, len: 0.25 });
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +868,7 @@ function setKnob(i, v) {
   setTimeout(() => knobEls[i] && knobEls[i].classList.remove('live'), 220);
   save(); paintKnobs();
 }
-function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; syncArp(); save(); }
+function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; syncArp(); seq.setBpm(S.bpm); save(); }
 function setOctave(o) {
   S.octave = Math.max(-4, Math.min(4, o));
   held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
@@ -850,10 +878,22 @@ function setPadBank(b) { S.padBank = b % PAD_BANKS; save(); paintPads(); warmUp(
 function setKnobBank(b) { S.knobBank = b % KNOB_BANKS; save(); paintKnobs(); toast('KNOB-' + (b ? 'B' : 'A')); }
 
 function transport(name) {
-  if (name === 'play') { const st = loop.info.state; (st === 'playing' || st === 'overdub') ? loop.pause() : loop.play(); }
-  else if (name === 'stop') { loop.stop(); arp.clear();
+  if (name === 'play') {
+    const st = loop.info.state; (st === 'playing' || st === 'overdub') ? loop.pause() : loop.play();
+    seq.playing ? seq.stop() : seq.play();
+  }
+  else if (name === 'stop') { loop.stop(); arp.clear(); seq.stop();
     held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); }
-  else if (name === 'rec') loop.arm();
+  else if (name === 'rec') {
+    loop.arm();
+    // REC on the keyboard arms the first EMPTY channel, or re-arms the one
+    // already armed. Nothing is ever recorded over without being asked for.
+    if (seq.armed < 0) {
+      const free = seq.channels.findIndex((c) => !c.events.length);
+      seq.arm(free < 0 ? 0 : free);
+      if (!seq.playing) seq.play();
+    }
+  }
   paintTransport(loop.info);
   toast(name);
 }
@@ -934,6 +974,8 @@ function openSheet(id) { $('#scrim').classList.add('open'); $(id).classList.add(
 function closeSheets() { $('#scrim').classList.remove('open'); document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('open')); }
 $('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
 $('#libx').addEventListener('click', closeSheets);
+$('#seqbtn').addEventListener('click', () => { renderSeq(); openSheet('#seq'); });
+$('#seqx').addEventListener('click', closeSheets);
 $('#setbtn').addEventListener('click', () => { renderSetup(); openSheet('#setup'); });
 $('#setx').addEventListener('click', closeSheets);
 $('#scrim').addEventListener('click', closeSheets);
@@ -1003,6 +1045,100 @@ window.addEventListener('drop', async (e) => {
 
 // ---------------------------------------------------------------------------
 const BUTTONS = ['play', 'stop', 'rec', 'arp', 'scch', 'padB', 'knobB', 'oct+', 'oct-'];
+// ---------------------------------------------------------------------------
+// The sequencer panel. One row per channel: mute, length, arm, clear, and a
+// bar that shows where that channel is inside its own loop — which is the only
+// way to make sense of eight parts of different lengths running at once.
+function renderSeq() {
+  const q = seq.quantize;
+  $('#seqbody').innerHTML =
+    '<div class="grp"><div class="opts">'
+    + '<button class="chip sm" id="seqplay">' + (seq.playing ? '\u25a0 STOP' : '\u25b6 PLAY') + '</button>'
+    + '<button class="chip sm" id="seqexport">EXPORT .MID</button>'
+    + '<button class="chip sm" id="seqclear">CLEAR ALL CHANNELS</button>'
+    + '</div>'
+    + '<div class="dim" style="margin-top:8px"><b>Timing.</b> Notes are pulled onto the grid as you play '
+    + 'them, so what you see is what you will hear. Strength below 100% keeps the feel and takes out the '
+    + 'mistakes; the original timing is always kept, so changing your mind re-quantises the take rather '
+    + 'than the last quantise.</div>'
+    + '<div class="opts" style="margin-top:8px">'
+    + GRIDS.map((g) => '<button class="chip sm' + (Math.abs(q.grid - g.beats) < 1e-9 ? ' on' : '')
+        + '" data-grid="' + g.beats + '">' + g.l + '</button>').join('')
+    + '</div><div class="opts" style="margin-top:6px">'
+    + [0, 0.5, 0.75, 1].map((v) => '<button class="chip sm' + (Math.abs(q.strength - v) < 1e-9 ? ' on' : '')
+        + '" data-str="' + v + '">' + Math.round(v * 100) + '%</button>').join('')
+    + '</div></div>'
+    + '<div class="grp"><h3>EIGHT CHANNELS</h3>'
+    + seq.channels.map((c) => '<div class="row"><span class="nm"><b>' + esc(c.name) + '</b>'
+        + '<br><span class="sub">' + c.events.length + ' note' + (c.events.length === 1 ? '' : 's')
+        + ' \u00b7 ' + c.bars + ' bar' + (c.bars === 1 ? '' : 's') + '</span>'
+        + '<span class="seqbar"><i data-head="' + c.id + '"></i></span></span>'
+        + '<span class="opts">'
+        + '<button class="chip sm' + (c.on ? ' on' : '') + '" data-mute="' + c.id + '">' + (c.on ? 'ON' : 'MUTE') + '</button>'
+        + '<button class="chip sm' + (seq.armed === c.id ? ' on' : '') + '" data-arm="' + c.id + '">REC</button>'
+        + '<button class="chip sm" data-bars="' + c.id + '">' + c.bars + '\u25be</button>'
+        + '<button class="chip sm" data-cl="' + c.id + '">\u2715</button>'
+        + '</span></div>').join('')
+    + '</div>';
+
+  $('#seqplay').addEventListener('click', () => { seq.playing ? seq.stop() : seq.play(); renderSeq(); });
+  $('#seqclear').addEventListener('click', () => { seq.clear(); saveSeq(); renderSeq(); toast('all channels cleared'); });
+  $('#seqexport').addEventListener('click', exportMid);
+  $('#seqbody').querySelectorAll('[data-grid]').forEach((b) => b.addEventListener('click', () => {
+    seq.setQuantize(parseFloat(b.dataset.grid)); renderSeq();
+  }));
+  $('#seqbody').querySelectorAll('[data-str]').forEach((b) => b.addEventListener('click', () => {
+    seq.setQuantize(seq.quantize.grid, parseFloat(b.dataset.str)); renderSeq();
+  }));
+  $('#seqbody').querySelectorAll('[data-mute]').forEach((b) => b.addEventListener('click', () => {
+    seq.toggle(+b.dataset.mute); saveSeq(); renderSeq();
+  }));
+  $('#seqbody').querySelectorAll('[data-arm]').forEach((b) => b.addEventListener('click', () => {
+    const i = +b.dataset.arm;
+    seq.arm(seq.armed === i ? -1 : i);
+    // Arming is useless without the transport running, so it starts it. The
+    // alternative is a REC button that looks armed and silently records
+    // nothing, which is the thing this app keeps being asked to stop doing.
+    if (seq.armed === i && !seq.playing) seq.play();
+    renderSeq();
+  }));
+  $('#seqbody').querySelectorAll('[data-bars]').forEach((b) => b.addEventListener('click', (ev) => {
+    const i = +b.dataset.bars;
+    openMenu(ev, [1, 2, 4, 8, 16, 32].map((n) => ({
+      label: n + (n === 1 ? ' bar' : ' bars'), on: seq.channels[i].bars === n,
+      run: () => { seq.setBars(i, n); saveSeq(); renderSeq(); },
+    })), { title: seq.channels[i].name });
+  }));
+  $('#seqbody').querySelectorAll('[data-cl]').forEach((b) => b.addEventListener('click', () => {
+    seq.clear(+b.dataset.cl); saveSeq(); renderSeq();
+  }));
+}
+// The playheads move every scheduler tick, so they are written straight to the
+// existing nodes rather than re-rendering the panel sixty times a second.
+function paintSeqHeads() {
+  if (!$('#seq').classList.contains('open')) return;
+  const pos = seq.positions();
+  $('#seqbody').querySelectorAll('[data-head]').forEach((el) => {
+    el.style.width = Math.round(pos[+el.dataset.head] * 100) + '%';
+  });
+}
+function saveSeq() { try { localStorage.setItem(LS + '.seq', JSON.stringify(seq.snapshot())); } catch (e) {} }
+function loadSeq() { try { seq.restore(JSON.parse(localStorage.getItem(LS + '.seq') || 'null')); } catch (e) {} }
+
+// Export the arrangement as a Standard MIDI File. A download rather than a
+// share sheet: the file is the deliverable and it belongs on the machine.
+function exportMid() {
+  const snap = seq.snapshot();
+  if (!snap.channels.some((c) => c.events.length)) { toast('nothing recorded yet'); return; }
+  const blob = new Blob([toMidi(snap)], { type: 'audio/midi' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'skrimpad-smk.mid';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  toast('exported skrimpad-smk.mid');
+}
+
 function renderSetup() {
   const d = io.diagnostics(), ins = io.listInputs();
   const mine = ins.filter((p) => identify(p.name).smk || p.ble);
@@ -1142,9 +1278,12 @@ $('#splashgo').addEventListener('click', () => {
 // window changes size — see core/galaxy.js for why it is a still image and not
 // an animation.
 const sky = mountGalaxy($('#sky'));
+loadSeq();
+seq.setBpm(S.bpm);
+setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp,
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid,
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
