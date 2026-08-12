@@ -1181,6 +1181,12 @@ button{border:0;background:none;cursor:pointer;}
         return { mode: "port", count: n };
       }
       if (typeof navigator !== "undefined" && navigator.bluetooth) {
+        if (!n) {
+          onStatus && onStatus({
+            mode: "own-link",
+            hint: "Windows does not hand Bluetooth MIDI to apps \u2014 opening the link directly\u2026"
+          });
+        }
         if (n > 0) {
           const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?");
           onStatus && onStatus({
@@ -1282,18 +1288,14 @@ button{border:0;background:none;cursor:pointer;}
       await attach();
       return dev2;
     }
-    async function connectBLE({ onStatus } = {}) {
+    async function connectBLE({ onStatus, namePrefix } = {}) {
       if (!(typeof navigator !== "undefined" && navigator.bluetooth)) {
-        throw new Error("Web Bluetooth unavailable \u2014 on Windows the controller instead appears as a MIDI port.");
+        throw new Error("This build has no Web Bluetooth, so it cannot open the link itself.");
       }
-      let dev2;
-      try {
-        dev2 = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_MIDI_SERVICE] }], optionalServices: [BLE_MIDI_SERVICE] });
-      } catch (e) {
-        if (e && e.name === "NotFoundError") {
-          dev2 = await navigator.bluetooth.requestDevice({ filters: KNOWN.map((namePrefix) => ({ namePrefix })), optionalServices: [BLE_MIDI_SERVICE] }).catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
-        } else throw e;
-      }
+      const opts = { optionalServices: [BLE_MIDI_SERVICE] };
+      if (namePrefix) opts.filters = [{ namePrefix }];
+      else opts.acceptAllDevices = true;
+      const dev2 = await navigator.bluetooth.requestDevice(opts);
       return attachDevice(dev2, { onStatus });
     }
     async function autoReconnect({ onStatus } = {}) {
@@ -2696,8 +2698,9 @@ button{border:0;background:none;cursor:pointer;}
         return;
       }
       const nm = e.port && e.port.name || "";
+      const viaBle = !!(e.port && e.port.ble);
       const id = identify(nm);
-      if (!id.jp) {
+      if (!id.jp && !viaBle) {
         if (id.sibling) note("That is a " + id.sibling + " \u2014 this app is built for the JP mini");
         return;
       }
@@ -2758,7 +2761,7 @@ button{border:0;background:none;cursor:pointer;}
   }
   function paintLink() {
     const ins = io.listInputs();
-    const jp = ins.filter((p) => identify(p.name).jp);
+    const jp = ins.filter((p) => identify(p.name).jp || p.ble);
     const el = $("#link"), t = $("#linktxt");
     if (jp.length) {
       el.classList.add("live");
@@ -3037,7 +3040,7 @@ button{border:0;background:none;cursor:pointer;}
     const d = io.diagnostics();
     const ins = io.listInputs();
     const jp = ins.filter((p) => identify(p.name).jp);
-    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR JP MINI</h3><div class="dim">' + (jp.length ? esc(jp[0].name) + " \u2014 " + (dev.learned(portName || jp[0].name) ? "grid learned." : "the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.") : ins.length ? esc(ins.length + " MIDI port(s) visible, none of them a JP mini: " + ins.map((p) => p.name).join(", ")) : "No MIDI port visible yet. Plug the USB-C cable in, or pair over Bluetooth below.") + '</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="sweepbtn">TEACH THE GRID</button><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="resetgrid">FORGET THE GRID</button></div></div><div class="grp"><h3>HOW HARD THE PADS FEEL</h3><div class="opts"><button class="chip sm" id="curvebtn">' + esc((CURVES[S.curve] || CURVES.linear).l) + '</button></div><div class="dim" style="margin-top:6px">Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do.</div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : " \xB7 no sysex") + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + (d.lost ? "<br>Last to drop: " + esc(d.lost) : "") + "</div></div>" + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + "</h3>" + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br><span class="sub">' + esc(b2) + "</span></span></div>").join("") + "</div>").join("");
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR JP MINI</h3><div class="dim">' + (jp.length ? esc(jp[0].name) + " \u2014 " + (dev.learned(portName || jp[0].name) ? "grid learned." : "the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.") : ins.length ? esc(ins.length + " MIDI port(s) visible, none of them a JP mini: " + ins.map((p) => p.name).join(", ")) : "No MIDI port visible yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind a newer interface that browsers and desktop apps do not use, so a unit paired perfectly in Windows settings is still invisible to every app that has not written its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself, with no vendor driver and no control panel in the way.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="sweepbtn">TEACH THE GRID</button><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="resetgrid">FORGET THE GRID</button></div></div><div class="grp"><h3>HOW HARD THE PADS FEEL</h3><div class="opts"><button class="chip sm" id="curvebtn">' + esc((CURVES[S.curve] || CURVES.linear).l) + '</button></div><div class="dim" style="margin-top:6px">Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do.</div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : " \xB7 no sysex") + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + (d.lost ? "<br>Last to drop: " + esc(d.lost) : "") + "</div></div>" + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + "</h3>" + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br><span class="sub">' + esc(b2) + "</span></span></div>").join("") + "</div>").join("");
     $("#curvebtn").addEventListener("click", (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: curveMenu(), title: "Velocity" }));
     $("#sweepbtn").addEventListener("click", () => {
       closeSheets();

@@ -495,8 +495,14 @@ const io = createMidiIO({
     // stop the loop AND fire a sample every time.
     if (e.transport) { transport(e.transport); return; }
     const nm = (e.port && e.port.name) || '';
+    // A device WE opened over Bluetooth is trusted whatever it calls itself.
+    // We got its BLE-MIDI service to answer, which is the universal test for a
+    // MIDI peripheral — and plenty of these units advertise a blank name, their
+    // OEM's name, or a MAC address. Refusing one on its name after proving what
+    // it is by protocol was the app rejecting its own controller.
+    const viaBle = !!(e.port && e.port.ble);
     const id = identify(nm);
-    if (!id.jp) {
+    if (!id.jp && !viaBle) {
       if (id.sibling) note('That is a ' + id.sibling + ' — this app is built for the JP mini');
       return;
     }
@@ -541,7 +547,9 @@ function transport(name) {
 
 function paintLink() {
   const ins = io.listInputs();
-  const jp = ins.filter((p) => identify(p.name).jp);
+  // Same rule as the message path: a port we opened over Bluetooth ourselves
+  // counts, whatever it is called.
+  const jp = ins.filter((p) => identify(p.name).jp || p.ble);
   const el = $('#link'), t = $('#linktxt');
   if (jp.length) {
     el.classList.add('live');
@@ -812,8 +820,13 @@ function renderSetup() {
         ? esc(jp[0].name) + ' — ' + (dev.learned(portName || jp[0].name)
             ? 'grid learned.' : 'the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.')
         : (ins.length ? esc(ins.length + ' MIDI port(s) visible, none of them a JP mini: ' + ins.map((p) => p.name).join(', '))
-                      : 'No MIDI port visible yet. Plug the USB-C cable in, or pair over Bluetooth below.'))
-    + '</div>'
+                      : 'No MIDI port visible yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.'))
+    + '</div><div class="dim" style="margin-top:6px">'
+    + '<b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind a newer '
+    + 'interface that browsers and desktop apps do not use, so a unit paired perfectly in Windows '
+    + 'settings is still invisible to every app that has not written its own Bluetooth stack. '
+    + 'This one has — CONNECT BLUETOOTH opens the link itself, with no vendor driver and no '
+    + 'control panel in the way.</div>'
     + '<div class="opts" style="margin-top:8px">'
     + '<button class="chip sm" id="sweepbtn">TEACH THE GRID</button>'
     + '<button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button>'

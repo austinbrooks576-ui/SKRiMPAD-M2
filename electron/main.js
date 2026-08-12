@@ -105,9 +105,15 @@ function createWindow() {
     btTimer = setTimeout(() => {
       btTimer = null; if (!btCb) return;
       const cb = btCb; btCb = null;
-      const first = btDevs[0];
-      btSay(first ? 'fallback' : 'nothing', { name: first && first.deviceName });
-      cb(first ? first.deviceId : '');
+      // NOT the first device in the list. With acceptAllDevices the list is
+      // every radio in the room, so "first" is as likely to be a pair of
+      // headphones as a controller — and connecting to headphones then failing
+      // to find a MIDI service reads exactly like the controller being broken.
+      // Cancel, and hand the names back so the app can show them and let the
+      // person say which one is theirs. That click is a fresh user gesture,
+      // which is the only thing requestDevice needs to run again.
+      btSay(btDevs.length ? 'unsure' : 'nothing');
+      cb('');
     }, 4000);
   });
 

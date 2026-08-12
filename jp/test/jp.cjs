@@ -343,6 +343,52 @@ const TMP = path.join(os.tmpdir(), 'jpfix');
      'holding several pads makes it an arpeggio, with no mode change needed',
      'pads played: ' + arp.uniq.join(','));
 
+  // ---- BLUETOOTH: one gesture, one call ------------------------------------
+  // requestDevice needs a TRANSIENT USER ACTIVATION and the first call eats it.
+  // The old code chained three calls through awaits, so calls two and three
+  // threw SecurityError before they could open anything — the name and
+  // accept-all fallbacks were dead code from the day they were written, which
+  // is precisely why a controller that does not advertise the MIDI service
+  // could never be found. Count the calls.
+  const bt = await p.evaluate(async () => {
+    const A = window.__jp;
+    const calls = [];
+    const fake = {
+      requestDevice: (opts) => {
+        calls.push(opts);
+        // What a scan that finds nothing does: reject exactly as Chrome does.
+        const e = new Error('User cancelled the requestDevice() chooser.');
+        e.name = 'NotFoundError';
+        return Promise.reject(e);
+      },
+    };
+    const real = navigator.bluetooth;
+    try { Object.defineProperty(navigator, 'bluetooth', { value: fake, configurable: true }); }
+    catch (e) { return { skipped: true }; }
+    let err = '';
+    try { await A.io.connectBLE({}); } catch (e) { err = e.name || String(e); }
+    let named = [];
+    try { await A.io.connectBLE({ namePrefix: 'KUWEE' }); } catch (e) { named = calls.slice(-1); }
+    try { Object.defineProperty(navigator, 'bluetooth', { value: real, configurable: true }); }
+    catch (e) {}
+    return { calls, err, named };
+  });
+  if (bt.skipped) {
+    ok(true, 'bluetooth call shape not checkable in this build');
+  } else {
+    ok(bt.calls.length === 2,
+       'a scan that finds nothing makes ONE call, not a chain of three',
+       bt.calls.length + ' calls for two connect attempts');
+    ok(bt.calls[0] && bt.calls[0].acceptAllDevices === true,
+       'and it accepts every device, because plenty of BLE MIDI units never '
+       + 'advertise the MIDI service', JSON.stringify(bt.calls[0]));
+    ok(bt.calls[0] && (bt.calls[0].optionalServices || []).length === 1,
+       'while still asking for the MIDI service, which is how it is identified '
+       + 'after connecting');
+    ok(bt.calls[1] && bt.calls[1].filters && bt.calls[1].filters[0].namePrefix === 'KUWEE',
+       'and a device can be named directly, for the second gesture the app offers');
+  }
+
   // ---- the looper ----------------------------------------------------------
   const loop = await p.evaluate(async () => {
     const A = window.__jp;

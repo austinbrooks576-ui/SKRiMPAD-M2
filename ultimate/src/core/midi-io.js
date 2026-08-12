@@ -343,6 +343,16 @@ export function createMidiIO({ onEvent, onPorts, onGone } = {}) {
     }
     // No ports, or ports that have never made a sound: connect it ourselves.
     if (typeof navigator !== 'undefined' && navigator.bluetooth) {
+      if (!n) {
+        // WINDOWS, SAID PLAINLY. Chrome and Electron reach MIDI through the
+        // legacy winmm API, and winmm has never carried Bluetooth LE MIDI —
+        // Windows keeps that behind WinRT. So a BLE controller paired perfectly
+        // in Windows settings NEVER appears as a MIDI port to this app, and no
+        // amount of re-pairing will make it. That is why vendors ship their own
+        // driver, and why this opens the link itself instead.
+        onStatus && onStatus({ mode: 'own-link',
+          hint: 'Windows does not hand Bluetooth MIDI to apps — opening the link directly…' });
+      }
       if (n > 0) {
         const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || '?');
         onStatus && onStatus({ mode: 'silent-port', count: n, silent: mute,
@@ -451,19 +461,37 @@ export function createMidiIO({ onEvent, onPorts, onGone } = {}) {
   // Direct BLE-MIDI GATT via the device chooser. Tries the standard MIDI service
   // first; some units (incl. SMK25V2) don't advertise it, so it falls back to
   // known name-prefixes, then accept-all.
-  async function connectBLE({ onStatus } = {}) {
+  // ONE requestDevice CALL. This is the whole Bluetooth fix.
+  //
+  // It used to be three, chained: filter on the BLE-MIDI service; if that found
+  // nothing, filter on known name prefixes; if that found nothing, accept
+  // anything. Reasonable-looking, and broken — requestDevice requires a
+  // TRANSIENT USER ACTIVATION, and the first call consumes it. Every call after
+  // an `await` therefore threw SecurityError before it could open a chooser, so
+  // the two fallbacks never ran. Not once, on any platform, since the day they
+  // were written.
+  //
+  // That mattered most on exactly the hardware it was meant to catch: plenty of
+  // BLE MIDI controllers — the JP mini among them — do NOT put the MIDI service
+  // UUID in their advertisement. The first filter cannot see them, and the name
+  // fallbacks that would have were dead code. The result on Windows is a scan
+  // that finds nothing and a controller that "does not connect".
+  //
+  // So: accept every device in one call, and identify the real thing AFTER
+  // connecting, by whether it actually has the BLE-MIDI service. That test is
+  // universal — it is what the spec guarantees about a MIDI peripheral — where
+  // a name or an advertisement is only ever a hint.
+  async function connectBLE({ onStatus, namePrefix } = {}) {
     if (!(typeof navigator !== 'undefined' && navigator.bluetooth)) {
-      throw new Error('Web Bluetooth unavailable — on Windows the controller instead appears as a MIDI port.');
+      throw new Error('This build has no Web Bluetooth, so it cannot open the link itself.');
     }
-    let dev;
-    try {
-      dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [BLE_MIDI_SERVICE] }], optionalServices: [BLE_MIDI_SERVICE] });
-    } catch (e) {
-      if (e && e.name === 'NotFoundError') {
-        dev = await navigator.bluetooth.requestDevice({ filters: KNOWN.map((namePrefix) => ({ namePrefix })), optionalServices: [BLE_MIDI_SERVICE] })
-          .catch(() => navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [BLE_MIDI_SERVICE] }));
-      } else throw e;
-    }
+    const opts = { optionalServices: [BLE_MIDI_SERVICE] };
+    // A name, when the caller already knows which device it wants — the app
+    // offers this after a scan that saw several, and the click on that button is
+    // the fresh gesture the call needs.
+    if (namePrefix) opts.filters = [{ namePrefix }];
+    else opts.acceptAllDevices = true;
+    const dev = await navigator.bluetooth.requestDevice(opts);
     return attachDevice(dev, { onStatus });
   }
 
