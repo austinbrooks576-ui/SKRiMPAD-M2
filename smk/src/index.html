@@ -48,6 +48,40 @@
 #snip .rowl input[type=range]{flex:1;}
 #snip .rowl b{min-width:64px;color:var(--txt);letter-spacing:.1em;}
 
+/* ---------- the loop deck, and the voice row ----------
+   A chip on a toolbar does not read as part of an instrument. The loop deck is
+   a PANEL: recessed screen, brushed face, a real button with a lip and a level
+   fader — on the machine surface next to the pads, because that is where a loop
+   deck is on hardware that has one. */
+#deckrow{display:flex;gap:var(--sp);flex:0 0 auto;align-items:stretch;flex-wrap:wrap;}
+#bed{width:min(100%,320px);flex:0 0 auto;border-radius:14px;padding:9px 11px 10px;
+  border:1px solid var(--glass-line);
+  background:linear-gradient(168deg,rgba(38,45,64,.62),rgba(12,15,23,.72));
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -2px 8px rgba(0,0,0,.5),
+             0 10px 26px rgba(0,0,0,.45);}
+#bed.hot{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 10px 26px rgba(0,0,0,.45);}
+.dl{font-size:9px;letter-spacing:.22em;color:var(--dim);margin-bottom:6px;}
+#bedwave{display:block;width:100%;height:36px;border-radius:7px;
+  background:radial-gradient(120% 160% at 50% 0%,rgba(6,10,16,.95),rgba(2,4,8,.98));
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.75),inset 0 0 0 1px rgba(255,255,255,.05);}
+#bed .dn{margin-top:6px;font-size:var(--fs-xs);color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#bed.live .dn{color:var(--acc);}
+#bed .dc{display:flex;align-items:center;gap:9px;margin-top:7px;}
+.dbtn{width:36px;height:36px;flex:none;border-radius:50%;font-size:13px;
+  border:1px solid rgba(255,255,255,.16);color:var(--txt);
+  background:linear-gradient(180deg,rgba(58,66,86,.9),rgba(20,25,36,.95));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 3px 8px rgba(0,0,0,.5);}
+.dbtn:active{transform:translateY(1px);box-shadow:inset 0 2px 5px rgba(0,0,0,.6);}
+#bed.live .dbtn{color:#04140F;background:linear-gradient(180deg,var(--acc),#1e9e8b);}
+#bedlev{flex:1;accent-color:var(--acc);}
+#voicebox{flex:1 1 260px;min-width:0;border-radius:14px;padding:9px 11px 10px;
+  border:1px solid var(--glass-line);background:var(--glass);
+  -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 8px 22px rgba(0,0,0,.4);}
+#voicepick{flex-wrap:wrap;gap:5px;}
+
 /* ---------- the drop-down menus ----------
    menu.js was imported and wired to every pad, key and knob in this edition,
    and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
@@ -307,6 +341,21 @@ button{border:0;background:none;cursor:pointer;}
 
   <div id="stage">
     <div id="knobs"></div>
+    <div id="deckrow">
+      <div id="bed">
+        <div class="dl">LOOP</div>
+        <canvas id="bedwave"></canvas>
+        <div class="dn" id="bedname">drop a loop here</div>
+        <div class="dc">
+          <button class="dbtn" id="bedgo" aria-label="Play the loop">▶</button>
+          <input type="range" id="bedlev" min="0" max="120" value="75" aria-label="Loop level">
+        </div>
+      </div>
+      <div id="voicebox">
+        <div class="dl">KEYBOARD VOICE — SPLASH IT ACROSS ALL 25 KEYS</div>
+        <div class="opts" id="voicepick"></div>
+      </div>
+    </div>
     <div id="pads"></div>
     <div id="keys"></div>
   </div>
@@ -389,6 +438,7 @@ function fresh() {
   return {
     bpm: 100, octave: 0, padBank: 0, knobBank: 0,
     arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '', octaves: 1 },
+    voice: null,
     scale: 'off', chord: 'off', root: 0,
     // A voice per PAD, and a voice per KEY. Both are addressable individually,
     // which is the whole point of "clear all, even the individually set keys" —
@@ -429,7 +479,7 @@ const warm = new Map();
 const eng = createEngine({ sampleFor: (id) => warm.get(id) || null, preserveLength: true });
 const lib = createLibrary({
   ctx: () => (eng.init(), eng.ctx),
-  onChange: () => renderList(),
+  onChange: () => { renderList(); paintVoice(); },
   onError: (k, n) => toast(k === 'storage' ? 'no room to store ' + n : 'could not read ' + n),
 });
 const unit = createUnitMap();
@@ -445,8 +495,18 @@ const knobRole = (i) => KNOB_ROLES[(S.knobBank * KNOBS) + i];
 // there, rather than each knob inventing its own range — which is how ATTACK
 // ended up at 302ms in the middle of its travel and every note peaked a third
 // of a second after it was played.
+// SPLASH: one voice across the whole keyboard.
+//
+// This is ULTIMATE's and LIVEx's system, which this edition did not have — the
+// keyboard there plays whatever voice you selected, and you pick it once rather
+// than assigning twenty-five keys one at a time.
+//
+// An INDIVIDUALLY SET KEY STILL WINS. That is the whole reason both exist: the
+// splash is "the keyboard plays this", and a key assignment is "except this
+// one". A splash that overwrote per-key assignments would make the two features
+// mutually exclusive, and clearing the splash would not bring them back.
 function keyVoice(note) {
-  const sl = S.keys[note];
+  const sl = S.keys[note] || S.voice;
   const L = voiceLimits.key;
   const v = Object.assign({}, L, {
     kind: sl && sl.id ? 'sample' : 'synth', wave: 'sawtooth', note,
@@ -521,7 +581,7 @@ const bed = {
     // Not warmed yet — ask for it and start when it arrives, rather than
     // silently doing nothing, which is what "I pressed play and nothing
     // happened" is made of.
-    if (!buf) { warmUp().then(() => { if (this.id && !this.src) this.start(); }); return; }
+    if (!buf) { warmUp().then(() => { drawBedWave(); if (this.id && !this.src) this.start(); }); return; }
     eng.init(); if (!eng.ctx) return;
     const g = eng.ctx.createGain();
     g.gain.value = this.level;
@@ -546,8 +606,29 @@ const bed = {
 };
 function paintBed() {
   const el = $('#bed'); if (!el) return;
-  el.textContent = bed.name ? ((bed.playing ? '\u25b6 ' : '\u21bb ') + bed.name.slice(0, 18)) : '\u21bb DROP A LOOP';
-  el.classList.toggle('on', bed.playing);
+  el.classList.toggle('live', bed.playing);
+  const nm = $('#bedname'); if (nm) nm.textContent = bed.name || 'drop a loop here';
+  const go = $('#bedgo'); if (go) go.textContent = bed.playing ? '\u25a0' : '\u25b6';
+  drawBedWave();
+}
+// The deck's screen. A loop deck with a blank window is a box; the waveform is
+// what makes it read as a machine with something loaded in it.
+function drawBedWave() {
+  const cv = $('#bedwave'); if (!cv) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(1, Math.round(cv.clientWidth * dpr)), h = Math.round(36 * dpr);
+  if (!w) return;
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'); if (!g) return;
+  g.clearRect(0, 0, w, h);
+  const buf = bed.id ? warm.get(bed.id) : null;
+  if (!buf) return;
+  const pk = peaks(buf, Math.max(40, Math.round(w / 3)));
+  for (let i = 0; i < pk.length; i++) {
+    g.fillStyle = bed.playing ? 'rgba(75,227,200,.85)' : 'rgba(160,175,200,.45)';
+    const y = Math.max(1, pk[i] * h * 0.44);
+    g.fillRect((i / pk.length) * w, h / 2 - y, Math.max(1, w / pk.length - 0.6), y * 2);
+  }
 }
 function saveBed() { try { localStorage.setItem(LS + '.bed', JSON.stringify({ id: bed.id, name: bed.name, level: bed.level })); } catch (e) {} }
 function loadBed() {
@@ -564,6 +645,42 @@ function bedMenu() {
       items: () => [0.25, 0.5, 0.75, 1].map((v) => ({ label: Math.round(v * 100) + '%', on: Math.abs(bed.level - v) < 0.01,
         run: () => bed.setLevel(v) })) },
     { label: 'Clear it', danger: true, disabled: !bed.id, run: () => bed.clear() },
+  ];
+}
+
+// The voice row: the eight pad sounds plus whatever is in the library, as
+// chips, so the keyboard's voice can be set with one tap — and so that the
+// current one is VISIBLE. A selection you cannot see is one you cannot trust.
+function setVoice(v) {
+  S.voice = v ? { id: v.id, name: v.name } : null;
+  // Anything sounding was built from the OLD voice and would go on sounding
+  // with it — a keyboard that changes voice on the next note but not on the
+  // one under your finger feels broken.
+  held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
+  save(); warmUp(); paintVoice(); paintKeys();
+  toast(v ? v.name + ' \u2192 all 25 keys' : 'keyboard back to its synth');
+}
+function paintVoice() {
+  const host = $('#voicepick'); if (!host) return;
+  const chips = [{ id: '', name: 'SYNTH' }];
+  // The pad sounds first, because they are the ones already in front of you.
+  S.pads[S.padBank].forEach((sl, i) => { if (sl && sl.id && !chips.some((c) => c.id === sl.id)) chips.push({ id: sl.id, name: sl.name, pad: PAD_LABELS[i] }); });
+  lib.items.slice(0, 10).forEach((it) => { if (!chips.some((c) => c.id === it.id)) chips.push({ id: it.id, name: it.name }); });
+  const cur = S.voice ? S.voice.id : '';
+  host.innerHTML = chips.map((c) => '<button class="chip sm' + (c.id === cur ? ' on' : '') + '" data-voice="'
+    + esc(c.id) + '">' + esc((c.pad ? c.pad + ' ' : '') + c.name).slice(0, 22) + '</button>').join('')
+    + '<button class="chip sm" data-voice="?">MORE\u2026</button>';
+  host.querySelectorAll('[data-voice]').forEach((b) => b.addEventListener('click', (ev) => {
+    const id = b.dataset.voice;
+    if (id === '?') { openMenu({ x: ev.clientX, y: ev.clientY, title: 'Keyboard voice', items: voiceMenu() }); return; }
+    if (!id) { setVoice(null); return; }
+    const it = lib.find(id); if (it) setVoice(it);
+  }));
+}
+function voiceMenu() {
+  return [
+    { label: 'Its own synth', on: !S.voice, run: () => setVoice(null) },
+    { label: 'A sound from the library', items: () => soundRows((id, name) => setVoice({ id, name })) },
   ];
 }
 
@@ -857,8 +974,8 @@ function clearAll() {
   S.keys = {};
   loop.clear();
   warm.clear(); lib.repin([]);
-  arp.clear();
-  save(); paintPads(); paintKeys(); renderSetup();
+  arp.clear(); S.voice = null;
+  save(); paintPads(); paintKeys(); paintVoice(); renderSetup();
   toast('every pad and every key cleared');
 }
 
@@ -1009,7 +1126,7 @@ function setOctave(o) {
   held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
   save(); buildKeys(); toast('octave ' + (S.octave > 0 ? '+' : '') + S.octave);
 }
-function setPadBank(b) { S.padBank = b % PAD_BANKS; save(); paintPads(); warmUp(); toast('PAD-' + (b ? 'B' : 'A')); }
+function setPadBank(b) { S.padBank = b % PAD_BANKS; save(); paintPads(); paintVoice(); warmUp(); toast('PAD-' + (b ? 'B' : 'A')); }
 function setKnobBank(b) { S.knobBank = b % KNOB_BANKS; save(); paintKnobs(); toast('KNOB-' + (b ? 'B' : 'A')); }
 
 function transport(name) {
@@ -1111,7 +1228,8 @@ function closeSheets() { $('#scrim').classList.remove('open'); document.querySel
 $('#libq').addEventListener('input', (e) => { libQ = e.target.value.trim(); renderList(); });
 $('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
 $('#libx').addEventListener('click', closeSheets);
-$('#bed').addEventListener('click', () => (bed.playing ? bed.stop() : bed.start()));
+$('#bedgo').addEventListener('click', () => (bed.playing ? bed.stop() : bed.start()));
+$('#bedlev').addEventListener('input', (e) => bed.setLevel(+e.target.value / 100));
 $('#bed').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: bedMenu(), title: 'Loop bed' }); });
 onLongPress($('#bed'), 420, (ev, x, y) => openMenu({ x, y, items: bedMenu(), title: 'Loop bed' }));
 armDropTarget($('#bed'), (id, name) => { bed.set(id, name); warmUp().then(() => bed.start()); }, 'the loop bed');
@@ -1180,9 +1298,13 @@ function renderList() {
     if (it.from) { const sm = document.createElement('small'); sm.textContent = it.from; el.querySelector('.n').appendChild(sm); }
     el.querySelector('.d').textContent = (it.dur || 0).toFixed(2) + 's';
     el.addEventListener('click', async () => {
+      // ALWAYS play it. Arming toggles; hearing does not. Tying the audition to
+      // the arm meant clicking an already-armed sound un-armed it and played
+      // nothing — so the second click on a sound you were comparing was silent,
+      // which is exactly the click you make when you are choosing between two.
+      audition(it.id);
       armedSound = armedSound === it.id ? null : it.id;
       renderList();
-      if (armedSound) audition(it.id);
     });
     el.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: soundMenu(it), title: it.name }); });
     onLongPress(el, 480, (ev, x, y) => openMenu({ x, y, items: soundMenu(it), title: it.name }));
@@ -1369,7 +1491,7 @@ async function takeFiles(list) {
   const dest = dropTarget; dropTarget = null;
   if (dest && audio) {
     const it = newestSound();
-    if (it) { dest.place(it.id, it.name); toast(it.name + ' \u2192 ' + dest.label); }
+    if (it) { dest.place(it.id, it.name); toast(it.name + ' \u2192 ' + dest.label); paintVoice(); }
   }
   renderList();
 }
@@ -1625,11 +1747,12 @@ const sky = mountGalaxy($('#sky'));
 loadSeq();
 loadBed();
 paintBed();
+paintVoice();
 seq.setBpm(S.bpm);
 setInterval(saveSeq, 4000);
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed, openSnip, saveSnip, get snipEdit() { return snipEdit; },
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp, seq, renderSeq, exportMid, bed, setVoice, paintVoice, openSnip, saveSnip, get snipEdit() { return snipEdit; },
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, renderList, takeFiles, applyScale, chordNotes,

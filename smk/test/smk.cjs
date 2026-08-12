@@ -408,6 +408,56 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(filtered.none === 0 && filtered.back === filtered.before, 'search really filters, and clearing it restores',
      filtered.before + ' → ' + filtered.none + ' → ' + filtered.back);
 
+  // Clicking a sound must HEAR it — every time, not only the first time.
+  const heard2 = await p.evaluate(async () => {
+    const A = window.__smk;
+    let played = 0;
+    const real = A.eng.play;
+    A.eng.play = function () { played++; return real.apply(this, arguments); };
+    const row = document.querySelector('.snd');
+    row.click(); await new Promise((r) => setTimeout(r, 250));
+    const first = played;
+    document.querySelector('.snd').click(); await new Promise((r) => setTimeout(r, 250));
+    A.eng.play = real;
+    return { first, second: played - first };
+  });
+  ok(heard2.first > 0, 'clicking a sound in the library plays it');
+  ok(heard2.second > 0, 'and clicking it AGAIN plays it again — the audition is not tied to arming',
+     heard2.first + ' then ' + heard2.second);
+
+  // ---- the keyboard voice, splashed across all 25 keys --------------------
+  const splashed = await p.evaluate(async () => {
+    const A = window.__smk;
+    const it = A.lib.items[0];
+    const chips = document.querySelectorAll('#voicepick [data-voice]').length;
+    A.setVoice(it);
+    await new Promise((r) => setTimeout(r, 200));
+    // Every key must now be that sound — without twenty-five assignments.
+    const perKey = Object.keys(A.S.keys).filter((k) => A.S.keys[k]).length;
+    // ...and an individually set key still wins over it.
+    A.S.keys[64] = { id: 'other', name: 'Only This Key' };
+    const on64 = A.S.keys[64].name;
+    A.setVoice(null);
+    return { chips, voiceWas: it.name, perKey, on64, cleared: A.S.voice };
+  });
+  ok(splashed.chips >= 2, 'the voice row offers the pad sounds and the library', splashed.chips + ' chips');
+  ok(splashed.perKey === 0, 'splashing a voice does NOT write twenty-five key assignments',
+     splashed.perKey + ' per-key assignments');
+  ok(splashed.on64 === 'Only This Key', 'and an individually set key still beats the splashed voice');
+  ok(splashed.cleared === null, 'and it can be cleared back to the synth');
+
+  // ---- the loop deck looks like a deck ------------------------------------
+  const deck = await p.evaluate(() => {
+    const el = document.querySelector('#bed');
+    const r = el.getBoundingClientRect();
+    return { inStage: !!el.closest('#stage'), w: Math.round(r.width), h: Math.round(r.height),
+             wave: !!document.querySelector('#bedwave'), btn: !!document.querySelector('#bedgo'),
+             lev: !!document.querySelector('#bedlev') };
+  });
+  ok(deck.inStage, 'the loop deck is ON the machine face, not a chip in a toolbar');
+  ok(deck.wave && deck.btn && deck.lev, 'with a screen, a transport button and a level fader');
+  ok(deck.h > 90, 'and it is a panel, not a button', deck.w + '×' + deck.h);
+
   // ---- the snip editor ----------------------------------------------------
   const snipped = await p.evaluate(async () => {
     const A = window.__smk;
