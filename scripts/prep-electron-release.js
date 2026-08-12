@@ -6,13 +6,14 @@
 const fs = require('fs');
 const [, , file, edition, run] = process.argv;
 if (!file || !edition || !run) {
-  console.error('usage: prep-electron-release.js <package.json> <se|consumer|vga|ultimate|jp> <runNumber>');
+  console.error('usage: prep-electron-release.js <package.json> <se|consumer|vga|ultimate|jp|smk> <runNumber>');
   process.exit(1);
 }
 const channel = edition === 'se' ? 'latest-se'
   : edition === 'vga' ? 'latest-vga'
   : edition === 'ultimate' ? 'latest-ultimate'
   : edition === 'jp' ? 'latest-jp'
+  : edition === 'smk' ? 'latest-smk'
   : 'latest';
 const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
 pkg.version = '1.0.' + run;                 // unique rising version per build
@@ -38,6 +39,23 @@ if (edition === 'jp') {
   });
   // layout.json belongs to M2's window manager; electron-builder fails the
   // whole build on an extraResource that is not there rather than skipping it.
+  if (Array.isArray(pkg.build.extraResources)) {
+    pkg.build.extraResources = pkg.build.extraResources.filter(
+      (r) => !String(r && r.from).includes('layout.json'));
+  }
+}
+
+// SKRiMPAD SMK is the app for the M-VAVE SMK-25 keyboard. Same reasoning as JP:
+// its own appId, so installing it never upgrades a different edition out from
+// under somebody who is still using it.
+if (edition === 'smk') {
+  pkg.build.appId = 'com.firstriff.smk';
+  pkg.build.productName = 'SKRiMPAD SMK';
+  pkg.description = 'SKRiMPAD SMK — the app for the M-VAVE SMK-25';
+  pkg.build.nsis = Object.assign({}, pkg.build.nsis, {
+    shortcutName: 'SKRiMPAD SMK',
+    uninstallDisplayName: 'SKRiMPAD SMK',
+  });
   if (Array.isArray(pkg.build.extraResources)) {
     pkg.build.extraResources = pkg.build.extraResources.filter(
       (r) => !String(r && r.from).includes('layout.json'));

@@ -8,6 +8,7 @@ on:
       - 'jp/**'
       - 'ultimate/src/core/**'      # JP shares the audio, MIDI and library core
       - 'android/**'
+      - 'scripts/prep-android-edition.js'
       - '.github/workflows/build-apk-jp.yml'
   workflow_dispatch:
 
@@ -47,6 +48,13 @@ jobs:
             echo "bundle still references external files; it must run from file://"
             exit 1
           fi
+
+      # Give this edition its own Android identity. Without it every APK in
+      # this repo builds with ULTIMATE's applicationId, so installing one
+      # REPLACES the other on the phone and leaves a launcher icon with the
+      # wrong name on it.
+      - name: Name this edition
+        run: node scripts/prep-android-edition.js jp ${{ github.run_number }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

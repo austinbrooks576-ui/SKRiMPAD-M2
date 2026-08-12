@@ -1,0 +1,119 @@
+name: Build Windows (SMK)
+
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - 'smk/**'
+      - 'ultimate/src/core/**'
+      - 'jp/src/core/**'
+      - 'electron/**'
+      - 'scripts/prep-electron-release.js'
+      - '.github/workflows/build-windows-smk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the SMK bundle
+        run: node smk/tools/bundle.js
+
+      # Windows is the platform this edition matters most on: it is the one
+      # where Bluetooth MIDI never reaches a browser, so the app opens the BLE
+      # link itself. Test before building, not after.
+      - name: Test it
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund playwright-core
+          npx --yes playwright install --with-deps chromium
+          node smk/test/smk.cjs
+          node ultimate/test/pitch.cjs
+
+      - name: Stage the app
+        shell: bash
+        run: |
+          mkdir -p electron/app
+          cp smk/dist/index.html electron/app/index.html
+
+      - name: Verify the bundle is self-contained
+        shell: bash
+        run: |
+          f=electron/app/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="keys"' "$f" || { echo "bundle has no keybed — wrong file?"; exit 1; }
+          grep -q 'id="pads"' "$f" || { echo "bundle has no pad block — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json smk ${{ github.run_number }}
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          npm install
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-smk-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: smk-win-v1.0.${{ github.run_number }}
+          name: SKRiMPAD SMK Windows — Setup ${{ github.run_number }}
+          body: |
+            **SKRiMPAD SMK** for Windows — built for one controller: the M-VAVE
+            **SMK-25**.
+
+            Twenty-five keys, the 2×4 pad block with DP1 top-left, eight knobs
+            across two banks, and the octave buttons. The pads are never mapped
+            to keys.
+
+            **PLAY, STOP and REC do their job.** The same unit sends one of four
+            different things depending on how it was set up — MMC over SysEx
+            (the factory setting, and the one most apps silently drop), system
+            real-time, Mackie notes 93–95, or plain CC. All four are understood,
+            and anything you have taught the app beats all of them.
+
+            **An octave that changes the note, not the length.** A sample is
+            resynthesised grain by grain rather than played faster, so the same
+            loop takes the same time at every octave.
+
+            **Bluetooth actually connects on Windows.** Windows keeps BLE MIDI
+            behind an interface browsers and desktop apps do not use, so a
+            keyboard paired perfectly in Windows settings is invisible to every
+            app without its own Bluetooth stack. This one has: press CONNECT
+            BLUETOOTH in SETUP and it opens the link itself. Over USB the
+            keyboard publishes three ports and the app reads all of them, because
+            the pads and the transport arrive on the second.
+
+            Installs alongside the other editions and updates on its own channel.
+
+            **Requirements:** Windows 10+ (64-bit)
+          files: |
+            electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
