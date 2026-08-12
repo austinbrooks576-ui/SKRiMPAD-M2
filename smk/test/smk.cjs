@@ -527,6 +527,65 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
   ok(heard2.second > 0, 'and clicking it AGAIN plays it again — the audition is not tied to arming',
      heard2.first + ' then ' + heard2.second);
 
+  // ---- the knobs are what the unit says they are --------------------------
+  // The panel silkscreens MODE OCT LATCH GATE / SWING TEMPO RATE TRANSPOSE.
+  // These were CUTOFF/RESO/ATTACK/... — sensible synth controls, and not what
+  // is written on the keyboard. A knob named something other than what is
+  // printed on it is the worst kind of wrong: everything works and nothing is
+  // where it says it is.
+  const knobs = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.S.knobBank = 0;
+    const labels = A.KNOB_ROLES.slice(0, 8).map((r) => r.l);
+    const before = { mode: A.S.arp.mode, rate: A.S.arp.rate, oct: A.S.arp.octaves,
+                     latch: A.S.arp.latch, bpm: A.S.bpm, tr: A.S.transpose };
+    A.setKnob(0, 0.95);   // MODE
+    A.setKnob(1, 0.95);   // OCT
+    A.setKnob(2, 0.95);   // LATCH
+    A.setKnob(5, 0.30);   // TEMPO
+    A.setKnob(6, 0.05);   // RATE
+    A.setKnob(7, 0.95);   // TRANSPOSE
+    const after = { mode: A.S.arp.mode, rate: A.S.arp.rate, oct: A.S.arp.octaves,
+                    latch: A.S.arp.latch, bpm: A.S.bpm, tr: A.S.transpose };
+    // Rows, as on the unit.
+    const cs = getComputedStyle(document.querySelector('#knobs'));
+    return { labels, before, after, cols: cs.gridTemplateColumns.split(' ').length };
+  });
+  ok(knobs.labels.join(' ') === 'MODE OCT LATCH GATE SWING TEMPO RATE TRANSPOSE',
+     'bank A is labelled exactly as the unit is silkscreened', knobs.labels.join(' '));
+  ok(knobs.cols === 4, 'and laid out 2x4 like the panel, not one row of eight', knobs.cols + ' columns');
+  ok(knobs.after.mode !== knobs.before.mode, 'MODE changes the arpeggiator mode',
+     knobs.before.mode + ' → ' + knobs.after.mode);
+  ok(knobs.after.oct !== knobs.before.oct, 'OCT changes its octave spread',
+     knobs.before.oct + ' → ' + knobs.after.oct);
+  ok(knobs.after.latch !== knobs.before.latch, 'LATCH latches past halfway',
+     knobs.before.latch + ' → ' + knobs.after.latch);
+  ok(knobs.after.rate !== knobs.before.rate, 'RATE changes the division',
+     knobs.before.rate + ' → ' + knobs.after.rate);
+  ok(knobs.after.bpm !== knobs.before.bpm, 'TEMPO changes the tempo',
+     knobs.before.bpm + ' → ' + knobs.after.bpm);
+  ok(knobs.after.tr !== knobs.before.tr, 'and TRANSPOSE transposes',
+     knobs.before.tr + ' → ' + knobs.after.tr + ' semitones');
+
+  // ---- the pads, and the one tap that fixes a unit that disagrees ---------
+  const flip = await p.evaluate(async () => {
+    const A = window.__smk;
+    const key = A.unit.unitKey('SMK-25 II MIDI 2');
+    A.unit.reset(key);
+    const before = A.unit.padSnapshot(key, 0).map((x) => x && x.note);
+    A.flipPadRows();
+    const after = A.unit.padSnapshot(key, 0).map((x) => x && x.note);
+    A.flipPadRows();
+    const back = A.unit.padSnapshot(key, 0).map((x) => x && x.note);
+    A.unit.reset(key);
+    return { before, after, back };
+  });
+  ok(flip.before.join(',') === '36,37,38,39,40,41,42,43',
+     'Pad 1 is top-left and takes the first note, as the unit is numbered', flip.before.join(','));
+  ok(flip.after.join(',') === '40,41,42,43,36,37,38,39',
+     'FLIP ROWS swaps the two rows for a unit mapped the other way', flip.after.join(','));
+  ok(flip.back.join(',') === flip.before.join(','), 'and flipping again puts it back');
+
   // ---- the two touch strips ----------------------------------------------
   // Both were being dropped: pitch bend has its own status byte (0xE0) and the
   // handler had no case for it, and mod (CC 1) fell through the knob lookup.

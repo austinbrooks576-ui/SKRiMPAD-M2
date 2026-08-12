@@ -51,15 +51,16 @@ export const PAD_LABELS = ['DP1', 'DP2', 'DP3', 'DP4', 'DP5', 'DP6', 'DP7', 'DP8
 
 // Where a learn starts. General MIDI percussion from 36, channel 10 — what
 // these controllers ship as before anyone opens CubeSuite.
-// THE BOTTOM ROW IS THE LOW NOTES. Pad hardware in this family is MPC-style:
-// the bottom-left pad sends the LOWEST note and the numbers climb upwards. The
-// screen puts DP1 in the top-left, as it is silkscreened on the unit — so
-// mapping 36,37,38... straight down the screen order puts the low notes on the
-// TOP row and the whole block plays upside down. Hitting bottom-left lit DP5.
+// PAD 1 IS TOP-LEFT AND TAKES THE FIRST NOTE. The unit silkscreens Pad 1..Pad 4
+// across the top row and Pad 5..Pad 8 across the bottom, so the numbering runs
+// the same way the screen does and the first pad gets the first note.
 //
-// So the top row takes 40-43 and the bottom row 36-39, which makes the pad you
-// hit the pad that lights.
-export const FACTORY_PAD_NOTES = [40, 41, 42, 43, 36, 37, 38, 39];
+// I had this as an MPC-style bottom-up map for one build, on the assumption
+// that this family numbers pads from the bottom left. A photograph of the unit
+// says otherwise. If a particular unit disagrees — they are all remappable in
+// M-VAVE's editor — FLIP ROWS in the pad menu swaps the two rows in one tap,
+// and teaching a pad overrides the factory map entirely.
+export const FACTORY_PAD_NOTES = [36, 37, 38, 39, 40, 41, 42, 43];
 export const FACTORY_PAD_CH = 9;       // zero-based: MIDI channel 10
 
 // And the eight knobs, which conventionally start at CC 21.
@@ -70,25 +71,40 @@ export const FACTORY_KNOB_CC = [21, 22, 23, 24, 25, 26, 27, 28];
 // the sound under your hands; bank B is the room it is in and the machine
 // around it. Every one is remappable; these are what they do until you say
 // otherwise.
+// THE KNOBS ARE ARPEGGIATOR CONTROLS, and they are silkscreened on the unit.
+//
+// This list used to be CUTOFF/RESO/ATTACK/RELEASE/DRIVE/SPREAD/TUNE/LEVEL —
+// a sensible set of synth controls, and not what is printed on the keyboard.
+// The panel reads, in the 2x4 block:
+//
+//     MODE    OCT     LATCH   GATE
+//     SWING   TEMPO   RATE    TRANSPOSE
+//
+// which is the arpeggiator, top to bottom. Naming a knob something other than
+// what is written on the knob is the worst kind of wrong: everything works and
+// nothing is where it says it is.
+//
+// Bank B (KNOB-B) keeps the voice controls, because they have to live
+// somewhere and the unit gives a second bank for exactly this.
 export const KNOB_ROLES = [
-  // ---- BANK A: the voice -------------------------------------------------
-  { id: 'cutoff',  l: 'CUTOFF',  d: 'Brightness. Opens and closes the filter — the single most useful knob on any synth, which is why it is knob 1.' },
+  // ---- BANK A: the arpeggiator, as printed on the unit --------------------
+  { id: 'mode',    l: 'MODE',    d: 'Which order the held notes are played in: UP, DOWN, INCL, EXCL, RAND, ORDER, REPEAT. INCL repeats the top and bottom of the run; EXCL turns without repeating them.' },
+  { id: 'oct',     l: 'OCT',     d: 'How many octaves the arpeggio spreads over, 1 to 4. One octave of a three-note chord is nine notes of nothing new.' },
+  { id: 'latch',   l: 'LATCH',   d: 'Past halfway the arpeggio keeps running with no keys down. It captures the WHOLE chord, taken as the first finger lifts.' },
+  { id: 'gate',    l: 'GATE',    d: 'How long each arpeggiated note holds, as a fraction of its step. Short is staccato; long runs the notes together.' },
+  { id: 'swing',   l: 'SWING',   d: 'Delays the offbeats only. Delaying every step would just be a slower tempo.' },
+  { id: 'tempo',   l: 'TEMPO',   d: 'Beats per minute, 20 to 300. The arpeggiator, the rhythms, the sequencer and the looper all follow it.' },
+  { id: 'rate',    l: 'RATE',    d: 'How often a step happens: 1/4 down to 1/32T, the unit\'s own eight divisions.' },
+  { id: 'transpose', l: 'TRANSPOSE', d: 'Shifts every note by semitones without moving the keyboard window, so the shape under your hands stays put.' },
+  // ---- BANK B (KNOB-B): the voice ----------------------------------------
+  { id: 'cutoff',  l: 'CUTOFF',  d: 'Brightness. Opens and closes the filter — the most useful knob on any synth.' },
   { id: 'reso',    l: 'RESO',    d: 'The peak at the cutoff point. A little adds bite; a lot makes the filter sing on its own.' },
   { id: 'attack',  l: 'ATTACK',  d: 'How fast a note arrives. Down for a stab, up for a swell.' },
   { id: 'release', l: 'RELEASE', d: 'How long it takes to disappear after you let go.' },
   { id: 'drive',   l: 'DRIVE',   d: 'Saturation before the filter. Adds harmonics and weight rather than just volume.' },
-  { id: 'spread',  l: 'SPREAD',  d: 'Detune between stacked oscillators. The difference between one sawtooth and a supersaw.' },
+  { id: 'space',   l: 'SPACE',   d: 'Reverb send. How much room the sound is in.' },
   { id: 'tune',    l: 'TUNE',    d: 'Pitch in semitones, ±24. Centred is no change.' },
   { id: 'level',   l: 'LEVEL',   d: 'How loud this sound is against the others.' },
-  // ---- BANK B: the room and the machine ----------------------------------
-  { id: 'space',   l: 'SPACE',   d: 'Reverb send. How much room the sound is in.' },
-  { id: 'delay',   l: 'DELAY',   d: 'Echo send, timed to the tempo.' },
-  { id: 'pan',     l: 'PAN',     d: 'Position across the stereo field.' },
-  { id: 'master',  l: 'MASTER',  d: 'The output of the whole app.' },
-  { id: 'tempo',   l: 'TEMPO',   d: 'Beats per minute, 20 to 300. The arpeggiator, the rhythms and the looper all follow it.' },
-  { id: 'swing',   l: 'SWING',   d: 'Delays the offbeats only. Applying it to every step would just be a slower tempo.' },
-  { id: 'gate',    l: 'GATE',    d: 'How long each arpeggiator or rhythm note lasts, as a fraction of its step.' },
-  { id: 'mix',     l: 'MIX',     d: 'Balance between the keys and the pads, so one can sit under the other without touching either level.' },
 ];
 
 // The ARP shortcut row, printed under the 25 keys. Index is the key, 0-based

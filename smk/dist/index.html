@@ -211,7 +211,11 @@ button{border:0;background:none;cursor:pointer;}
   justify-content:flex-start;}
 
 /* ---------- knobs ---------- */
-#knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
+/* TWO ROWS OF FOUR, as on the unit — not one row of eight. The block on the
+   panel is 2x4 and the labels read across it, so a single row means the knob
+   you are looking for is never where the hardware says it is. */
+#knobs{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,auto);
+  gap:5px;flex:0 0 auto;width:100%;max-width:min(100%,520px);margin-right:auto;}
 .knob{border:1px solid var(--glass-line);border-radius:12px;background:var(--glass);
   -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
   padding:5px 4px;text-align:center;min-height:52px;
@@ -2654,28 +2658,28 @@ button{border:0;background:none;cursor:pointer;}
   var KNOBS = 8;
   var KNOB_BANKS = 2;
   var PAD_LABELS = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8"];
-  var FACTORY_PAD_NOTES = [40, 41, 42, 43, 36, 37, 38, 39];
+  var FACTORY_PAD_NOTES = [36, 37, 38, 39, 40, 41, 42, 43];
   var FACTORY_PAD_CH = 9;
   var FACTORY_KNOB_CC = [21, 22, 23, 24, 25, 26, 27, 28];
   var KNOB_ROLES = [
-    // ---- BANK A: the voice -------------------------------------------------
-    { id: "cutoff", l: "CUTOFF", d: "Brightness. Opens and closes the filter \u2014 the single most useful knob on any synth, which is why it is knob 1." },
+    // ---- BANK A: the arpeggiator, as printed on the unit --------------------
+    { id: "mode", l: "MODE", d: "Which order the held notes are played in: UP, DOWN, INCL, EXCL, RAND, ORDER, REPEAT. INCL repeats the top and bottom of the run; EXCL turns without repeating them." },
+    { id: "oct", l: "OCT", d: "How many octaves the arpeggio spreads over, 1 to 4. One octave of a three-note chord is nine notes of nothing new." },
+    { id: "latch", l: "LATCH", d: "Past halfway the arpeggio keeps running with no keys down. It captures the WHOLE chord, taken as the first finger lifts." },
+    { id: "gate", l: "GATE", d: "How long each arpeggiated note holds, as a fraction of its step. Short is staccato; long runs the notes together." },
+    { id: "swing", l: "SWING", d: "Delays the offbeats only. Delaying every step would just be a slower tempo." },
+    { id: "tempo", l: "TEMPO", d: "Beats per minute, 20 to 300. The arpeggiator, the rhythms, the sequencer and the looper all follow it." },
+    { id: "rate", l: "RATE", d: "How often a step happens: 1/4 down to 1/32T, the unit's own eight divisions." },
+    { id: "transpose", l: "TRANSPOSE", d: "Shifts every note by semitones without moving the keyboard window, so the shape under your hands stays put." },
+    // ---- BANK B (KNOB-B): the voice ----------------------------------------
+    { id: "cutoff", l: "CUTOFF", d: "Brightness. Opens and closes the filter \u2014 the most useful knob on any synth." },
     { id: "reso", l: "RESO", d: "The peak at the cutoff point. A little adds bite; a lot makes the filter sing on its own." },
     { id: "attack", l: "ATTACK", d: "How fast a note arrives. Down for a stab, up for a swell." },
     { id: "release", l: "RELEASE", d: "How long it takes to disappear after you let go." },
     { id: "drive", l: "DRIVE", d: "Saturation before the filter. Adds harmonics and weight rather than just volume." },
-    { id: "spread", l: "SPREAD", d: "Detune between stacked oscillators. The difference between one sawtooth and a supersaw." },
-    { id: "tune", l: "TUNE", d: "Pitch in semitones, \xB124. Centred is no change." },
-    { id: "level", l: "LEVEL", d: "How loud this sound is against the others." },
-    // ---- BANK B: the room and the machine ----------------------------------
     { id: "space", l: "SPACE", d: "Reverb send. How much room the sound is in." },
-    { id: "delay", l: "DELAY", d: "Echo send, timed to the tempo." },
-    { id: "pan", l: "PAN", d: "Position across the stereo field." },
-    { id: "master", l: "MASTER", d: "The output of the whole app." },
-    { id: "tempo", l: "TEMPO", d: "Beats per minute, 20 to 300. The arpeggiator, the rhythms and the looper all follow it." },
-    { id: "swing", l: "SWING", d: "Delays the offbeats only. Applying it to every step would just be a slower tempo." },
-    { id: "gate", l: "GATE", d: "How long each arpeggiator or rhythm note lasts, as a fraction of its step." },
-    { id: "mix", l: "MIX", d: "Balance between the keys and the pads, so one can sit under the other without touching either level." }
+    { id: "tune", l: "TUNE", d: "Pitch in semitones, \xB124. Centred is no change." },
+    { id: "level", l: "LEVEL", d: "How loud this sound is against the others." }
   ];
   var ARP_LEGEND = [
     "UP",
@@ -3592,6 +3596,7 @@ button{border:0;background:none;cursor:pointer;}
       arp: { on: false, mode: "UP", rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: "", octaves: 1 },
       voice: null,
       bendRange: 2,
+      transpose: 0,
       scale: "off",
       chord: "off",
       root: 0,
@@ -3994,7 +3999,7 @@ button{border:0;background:none;cursor:pointer;}
   }
   function keyOn(note, vel) {
     eng.init();
-    const n = applyScale(note);
+    const n = applyScale(note + (S.transpose || 0));
     if (S.arp.on) {
       syncArp();
       arp.hold(n, vel);
@@ -4024,7 +4029,7 @@ button{border:0;background:none;cursor:pointer;}
     });
   }
   function keyOff(note) {
-    const n = applyScale(note);
+    const n = applyScale(note + (S.transpose || 0));
     if (S.arp.on) {
       [n].concat(chordNotes(n)).forEach((x) => arp.release(x));
       paintKeys();
@@ -4247,6 +4252,20 @@ button{border:0;background:none;cursor:pointer;}
     const items = lib.items;
     if (!items.length) return [{ label: "No sounds yet", disabled: true }];
     return items.map((it) => ({ label: it.name, hint: it.from || it.kind || "", run: () => pick(it.id, it.name) }));
+  }
+  function flipPadRows() {
+    const key = unit.unitKey(portName);
+    for (let b = 0; b < PAD_BANKS; b++) {
+      const snap = unit.padSnapshot(key, b);
+      for (let i = 0; i < 4; i++) {
+        const top = snap[i], bot = snap[i + 4];
+        if (bot) unit.teachPad(key, b, i, bot.note, bot.ch);
+        if (top) unit.teachPad(key, b, i + 4, top.note, top.ch);
+      }
+    }
+    toast("pad rows flipped");
+    paintPads();
+    renderSetup();
   }
   function padMenu(i) {
     const sl = S.pads[S.padBank][i];
@@ -4522,9 +4541,15 @@ button{border:0;background:none;cursor:pointer;}
     S.knob[S.knobBank * KNOBS + i] = Math.max(0, Math.min(1, v));
     const role = knobRole(i);
     if (role.id === "tempo") setTempo(Math.round(20 + v * 280));
-    if (role.id === "swing") S.arp.swing = v * 0.6;
-    if (role.id === "gate") S.arp.gate = 0.05 + v * 0.95;
+    else if (role.id === "swing") S.arp.swing = v * 0.6;
+    else if (role.id === "gate") S.arp.gate = 0.05 + v * 0.95;
+    else if (role.id === "mode") S.arp.mode = ARP_MODES[Math.min(ARP_MODES.length - 1, Math.floor(v * ARP_MODES.length))];
+    else if (role.id === "rate") S.arp.rate = Math.min(ARP_RATES.length - 1, Math.floor(v * ARP_RATES.length));
+    else if (role.id === "oct") S.arp.octaves = 1 + Math.min(3, Math.floor(v * 4));
+    else if (role.id === "latch") S.arp.latch = v > 0.5;
+    else if (role.id === "transpose") S.transpose = Math.round((v - 0.5) * 24);
     syncArp();
+    paintRail();
     knobEls[i] && knobEls[i].classList.add("live");
     setTimeout(() => knobEls[i] && knobEls[i].classList.remove("live"), 220);
     save();
@@ -5315,6 +5340,7 @@ button{border:0;background:none;cursor:pointer;}
     renderSeq,
     exportMid,
     bed,
+    flipPadRows,
     setVoice,
     paintVoice,
     setBend,
@@ -5361,7 +5387,9 @@ button{border:0;background:none;cursor:pointer;}
     KNOB_ROLES,
     RHYTHMS,
     ARP_LEGEND,
-    SCCH_LEGEND
+    SCCH_LEGEND,
+    ARP_MODES,
+    ARP_RATES
   };
 })();
 
