@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<title>SKRiMPAD SMK</title>
+<meta name="theme-color" content="#07080C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+/* ONE KEYBOARD. The keys are the instrument; the pads are the eight-pad block
+   on its right-hand side and stay a separate thing, because a keyboard whose
+   C4 secretly fires a snare is a keyboard you cannot play. */
+:root{
+  --bg:#07080C; --panel:#10131B; --line:rgba(255,255,255,.09);
+  --txt:#EAF0F6; --dim:#7D8798; --acc:#4BE3C8; --rec:#FF3B5C; --warm:#FFB454;
+  --fs-xs:clamp(9px,1.5vw,11px); --fs-sm:clamp(11px,1.7vw,13px);
+  --fs-md:clamp(13px,2.1vw,16px);
+  --sp:clamp(6px,1.1vw,12px); --hit:44px;
+  --e1:0 1px 2px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.35);
+  --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
+  --lip:inset 0 1px 0 rgba(255,255,255,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
+  font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:var(--fs-md);letter-spacing:.02em;}
+button,input{font-family:inherit;color:inherit;}
+button{border:0;background:none;cursor:pointer;}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;gap:var(--sp);
+  padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
+          max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));}
+
+/* ---------- SPLASH ---------- */
+/* Kept, because it is the only moment the app gets to say what it is for — and
+   because audio cannot start without a gesture anyway, so a screen that asks
+   for one is honest rather than decorative. */
+#splash{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;background:var(--bg);
+  transition:opacity .45s ease;text-align:center;padding:24px;}
+#splash.gone{opacity:0;pointer-events:none;}
+#splash h1{margin:0;font-size:clamp(26px,7vw,52px);letter-spacing:.2em;font-weight:600;}
+#splash h1 b{color:var(--acc);}
+#splash .sub{color:var(--dim);font-size:var(--fs-sm);max-width:34ch;line-height:1.6;}
+#splash .go{margin-top:8px;min-height:var(--hit);padding:0 26px;border-radius:12px;
+  border:1px solid var(--acc);color:var(--acc);font-size:var(--fs-md);letter-spacing:.12em;}
+#splash .keysvg{width:min(320px,72vw);opacity:.55;}
+
+#top{display:flex;align-items:center;gap:var(--sp);min-height:32px;flex:0 0 auto;}
+#brand{font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+#brand b{color:var(--acc);}
+#link{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);
+  color:var(--dim);padding:5px 9px;border:1px solid var(--line);border-radius:999px;min-height:26px;}
+#link .dot{width:7px;height:7px;border-radius:50%;background:#54607A;}
+#link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
+#link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
+
+#stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:var(--sp);
+  justify-content:flex-end;}
+
+/* ---------- knobs ---------- */
+#knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
+.knob{border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  padding:5px 4px;text-align:center;box-shadow:var(--lip);min-height:52px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
+.knob .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.06em;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.knob .kv{font-size:var(--fs-sm);font-variant-numeric:tabular-nums;}
+.knob .kb{width:100%;height:3px;border-radius:9px;background:rgba(255,255,255,.1);overflow:hidden;}
+.knob .kb i{display:block;height:100%;background:var(--acc);width:0;}
+.knob.live{border-color:var(--acc);}
+
+/* ---------- pads: 2 x 4, DP1 top-left ---------- */
+#pads{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);
+  gap:6px;flex:0 0 auto;}
+.pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
+  overflow:hidden;box-shadow:var(--e1),var(--lip);min-height:56px;padding:6px 8px;
+  background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
+  display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
+.pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
+.pad .t{font-size:var(--fs-xs);font-weight:600;line-height:1.15;word-break:break-word;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);}
+.pad .t.empty{color:rgba(255,255,255,.32);font-weight:400;}
+.pad i{position:absolute;inset:0;background:hsl(var(--h) 90% 62%);opacity:0;pointer-events:none;
+  transition:opacity .18s;}
+.pad.hit i{opacity:.55;transition:none;}
+.pad.arm{animation:pulse 1s ease-in-out infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 2px rgba(75,227,200,.25),var(--e1);}
+  50%{box-shadow:0 0 0 4px rgba(75,227,200,.8),var(--e1);}}
+
+/* ---------- the 25 keys ---------- */
+#keys{position:relative;flex:0 0 auto;height:clamp(88px,15vh,132px);
+  border-radius:10px;overflow:hidden;background:#05060A;border:1px solid var(--line);}
+.kw,.kk{position:absolute;top:0;bottom:0;border-radius:0 0 5px 5px;}
+.kw{background:linear-gradient(180deg,#e8edf4,#b9c2ce);border:1px solid #7d8698;}
+.kk{background:linear-gradient(180deg,#2a2f3a,#0d1016);border:1px solid #000;z-index:2;
+  bottom:36%;border-radius:0 0 4px 4px;}
+.kw.on{background:linear-gradient(180deg,var(--acc),#1e9e8b);}
+.kk.on{background:linear-gradient(180deg,var(--acc),#12786a);}
+.kw .lg,.kk .lg{position:absolute;left:0;right:0;bottom:2px;text-align:center;
+  font-size:8px;letter-spacing:0;pointer-events:none;}
+.kw .lg{color:#5b6473;} .kk .lg{color:#8b93a3;}
+#keys.shift .kw .lg,#keys.shift .kk .lg{color:var(--acc);font-weight:600;}
+
+.rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);
+  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+.chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
+.chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
+.chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
+.chip.warm.on{background:var(--warm);border-color:var(--warm);color:#241300;}
+.chip:disabled{opacity:.4;}
+.chip.pair{padding:0 4px 0 2px;gap:0;}
+.chip.pair #tap{min-height:30px;padding:0 8px;border-radius:8px;font-size:var(--fs-xs);color:var(--dim);}
+#tempo{width:46px;min-height:30px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;-moz-appearance:textfield;}
+#tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+#loopbar{flex:1 1 80px;height:6px;min-width:60px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;}
+#loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+
+.scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:40;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(600px,94vw);max-height:min(84vh,780px);background:var(--panel);
+  border:1px solid var(--line);border-radius:16px;box-shadow:var(--e2);
+  display:flex;flex-direction:column;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;z-index:50;}
+.sheet.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+.sheet header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.sheet h2{margin:0;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.sheet .body{overflow:auto;padding:12px 14px;}
+.x{margin-left:auto;min-width:34px;min-height:34px;border-radius:9px;border:1px solid var(--line);color:var(--dim);}
+.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.row:last-child{border-bottom:0;}
+.row .nm{flex:1 1 auto;min-width:0;font-size:var(--fs-sm);}
+.row .sub{font-size:var(--fs-xs);color:var(--dim);}
+.dim{color:var(--dim);font-size:var(--fs-xs);line-height:1.55;}
+.grp{margin:0 0 16px;} .grp h3{margin:0 0 6px;font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.opts{display:flex;flex-wrap:wrap;gap:6px;}
+#drop{margin:0 0 10px;padding:20px 10px;border:1px dashed var(--line);border-radius:12px;
+  text-align:center;color:var(--dim);font-size:var(--fs-sm);cursor:pointer;}
+#drop.hot{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.07);}
+#file{display:none;}
+#toast{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);background:rgba(16,19,27,.96);border:1px solid var(--line);
+  border-radius:11px;padding:9px 14px;font-size:var(--fs-sm);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:80;max-width:92vw;text-align:center;box-shadow:var(--e2);}
+#toast.on{opacity:1;}
+@media (max-width:520px){ #knobs{grid-template-columns:repeat(4,1fr);} }
+</style>
+</head>
+<body>
+
+<div id="splash">
+  <h1>SKRiMPAD <b>SMK</b></h1>
+  <div class="sub">Built for one keyboard: the M-VAVE SMK-25.
+    Twenty-five keys, eight pads, eight knobs across two banks, the arpeggiator,
+    the scale and chord modes, and the transport — all of it, doing what it says
+    on the unit.</div>
+  <svg class="keysvg" viewBox="0 0 300 44" aria-hidden="true">
+    <rect x="0" y="0" width="300" height="44" rx="4" fill="#0d1016" stroke="#22virtual"/>
+    <g fill="#dfe6ee">
+      <rect x="4" y="4" width="18" height="36" rx="2"/><rect x="24" y="4" width="18" height="36" rx="2"/>
+      <rect x="44" y="4" width="18" height="36" rx="2"/><rect x="64" y="4" width="18" height="36" rx="2"/>
+      <rect x="84" y="4" width="18" height="36" rx="2"/><rect x="104" y="4" width="18" height="36" rx="2"/>
+      <rect x="124" y="4" width="18" height="36" rx="2"/><rect x="144" y="4" width="18" height="36" rx="2"/>
+    </g>
+    <g fill="#12161d">
+      <rect x="16" y="4" width="12" height="22" rx="1.5"/><rect x="36" y="4" width="12" height="22" rx="1.5"/>
+      <rect x="76" y="4" width="12" height="22" rx="1.5"/><rect x="96" y="4" width="12" height="22" rx="1.5"/>
+      <rect x="116" y="4" width="12" height="22" rx="1.5"/>
+    </g>
+    <g fill="#4BE3C8" opacity=".8">
+      <rect x="176" y="6" width="26" height="14" rx="3"/><rect x="206" y="6" width="26" height="14" rx="3"/>
+      <rect x="236" y="6" width="26" height="14" rx="3"/><rect x="266" y="6" width="26" height="14" rx="3"/>
+      <rect x="176" y="24" width="26" height="14" rx="3"/><rect x="206" y="24" width="26" height="14" rx="3"/>
+      <rect x="236" y="24" width="26" height="14" rx="3"/><rect x="266" y="24" width="26" height="14" rx="3"/>
+    </g>
+  </svg>
+  <button class="go" id="splashgo">START</button>
+</div>
+
+<div id="app">
+  <div id="top">
+    <span id="brand">SKRiMPAD <b>SMK</b></span>
+    <button id="link"><span class="dot"></span><span id="linktxt">looking for your SMK-25…</span></button>
+    <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="setbtn" aria-label="Setup">⚙</button>
+  </div>
+
+  <div id="stage">
+    <div id="knobs"></div>
+    <div id="pads"></div>
+    <div id="keys"></div>
+  </div>
+
+  <div class="rail">
+    <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
+    <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
+    <button class="chip" id="arp">ARP</button>
+    <button class="chip" id="scch">SC/CH</button>
+    <button class="chip sm" id="octdn" aria-label="Octave down">OCT−</button>
+    <button class="chip sm" id="octup" aria-label="Octave up">OCT+</button>
+  </div>
+
+  <div class="rail">
+    <span class="chip pair"><input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo"><button id="tap">TAP</button></span>
+    <button class="chip rec" id="rec" aria-label="Record">●</button>
+    <button class="chip" id="play" aria-label="Play or pause">▶</button>
+    <button class="chip" id="stop" aria-label="Stop">■</button>
+    <div id="loopbar"><i></i></div>
+    <button class="chip sm" id="undo" aria-label="Undo">↶</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="lib" role="dialog" aria-modal="true" aria-label="Sounds">
+  <header><h2>SOUNDS</h2><span class="sub" id="libcount"></span><button class="x" id="libx">✕</button></header>
+  <div class="body">
+    <div id="drop">DROP AUDIO OR A .ZIP PACK HERE<br><span class="dim">or tap to browse</span></div>
+    <input type="file" id="file" multiple accept="audio/*,.zip,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff">
+    <div id="list"></div>
+  </div>
+</div>
+<div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
+  <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
+  <div class="body" id="setupbody"></div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import { createEngine } from '../../ultimate/src/core/engine.js';
+import { createMidiIO } from '../../ultimate/src/core/midi-io.js';
+import { createLibrary } from '../../ultimate/src/core/library.js';
+import { openMenu, closeMenu, onLongPress } from '../../ultimate/src/core/menu.js';
+import { importZip, isZip } from '../../jp/src/core/zip.js';
+import { createLooper } from '../../jp/src/core/looper.js';
+import {
+  KEYS, FIRST_NOTE, PADS, PAD_BANKS, PAD_LABELS, KNOBS, KNOB_BANKS, KNOB_ROLES,
+  ARP_LEGEND, SCCH_LEGEND, ARP_MODES, ARP_RATES, RHYTHMS, SCALES, CHORDS,
+  identify, createUnitMap, signature,
+} from './core/smk25.js';
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const NOTES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const BLACK = new Set([1, 3, 6, 8, 10]);
+
+// ---------------------------------------------------------------------------
+const LS = 'skrimpad.smk.state.v1';
+function fresh() {
+  return {
+    bpm: 100, octave: 0, padBank: 0, knobBank: 0,
+    arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '' },
+    scale: 'off', chord: 'off', root: 0,
+    // A voice per PAD, and a voice per KEY. Both are addressable individually,
+    // which is the whole point of "clear all, even the individually set keys" —
+    // there has to be something to clear.
+    pads: Array.from({ length: PAD_BANKS }, () => Array.from({ length: PADS }, () => null)),
+    keys: {},                    // absolute MIDI note -> { id, name }
+    knob: Array.from({ length: KNOB_BANKS * KNOBS }, () => 0.5),
+  };
+}
+let S = load();
+function load() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS) || 'null');
+    if (!v || typeof v !== 'object') return fresh();
+    const out = fresh();
+    ['bpm', 'octave', 'padBank', 'knobBank', 'scale', 'chord', 'root'].forEach((k) => { if (v[k] != null) out[k] = v[k]; });
+    if (v.arp) Object.assign(out.arp, v.arp);
+    if (Array.isArray(v.pads)) v.pads.slice(0, PAD_BANKS).forEach((b, i) => {
+      if (Array.isArray(b)) b.slice(0, PADS).forEach((sl, k) => { if (sl && sl.id) out.pads[i][k] = sl; });
+    });
+    if (v.keys && typeof v.keys === 'object') Object.keys(v.keys).forEach((n) => {
+      if (v.keys[n] && v.keys[n].id) out.keys[n] = v.keys[n];
+    });
+    if (Array.isArray(v.knob)) v.knob.forEach((x, i) => { if (i < out.knob.length) out.knob[i] = +x || 0; });
+    return out;
+  } catch (e) { return fresh(); }
+}
+let saveT = 0;
+const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} }, 350); };
+
+// ---------------------------------------------------------------------------
+const warm = new Map();
+const eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+const lib = createLibrary({
+  ctx: () => (eng.init(), eng.ctx),
+  onChange: () => renderList(),
+  onError: (k, n) => toast(k === 'storage' ? 'no room to store ' + n : 'could not read ' + n),
+});
+const unit = createUnitMap();
+let portName = '';
+
+const K = (i) => S.knob[(S.knobBank * KNOBS) + i];
+const knobRole = (i) => KNOB_ROLES[(S.knobBank * KNOBS) + i];
+
+// A key's voice. A sample if one is on that key, otherwise a playable synth —
+// because a keyboard that is silent until you import something teaches nobody
+// anything.
+function keyVoice(note) {
+  const sl = S.keys[note];
+  const v = {
+    kind: sl && sl.id ? 'sample' : 'synth', wave: 'sawtooth', note,
+    gain: 0.5 + K(7) * 0.7, attack: 0.002 + K(2) * 0.6, decay: 0.4,
+    sustain: 0.7, release: 0.06 + K(3) * 1.4,
+    cutoff: 0.12 + K(0) * 0.85, res: K(1) * 0.8, drive: K(4) * 0.8,
+    space: S.knob[8 + 0], spread: K(5) * 0.9,
+    pan: (S.knob[8 + 2] - 0.5) * 2, tune: Math.round((K(6) - 0.5) * 48),
+  };
+  if (sl && sl.id) { v.sampleId = sl.id; v.decay = 3; v.release = 0.2; }
+  return v;
+}
+const HUES = [4, 34, 62, 96, 150, 196, 250, 300];
+const PAD_DEF = ['kick', 'snare', 'hat', 'clap', 'tom', 'rim', 'perc', 'cym'];
+function padVoice(i) {
+  const sl = S.pads[S.padBank][i];
+  const v = {
+    kind: sl && sl.id ? 'sample' : 'drum', drum: PAD_DEF[i % 8], note: 36 + i,
+    gain: 0.9 + K(7) * 0.5, attack: 0.001, decay: 0.4, sustain: 0, release: 0.12,
+    cutoff: 0.5 + K(0) * 0.5, res: K(1) * 0.5, drive: 0.1 + K(4) * 0.6,
+    space: S.knob[8 + 0] * 0.6, spread: 0, pan: 0, tune: 0,
+  };
+  if (sl && sl.id) { v.sampleId = sl.id; v.kind = 'sample'; v.decay = 3; }
+  return v;
+}
+
+// ---------------------------------------------------------------------------
+const loop = createLooper({
+  now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+  bpmFor: () => S.bpm,
+  onFire: (id, vel, at) => {
+    // The loop stores pads as 0..7 and keys as their absolute note + 1000, so a
+    // single event stream can hold both without either pretending to be the
+    // other.
+    if (id >= 1000) eng.play(keyVoice(id - 1000), at, vel);
+    else { eng.play(padVoice(id), at, vel, id); flashPad(id); }
+  },
+  onState: (i) => paintTransport(i),
+});
+
+const held = new Map();
+function keyOn(note, vel) {
+  eng.init();
+  const n = applyScale(note);
+  if (held.has(n)) { try { held.get(n).off(); } catch (e) {} }
+  const h = eng.hold(keyVoice(n), n, vel, 0);
+  held.set(n, h);
+  paintKeys();
+  loop.capture(1000 + n, vel, 0.25);
+  // Chord mode stacks the extra notes as their own voices, so releasing the key
+  // releases the chord rather than leaving the upper notes hanging.
+  chordNotes(n).forEach((x) => {
+    const hh = eng.hold(keyVoice(x), x, Math.round(vel * 0.8), 0);
+    held.set(x, hh);
+  });
+}
+function keyOff(note) {
+  const n = applyScale(note);
+  [n].concat(chordNotes(n)).forEach((x) => {
+    const h = held.get(x);
+    if (h) { try { h.off(); } catch (e) {} held.delete(x); }
+  });
+  paintKeys();
+}
+function applyScale(note) {
+  const sc = SCALES[S.scale];
+  if (!sc || !sc.iv) return note;
+  const pc = ((note - S.root) % 12 + 12) % 12;
+  let best = sc.iv[0], d = 99;
+  for (const iv of sc.iv) { const dd = Math.abs(iv - pc); if (dd < d) { d = dd; best = iv; } }
+  return note + (best - pc);
+}
+function chordNotes(root) {
+  const ch = CHORDS[S.chord];
+  const sc = SCALES[S.scale];
+  if (!ch || ch.iv.length < 2) return [];
+  const iv = (sc && sc.iv) || SCALES.major.iv;
+  const out = [];
+  const base = ((root - S.root) % 12 + 12) % 12;
+  let deg = iv.indexOf(base); if (deg < 0) deg = 0;
+  ch.iv.slice(1).forEach((step) => {
+    const k = deg + step;
+    out.push(root + (iv[k % iv.length] + 12 * Math.floor(k / iv.length)) - iv[deg % iv.length]);
+  });
+  return out;
+}
+
+function padHit(i, vel) {
+  eng.init();
+  eng.play(padVoice(i), 0, vel, i);
+  flashPad(i);
+  loop.capture(i, vel, 0.25);
+}
+
+// ---------------------------------------------------------------------------
+// THE SCREEN
+// ---------------------------------------------------------------------------
+let padEls = [], knobEls = [], keyEls = new Map();
+function buildKnobs() {
+  const host = $('#knobs'); host.innerHTML = ''; knobEls = [];
+  for (let i = 0; i < KNOBS; i++) {
+    const d = document.createElement('div');
+    d.className = 'knob'; d.dataset.i = i;
+    d.innerHTML = '<span class="kl"></span><span class="kv"></span><span class="kb"><i></i></span>';
+    // Right-click / hold to remap what this knob does. Everything is mappable.
+    d.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: knobMenu(i), title: 'Knob ' + (i + 1) }); });
+    onLongPress(d, 420, (ev, x, y) => openMenu({ x, y, items: knobMenu(i), title: 'Knob ' + (i + 1) }));
+    host.appendChild(d); knobEls.push(d);
+  }
+  paintKnobs();
+}
+function paintKnobs() {
+  for (let i = 0; i < KNOBS; i++) {
+    const r = knobRole(i), v = K(i), el = knobEls[i];
+    el.querySelector('.kl').textContent = r.l;
+    el.querySelector('.kv').textContent = Math.round(v * 100);
+    el.querySelector('.kb i').style.width = Math.round(v * 100) + '%';
+    el.title = r.l + ' — ' + r.d;
+  }
+  $('#kbank').textContent = 'KNOB-' + (S.knobBank ? 'B' : 'A');
+  $('#kbank').classList.toggle('warm', !!S.knobBank);
+  $('#kbank').classList.toggle('on', !!S.knobBank);
+}
+function buildPads() {
+  const host = $('#pads'); host.innerHTML = ''; padEls = [];
+  for (let i = 0; i < PADS; i++) {
+    const b = document.createElement('button');
+    b.className = 'pad'; b.style.setProperty('--h', HUES[i]); b.dataset.i = i;
+    b.innerHTML = '<i></i><span class="n"></span><span class="t"></span>';
+    b.addEventListener('pointerdown', (ev) => {
+      if (ev.button === 2) return;
+      const r = b.getBoundingClientRect();
+      padHit(i, Math.round(46 + ((ev.clientY - r.top) / Math.max(1, r.height)) * 81));
+    });
+    b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: PAD_LABELS[i] }); });
+    onLongPress(b, 460, (ev, x, y) => openMenu({ x, y, items: padMenu(i), title: PAD_LABELS[i] }));
+    host.appendChild(b); padEls.push(b);
+  }
+  paintPads();
+}
+function paintPads() {
+  for (let i = 0; i < PADS; i++) {
+    const sl = S.pads[S.padBank][i];
+    padEls[i].querySelector('.n').textContent = PAD_LABELS[i] + (S.padBank ? 'B' : '');
+    const t = padEls[i].querySelector('.t');
+    t.textContent = sl && sl.name ? sl.name : PAD_DEF[i].toUpperCase();
+    t.classList.toggle('empty', !(sl && sl.id));
+    padEls[i].classList.toggle('arm', learnPad === i);
+  }
+  $('#bank').textContent = 'PAD-' + (S.padBank ? 'B' : 'A');
+  $('#bank').classList.toggle('warm', !!S.padBank);
+  $('#bank').classList.toggle('on', !!S.padBank);
+}
+const padT = new Array(PADS).fill(0);
+function flashPad(i) {
+  const b = padEls[i]; if (!b) return;
+  b.classList.add('hit'); clearTimeout(padT[i]);
+  padT[i] = setTimeout(() => b.classList.remove('hit'), 60);
+}
+
+// The 25 keys, drawn as a keyboard. Octave shifting is LIVEx's rule: OCT± moves
+// the window by a whole octave and clamps to the MIDI range, so the shape under
+// your hands never changes — only where it sits.
+function firstNote() { return Math.max(0, Math.min(103, FIRST_NOTE + S.octave * 12)); }
+function buildKeys() {
+  const host = $('#keys'); host.innerHTML = ''; keyEls.clear();
+  const first = firstNote();
+  const notes = Array.from({ length: KEYS }, (_, i) => first + i);
+  const whites = notes.filter((n) => !BLACK.has(n % 12));
+  const w = 100 / whites.length;
+  let wi = 0;
+  notes.forEach((n, i) => {
+    const black = BLACK.has(n % 12);
+    const e = document.createElement('div');
+    e.className = black ? 'kk' : 'kw';
+    e.dataset.n = n; e.dataset.i = i;
+    if (black) {
+      e.style.left = (wi * w - w * 0.3) + '%';
+      e.style.width = (w * 0.6) + '%';
+    } else {
+      e.style.left = (wi * w) + '%';
+      e.style.width = w + '%';
+      wi++;
+    }
+    const lg = document.createElement('span');
+    lg.className = 'lg';
+    e.appendChild(lg);
+    e.addEventListener('pointerdown', (ev) => { if (ev.button !== 2) keyOn(n, 100); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((x) => e.addEventListener(x, () => keyOff(n)));
+    e.addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }); });
+    onLongPress(e, 460, (ev, x, y) => openMenu({ x, y, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }));
+    host.appendChild(e); keyEls.set(n, e);
+  });
+  paintKeys();
+}
+function paintKeys() {
+  const shift = shiftHeld;
+  $('#keys').classList.toggle('shift', !!shift);
+  const first = firstNote();
+  keyEls.forEach((e, n) => {
+    e.classList.toggle('on', held.has(n));
+    const i = n - first;
+    const lg = e.querySelector('.lg');
+    if (shift === 'arp') lg.textContent = ARP_LEGEND[i] || '';
+    else if (shift === 'scch') lg.textContent = SCCH_LEGEND[i] || '';
+    else {
+      const sl = S.keys[n];
+      lg.textContent = sl && sl.name ? sl.name.slice(0, 6) : (n % 12 === 0 ? NOTES[0] + (Math.floor(n / 12) - 1) : '');
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// MENUS — the modularity carried over from JP: tables, not switch statements.
+// ---------------------------------------------------------------------------
+function soundRows(pick) {
+  const items = lib.items;
+  if (!items.length) return [{ label: 'No sounds yet', disabled: true }];
+  return items.map((it) => ({ label: it.name, hint: it.from || it.kind || '', run: () => pick(it.id, it.name) }));
+}
+function padMenu(i) {
+  const sl = S.pads[S.padBank][i];
+  return [
+    { head: PAD_LABELS[i] + (S.padBank ? ' · bank B' : '') + (sl ? ' — ' + sl.name : '') },
+    { label: 'Put a sound on it', items: () => soundRows((id, name) => { S.pads[S.padBank][i] = { id, name }; save(); warmUp(); paintPads(); toast(name + ' → ' + PAD_LABELS[i]); }) },
+    { label: 'Take its sound off', disabled: !sl, run: () => { S.pads[S.padBank][i] = null; save(); paintPads(); } },
+    { sep: 1 },
+    { label: 'Teach this pad', hint: 'then hit it', run: () => { learnPad = i; learnKnob = null; paintPads(); toast('hit ' + PAD_LABELS[i] + ' on the keyboard'); } },
+    { label: 'Clear it from the loop', disabled: !loop.padsUsed().includes(i), run: () => { loop.clearPad(i); toast('cleared from the loop'); } },
+  ];
+}
+function keyMenu(n) {
+  const sl = S.keys[n];
+  const nm = NOTES[n % 12] + (Math.floor(n / 12) - 1);
+  return [
+    { head: nm + (sl ? ' — ' + sl.name : '') },
+    { label: 'Put a sound on this key', items: () => soundRows((id, name) => { S.keys[n] = { id, name }; save(); warmUp(); paintKeys(); toast(name + ' → ' + nm); }) },
+    { label: 'Back to the synth', disabled: !sl, run: () => { delete S.keys[n]; save(); paintKeys(); toast(nm + ' back to the synth'); } },
+    { sep: 1 },
+    { label: 'Clear every key', danger: 1, disabled: !Object.keys(S.keys).length,
+      run: () => { S.keys = {}; save(); paintKeys(); toast('every key back to the synth'); } },
+  ];
+}
+function knobMenu(i) {
+  const cur = knobRole(i);
+  return [
+    { head: 'Knob ' + (i + 1) + ' · ' + (S.knobBank ? 'bank B' : 'bank A') },
+    { label: cur.l, hint: cur.d.slice(0, 46) + '…', disabled: true },
+    { sep: 1 },
+    { label: 'Teach this knob', hint: 'then turn it', run: () => { learnKnob = i; learnPad = null; toast('turn knob ' + (i + 1) + ' on the keyboard'); } },
+    { label: 'Centre it', run: () => { S.knob[(S.knobBank * KNOBS) + i] = 0.5; save(); paintKnobs(); } },
+  ];
+}
+
+// CLEAR EVERYTHING — pads in both banks, every individually assigned key, and
+// the loop. Asked for by name, and it is the one destructive action here, so it
+// asks twice rather than using a dialog that would stop the audio thread.
+let armed = 0;
+function clearAll() {
+  if (!armed) { armed = 1; toast('tap CLEAR ALL again to wipe every sound'); setTimeout(() => { armed = 0; renderSetup(); }, 4000); renderSetup(); return; }
+  armed = 0;
+  S.pads = Array.from({ length: PAD_BANKS }, () => Array.from({ length: PADS }, () => null));
+  S.keys = {};
+  loop.clear();
+  warm.clear(); lib.repin([]);
+  save(); paintPads(); paintKeys(); renderSetup();
+  toast('every pad and every key cleared');
+}
+
+async function warmUp() {
+  const ids = new Set();
+  S.pads.forEach((b) => b.forEach((sl) => sl && sl.id && ids.add(sl.id)));
+  Object.values(S.keys).forEach((sl) => sl && sl.id && ids.add(sl.id));
+  lib.repin([...ids]);
+  for (const id of ids) if (!warm.has(id)) { const buf = await lib.bufferFor(id); if (buf) warm.set(id, buf); }
+  for (const id of [...warm.keys()]) if (!ids.has(id)) warm.delete(id);
+}
+
+// ---------------------------------------------------------------------------
+// THE KEYBOARD ITSELF
+// ---------------------------------------------------------------------------
+let learnPad = null, learnKnob = null, learnBtn = '';
+let shiftHeld = '';                 // 'arp' | 'scch' while that button is down
+
+const io = createMidiIO({
+  onEvent: (e) => {
+    const nm = (e.port && e.port.name) || '';
+    const viaBle = !!(e.port && e.port.ble);
+    const id = identify(nm);
+    if (!id.smk && !viaBle) return;
+    portName = unit.unitKey(nm);
+
+    const sig = signature(e);
+    if (learnBtn && sig) {
+      unit.teachButton(portName, learnBtn, sig);
+      toast(learnBtn + ' learned'); learnBtn = ''; renderSetup(); return;
+    }
+    const named = sig ? unit.buttonFor(portName, sig) : '';
+    if (named) { doButton(named, sig); return; }
+    if (e.transport) { transport(e.transport); return; }
+
+    if (e.cmd === 0xB0) {
+      if (learnKnob != null) { unit.teachKnob(portName, S.knobBank, learnKnob, e.d1, e.chan); toast('knob ' + (learnKnob + 1) + ' learned'); learnKnob = null; renderSetup(); return; }
+      const k = unit.knobFor(portName, S.knobBank, e.d1);
+      if (k >= 0) { setKnob(k, e.d2 / 127); return; }
+      return;
+    }
+    const on = e.cmd === 0x90 && e.d2 > 0;
+    const off = e.cmd === 0x80 || (e.cmd === 0x90 && e.d2 === 0);
+    if (!on && !off) return;
+
+    if (on && learnPad != null) {
+      unit.teachPad(portName, S.padBank, learnPad, e.d1, e.chan);
+      toast(PAD_LABELS[learnPad] + ' learned'); learnPad = null; paintPads(); renderSetup(); return;
+    }
+    const pi = unit.padFor(portName, S.padBank, e.d1, e.chan);
+    if (pi >= 0) { if (on) padHit(pi, e.d2); return; }
+
+    // A KEY. And while ARP or SC/CH is held, the keys are that button's
+    // shortcut row instead — which is what is printed on the unit.
+    if (shiftHeld && on) { shortcut(e.d1); return; }
+    if (shiftHeld) return;
+    on ? keyOn(e.d1, e.d2) : keyOff(e.d1);
+  },
+  onPorts: () => paintLink(),
+  onGone: () => { held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); paintLink(); },
+});
+
+function doButton(name, sig) {
+  const down = sig.kind !== 'cc' || sig.b > 0;
+  if (name === 'arp' || name === 'scch') { shiftHeld = down ? name : ''; paintKeys(); return; }
+  if (!down) return;
+  if (name === 'play' || name === 'stop' || name === 'rec') return transport(name);
+  if (name === 'padB') return setPadBank(S.padBank ? 0 : 1);
+  if (name === 'knobB') return setKnobBank(S.knobBank ? 0 : 1);
+  if (name === 'oct+') return setOctave(S.octave + 1);
+  if (name === 'oct-') return setOctave(S.octave - 1);
+}
+
+// The ARP shortcut row, exactly as printed under the keys.
+function shortcut(note) {
+  const i = note - firstNote();
+  const word = shiftHeld === 'arp' ? ARP_LEGEND[i] : SCCH_LEGEND[i];
+  if (!word) return;
+  const A = S.arp;
+  if (ARP_MODES.includes(word)) { A.mode = word; A.on = true; }
+  else if (word === 'LATCH') A.latch = !A.latch;
+  else if (word === 'GATE+') A.gate = Math.min(1, A.gate + 0.1);
+  else if (word === 'GATE-') A.gate = Math.max(0.05, A.gate - 0.1);
+  else if (word === 'SWING+') A.swing = Math.min(0.6, A.swing + 0.05);
+  else if (word === 'SWING-') A.swing = Math.max(0, A.swing - 0.05);
+  else if (word === 'TEMPO+') setTempo(S.bpm + 1);
+  else if (word === 'TEMPO-') setTempo(S.bpm - 1);
+  else if (word === 'TAP') tap();
+  else if (word === 'OCT+') setOctave(S.octave + 1);
+  else if (word === 'MAJOR') S.scale = 'major';
+  else if (word === 'MINOR') S.scale = 'minor';
+  else if (word === 'OFF') { S.scale = 'off'; S.chord = 'off'; }
+  else if (word === 'TRIAD') S.chord = 'triad';
+  else if (word === '7TH') S.chord = 'sev';
+  else if (word === '9TH') S.chord = 'nine';
+  else if (word === 'CH') S.chord = S.chord === 'off' ? 'triad' : 'off';
+  else {
+    const r = ARP_RATES.findIndex((x) => x.id === word);
+    if (r >= 0) A.rate = r;
+  }
+  save(); paintRail();
+  toast(word);
+}
+
+function setKnob(i, v) {
+  S.knob[(S.knobBank * KNOBS) + i] = Math.max(0, Math.min(1, v));
+  const role = knobRole(i);
+  if (role.id === 'tempo') setTempo(Math.round(20 + v * 280));
+  if (role.id === 'swing') S.arp.swing = v * 0.6;
+  if (role.id === 'gate') S.arp.gate = 0.05 + v * 0.95;
+  knobEls[i] && knobEls[i].classList.add('live');
+  setTimeout(() => knobEls[i] && knobEls[i].classList.remove('live'), 220);
+  save(); paintKnobs();
+}
+function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; save(); }
+function setOctave(o) {
+  S.octave = Math.max(-4, Math.min(4, o));
+  held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
+  save(); buildKeys(); toast('octave ' + (S.octave > 0 ? '+' : '') + S.octave);
+}
+function setPadBank(b) { S.padBank = b % PAD_BANKS; save(); paintPads(); warmUp(); toast('PAD-' + (b ? 'B' : 'A')); }
+function setKnobBank(b) { S.knobBank = b % KNOB_BANKS; save(); paintKnobs(); toast('KNOB-' + (b ? 'B' : 'A')); }
+
+function transport(name) {
+  if (name === 'play') { const st = loop.info.state; (st === 'playing' || st === 'overdub') ? loop.pause() : loop.play(); }
+  else if (name === 'stop') { loop.stop(); held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); }
+  else if (name === 'rec') loop.arm();
+  paintTransport(loop.info);
+  toast(name);
+}
+function paintTransport(info) {
+  const st = info.state, playing = st === 'playing' || st === 'overdub';
+  $('#rec').classList.toggle('on', st === 'recording' || st === 'armed' || st === 'overdub');
+  $('#play').classList.toggle('on', playing);
+  $('#play').textContent = playing ? '❙❙' : '▶';
+  $('#undo').disabled = !info.canUndo;
+  $('#loopbar').firstElementChild.style.width = Math.round(info.pos * 100) + '%';
+}
+function paintRail() {
+  $('#arp').classList.toggle('on', S.arp.on);
+  $('#arp').textContent = S.arp.on ? (S.arp.mode + ' ' + ARP_RATES[S.arp.rate].id + (S.arp.latch ? ' ·' : '')) : 'ARP';
+  $('#scch').classList.toggle('on', S.scale !== 'off' || S.chord !== 'off');
+  $('#scch').textContent = (S.scale === 'off' && S.chord === 'off') ? 'SC/CH'
+    : (SCALES[S.scale].l + (S.chord !== 'off' ? ' ' + CHORDS[S.chord].l : ''));
+}
+function paintLink() {
+  const ins = io.listInputs();
+  const mine = ins.filter((p) => identify(p.name).smk || p.ble);
+  const el = $('#link'), t = $('#linktxt');
+  el.classList.toggle('live', mine.length > 0);
+  t.textContent = mine.length ? (unit.unitKey(mine[0].name) + (mine.length > 1 ? ' · ' + mine.length + ' ports' : ''))
+    : (ins.length ? ins.length + ' MIDI port(s), no SMK-25' : 'looking for your SMK-25…');
+}
+
+// ---------------------------------------------------------------------------
+let taps = [];
+function tap() {
+  const t = performance.now();
+  taps = taps.filter((x) => t - x < 2400); taps.push(t);
+  if (taps.length < 3) { toast('keep tapping…'); return; }
+  const g = []; for (let i = 1; i < taps.length; i++) g.push(taps[i] - taps[i - 1]);
+  g.sort((a, b) => a - b);
+  setTempo(Math.round(60000 / g[g.length >> 1])); toast(S.bpm + ' BPM');
+}
+$('#tap').addEventListener('click', tap);
+$('#tempo').addEventListener('input', (e) => setTempo(+e.target.value || 100));
+$('#bank').addEventListener('click', () => setPadBank(S.padBank ? 0 : 1));
+$('#kbank').addEventListener('click', () => setKnobBank(S.knobBank ? 0 : 1));
+$('#octup').addEventListener('click', () => setOctave(S.octave + 1));
+$('#octdn').addEventListener('click', () => setOctave(S.octave - 1));
+$('#rec').addEventListener('click', () => transport('rec'));
+$('#play').addEventListener('click', () => transport('play'));
+$('#stop').addEventListener('click', () => transport('stop'));
+$('#undo').addEventListener('click', () => { loop.undo(); toast('undone'); });
+$('#arp').addEventListener('click', () => { S.arp.on = !S.arp.on; save(); paintRail(); });
+$('#arp').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: arpMenu(), title: 'Arpeggiator' }); });
+onLongPress($('#arp'), 420, (ev, x, y) => openMenu({ x, y, items: arpMenu(), title: 'Arpeggiator' }));
+$('#scch').addEventListener('click', (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: scchMenu(), title: 'Scale and chord' }));
+
+function arpMenu() {
+  return [
+    { head: 'Arpeggiator' },
+    { label: S.arp.on ? 'Turn it off' : 'Turn it on', on: S.arp.on, run: () => { S.arp.on = !S.arp.on; save(); paintRail(); } },
+    { label: 'Latch', on: S.arp.latch, run: () => { S.arp.latch = !S.arp.latch; save(); paintRail(); } },
+    { sep: 1 },
+    { label: 'Mode', hint: S.arp.mode, items: () => ARP_MODES.map((m) => ({ label: m, on: S.arp.mode === m, run: () => { S.arp.mode = m; save(); paintRail(); } })) },
+    { label: 'Rate', hint: ARP_RATES[S.arp.rate].id, items: () => ARP_RATES.map((r, i) => ({ label: r.id, on: S.arp.rate === i, run: () => { S.arp.rate = i; save(); paintRail(); } })) },
+    { label: 'Rhythm', hint: S.arp.rhythm ? (RHYTHMS.find((r) => r.id === S.arp.rhythm) || {}).l : 'even',
+      items: () => [{ label: 'Even', on: !S.arp.rhythm, run: () => { S.arp.rhythm = ''; save(); paintRail(); } }]
+        .concat(RHYTHMS.map((r) => ({ label: r.l, hint: r.d, on: S.arp.rhythm === r.id, run: () => { S.arp.rhythm = r.id; save(); paintRail(); } }))) },
+  ];
+}
+function scchMenu() {
+  return [
+    { head: 'Scale and chord' },
+    { label: 'Scale', hint: SCALES[S.scale].l, items: () => Object.keys(SCALES).map((k) => ({ label: SCALES[k].l, on: S.scale === k, run: () => { S.scale = k; save(); paintRail(); } })) },
+    { label: 'Chord', hint: CHORDS[S.chord].l, items: () => Object.keys(CHORDS).map((k) => ({ label: CHORDS[k].l, on: S.chord === k, run: () => { S.chord = k; save(); paintRail(); } })) },
+    { label: 'Root', hint: NOTES[S.root], items: () => NOTES.map((n, i) => ({ label: n, on: S.root === i, run: () => { S.root = i; save(); paintRail(); } })) },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+function openSheet(id) { $('#scrim').classList.add('open'); $(id).classList.add('open'); }
+function closeSheets() { $('#scrim').classList.remove('open'); document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('open')); }
+$('#libbtn').addEventListener('click', () => { renderList(); openSheet('#lib'); });
+$('#libx').addEventListener('click', closeSheets);
+$('#setbtn').addEventListener('click', () => { renderSetup(); openSheet('#setup'); });
+$('#setx').addEventListener('click', closeSheets);
+$('#scrim').addEventListener('click', closeSheets);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); closeSheets(); } });
+
+function renderList() {
+  const box = $('#list'), items = lib.items;
+  $('#libcount').textContent = items.length ? items.length + ' sounds' : '';
+  box.innerHTML = items.length
+    ? items.map((it) => '<div class="row" data-id="' + esc(it.id) + '"><span class="nm">' + esc(it.name)
+        + (it.from ? '<br><span class="sub">' + esc(it.from) + '</span>' : '') + '</span>'
+        + '<button class="chip sm" data-put>PUT IT SOMEWHERE</button>'
+        + '<button class="chip sm" data-del>✕</button></div>').join('')
+    : '<div class="dim">Nothing yet. Drop audio files or a .zip pack anywhere on the window — a pack unpacks itself.</div>';
+}
+$('#list').addEventListener('click', async (ev) => {
+  const row = ev.target.closest('.row'); if (!row) return;
+  const id = row.dataset.id, it = lib.find(id);
+  if (ev.target.closest('[data-del]')) {
+    await lib.remove(id);
+    S.pads.forEach((b) => b.forEach((sl, i) => { if (sl && sl.id === id) b[i] = null; }));
+    Object.keys(S.keys).forEach((n) => { if (S.keys[n].id === id) delete S.keys[n]; });
+    warm.delete(id); save(); paintPads(); paintKeys(); renderList(); return;
+  }
+  if (ev.target.closest('[data-put]')) {
+    openMenu({ x: ev.clientX, y: ev.clientY, title: 'Where?', items: [
+      { head: 'A pad' },
+      ...Array.from({ length: PADS }, (_, i) => ({ label: PAD_LABELS[i], hint: S.pads[S.padBank][i] ? S.pads[S.padBank][i].name : '',
+        run: () => { S.pads[S.padBank][i] = { id, name: it.name }; save(); warmUp(); paintPads(); closeSheets(); toast(it.name + ' → ' + PAD_LABELS[i]); } })),
+      { sep: 1 },
+      { label: 'A key — hold the key instead', disabled: true },
+    ] });
+  }
+});
+
+async function takeFiles(list) {
+  const files = Array.from(list || []); if (!files.length) return;
+  eng.init(); let audio = 0;
+  lib.batch(true);
+  try {
+    for (const f of files) {
+      if (isZip(f)) {
+        try {
+          const r = await importZip(await f.arrayBuffer(), {
+            packName: f.name.replace(/\.zip$/i, ''),
+            addBuffer: (n, raw, o) => lib.addRaw(n, raw, o),
+            onProgress: (n, t) => toast('unpacking ' + n + ' of ' + t + '…'),
+          });
+          toast(r.ok + ' sounds from ' + f.name + (r.bad ? ' · ' + r.bad + ' skipped' : ''));
+        } catch (err) { toast(String(err.message || err)); }
+      } else if (await lib.add(f)) audio++;
+    }
+  } finally { lib.batch(false); }
+  if (audio) toast(audio + ' sound' + (audio === 1 ? '' : 's') + ' imported');
+  renderList();
+}
+$('#drop').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', async (e) => { await takeFiles(e.target.files); e.target.value = ''; });
+['dragenter', 'dragover'].forEach((n) => window.addEventListener(n, (e) => { e.preventDefault(); $('#drop').classList.add('hot'); }));
+window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('#drop').classList.remove('hot'); });
+window.addEventListener('drop', async (e) => {
+  e.preventDefault(); $('#drop').classList.remove('hot');
+  if (!e.dataTransfer) return;
+  if (!$('#lib').classList.contains('open')) openSheet('#lib');
+  await takeFiles(e.dataTransfer.files);
+});
+
+// ---------------------------------------------------------------------------
+const BUTTONS = ['play', 'stop', 'rec', 'arp', 'scch', 'padB', 'knobB', 'oct+', 'oct-'];
+function renderSetup() {
+  const d = io.diagnostics(), ins = io.listInputs();
+  const mine = ins.filter((p) => identify(p.name).smk || p.ble);
+  const bt = unit.buttons(portName), lr = unit.learned(portName);
+  $('#setupbody').innerHTML =
+    '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">'
+    + (mine.length ? esc(unit.unitKey(mine[0].name)) + ' — '
+        + (lr.pads ? 'pads learned' : 'pads not taught yet') + ', '
+        + (lr.knobs ? 'knobs learned' : 'knobs not taught yet') + '.'
+      : (ins.length ? esc(ins.length + ' MIDI port(s), none an SMK-25')
+                    : 'Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.'))
+    + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> '
+    + 'Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired '
+    + 'perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one '
+    + 'has — CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the '
+    + 'app reads all of them, because the pads and the transport arrive on the second.</div>'
+    + '<div class="opts" style="margin-top:8px">'
+    + '<button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button>'
+    + '<button class="chip sm" id="rescanbtn">RESCAN</button>'
+    + '<button class="chip sm" id="forget">FORGET THIS UNIT</button>'
+    + '<button class="chip sm" id="clearall">' + (armed ? 'TAP AGAIN TO WIPE' : 'CLEAR ALL') + '</button>'
+    + '</div></div>'
+    + '<div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a '
+    + 'published CC number or pad note — every one is reassignable in M-VAVE’s editor, and units ship '
+    + 'set up differently. So the app learns yours rather than guessing. Press a row, then move that '
+    + 'control on the keyboard.</div><div class="opts" style="margin-top:8px">'
+    + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase()
+        + (bt[b] ? ' ✓' : '') + '</button>').join('')
+    + '</div></div>'
+    + '<div class="grp"><h3>WHAT THE KNOBS DO</h3>'
+    + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>'
+        + (i < KNOBS ? 'A' : 'B') + (i % KNOBS + 1) + ' · ' + esc(r.l) + '</b><br><span class="sub">'
+        + esc(r.d) + '</span></span></div>').join('')
+    + '</div>'
+    + '<div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a '
+    + 'rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>'
+    + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">'
+        + esc(r.d) + '</span></span></div>').join('') + '</div>'
+    + '<div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode)
+    + ' · ' + d.inputs + ' in · ' + d.bytes + ' messages'
+    + (d.liveNames && d.liveNames.length ? '<br>Sending: ' + esc(d.liveNames.join(', ')) : '')
+    + (d.silentNames && d.silentNames.length ? '<br>Silent: ' + esc(d.silentNames.join(', ')) : '')
+    + '</div></div>';
+
+  $('#clearall').addEventListener('click', clearAll);
+  $('#forget').addEventListener('click', () => { unit.reset(portName); toast('unit forgotten'); renderSetup(); });
+  $('#rescanbtn').addEventListener('click', () => { io.rescan(); setTimeout(renderSetup, 500); });
+  $('#btbtn').addEventListener('click', async () => {
+    try { const r = await io.connectBluetooth({ onStatus: (s) => { if (s && s.hint) toast(s.hint.slice(0, 80)); } }); toast('bluetooth: ' + (r && r.mode)); }
+    catch (e) { toast(String(e && e.message || e).slice(0, 80)); }
+    renderSetup(); paintLink();
+  });
+  $('#setupbody').querySelectorAll('[data-learn]').forEach((b) => b.addEventListener('click', () => {
+    learnBtn = b.dataset.learn; closeSheets();
+    toast('press ' + learnBtn.toUpperCase() + ' on the keyboard');
+  }));
+}
+
+// ---------------------------------------------------------------------------
+let toastT = 0;
+function toast(m) { const e = $('#toast'); e.textContent = m; e.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => e.classList.remove('on'), 2500); }
+
+buildKnobs(); buildPads(); buildKeys(); paintRail(); paintTransport(loop.info);
+$('#tempo').value = S.bpm;
+lib.boot().then(() => { renderList(); warmUp(); });
+io.start().catch(() => {}); io.keepLooking();
+io.autoReconnect({ onStatus: (s) => { if (s && s.connected) toast('reconnected'); } }).catch(() => {});
+paintLink();
+setInterval(() => paintTransport(loop.info), 140);
+
+$('#splashgo').addEventListener('click', () => {
+  eng.init(); eng.resume();
+  $('#splash').classList.add('gone');
+  setTimeout(() => { const s = $('#splash'); if (s) s.style.display = 'none'; }, 500);
+});
+
+window.__smk = {
+  get S() { return S; }, eng, io, lib, unit, loop,
+  keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
+  shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
+  get shift() { return shiftHeld; }, set shift(v) { shiftHeld = v; paintKeys(); },
+  KNOB_ROLES, RHYTHMS, ARP_LEGEND, SCCH_LEGEND,
+};
+</script>
+</body>
+</html>

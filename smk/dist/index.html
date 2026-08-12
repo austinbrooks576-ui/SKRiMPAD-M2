@@ -1,0 +1,3380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<title>SKRiMPAD SMK</title>
+<meta name="theme-color" content="#07080C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+/* ONE KEYBOARD. The keys are the instrument; the pads are the eight-pad block
+   on its right-hand side and stay a separate thing, because a keyboard whose
+   C4 secretly fires a snare is a keyboard you cannot play. */
+:root{
+  --bg:#07080C; --panel:#10131B; --line:rgba(255,255,255,.09);
+  --txt:#EAF0F6; --dim:#7D8798; --acc:#4BE3C8; --rec:#FF3B5C; --warm:#FFB454;
+  --fs-xs:clamp(9px,1.5vw,11px); --fs-sm:clamp(11px,1.7vw,13px);
+  --fs-md:clamp(13px,2.1vw,16px);
+  --sp:clamp(6px,1.1vw,12px); --hit:44px;
+  --e1:0 1px 2px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.35);
+  --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
+  --lip:inset 0 1px 0 rgba(255,255,255,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
+  font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:var(--fs-md);letter-spacing:.02em;}
+button,input{font-family:inherit;color:inherit;}
+button{border:0;background:none;cursor:pointer;}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;gap:var(--sp);
+  padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
+          max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));}
+
+/* ---------- SPLASH ---------- */
+/* Kept, because it is the only moment the app gets to say what it is for — and
+   because audio cannot start without a gesture anyway, so a screen that asks
+   for one is honest rather than decorative. */
+#splash{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;background:var(--bg);
+  transition:opacity .45s ease;text-align:center;padding:24px;}
+#splash.gone{opacity:0;pointer-events:none;}
+#splash h1{margin:0;font-size:clamp(26px,7vw,52px);letter-spacing:.2em;font-weight:600;}
+#splash h1 b{color:var(--acc);}
+#splash .sub{color:var(--dim);font-size:var(--fs-sm);max-width:34ch;line-height:1.6;}
+#splash .go{margin-top:8px;min-height:var(--hit);padding:0 26px;border-radius:12px;
+  border:1px solid var(--acc);color:var(--acc);font-size:var(--fs-md);letter-spacing:.12em;}
+#splash .keysvg{width:min(320px,72vw);opacity:.55;}
+
+#top{display:flex;align-items:center;gap:var(--sp);min-height:32px;flex:0 0 auto;}
+#brand{font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+#brand b{color:var(--acc);}
+#link{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);
+  color:var(--dim);padding:5px 9px;border:1px solid var(--line);border-radius:999px;min-height:26px;}
+#link .dot{width:7px;height:7px;border-radius:50%;background:#54607A;}
+#link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
+#link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
+
+#stage{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:var(--sp);
+  justify-content:flex-end;}
+
+/* ---------- knobs ---------- */
+#knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;flex:0 0 auto;}
+.knob{border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  padding:5px 4px;text-align:center;box-shadow:var(--lip);min-height:52px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
+.knob .kl{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.06em;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.knob .kv{font-size:var(--fs-sm);font-variant-numeric:tabular-nums;}
+.knob .kb{width:100%;height:3px;border-radius:9px;background:rgba(255,255,255,.1);overflow:hidden;}
+.knob .kb i{display:block;height:100%;background:var(--acc);width:0;}
+.knob.live{border-color:var(--acc);}
+
+/* ---------- pads: 2 x 4, DP1 top-left ---------- */
+#pads{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);
+  gap:6px;flex:0 0 auto;}
+.pad{position:relative;border-radius:11px;border:1px solid rgba(255,255,255,.08);
+  overflow:hidden;box-shadow:var(--e1),var(--lip);min-height:56px;padding:6px 8px;
+  background:linear-gradient(160deg,hsl(var(--h) 60% 26%),hsl(var(--h) 56% 15%));
+  display:flex;flex-direction:column;justify-content:space-between;text-align:left;}
+.pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.5);}
+.pad .t{font-size:var(--fs-xs);font-weight:600;line-height:1.15;word-break:break-word;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);}
+.pad .t.empty{color:rgba(255,255,255,.32);font-weight:400;}
+.pad i{position:absolute;inset:0;background:hsl(var(--h) 90% 62%);opacity:0;pointer-events:none;
+  transition:opacity .18s;}
+.pad.hit i{opacity:.55;transition:none;}
+.pad.arm{animation:pulse 1s ease-in-out infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 2px rgba(75,227,200,.25),var(--e1);}
+  50%{box-shadow:0 0 0 4px rgba(75,227,200,.8),var(--e1);}}
+
+/* ---------- the 25 keys ---------- */
+#keys{position:relative;flex:0 0 auto;height:clamp(88px,15vh,132px);
+  border-radius:10px;overflow:hidden;background:#05060A;border:1px solid var(--line);}
+.kw,.kk{position:absolute;top:0;bottom:0;border-radius:0 0 5px 5px;}
+.kw{background:linear-gradient(180deg,#e8edf4,#b9c2ce);border:1px solid #7d8698;}
+.kk{background:linear-gradient(180deg,#2a2f3a,#0d1016);border:1px solid #000;z-index:2;
+  bottom:36%;border-radius:0 0 4px 4px;}
+.kw.on{background:linear-gradient(180deg,var(--acc),#1e9e8b);}
+.kk.on{background:linear-gradient(180deg,var(--acc),#12786a);}
+.kw .lg,.kk .lg{position:absolute;left:0;right:0;bottom:2px;text-align:center;
+  font-size:8px;letter-spacing:0;pointer-events:none;}
+.kw .lg{color:#5b6473;} .kk .lg{color:#8b93a3;}
+#keys.shift .kw .lg,#keys.shift .kk .lg{color:var(--acc);font-weight:600;}
+
+.rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);
+  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+.chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
+.chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
+.chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
+.chip.warm.on{background:var(--warm);border-color:var(--warm);color:#241300;}
+.chip:disabled{opacity:.4;}
+.chip.pair{padding:0 4px 0 2px;gap:0;}
+.chip.pair #tap{min-height:30px;padding:0 8px;border-radius:8px;font-size:var(--fs-xs);color:var(--dim);}
+#tempo{width:46px;min-height:30px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;-moz-appearance:textfield;}
+#tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+#loopbar{flex:1 1 80px;height:6px;min-width:60px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;}
+#loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+
+.scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:40;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(600px,94vw);max-height:min(84vh,780px);background:var(--panel);
+  border:1px solid var(--line);border-radius:16px;box-shadow:var(--e2);
+  display:flex;flex-direction:column;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;z-index:50;}
+.sheet.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+.sheet header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.sheet h2{margin:0;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.sheet .body{overflow:auto;padding:12px 14px;}
+.x{margin-left:auto;min-width:34px;min-height:34px;border-radius:9px;border:1px solid var(--line);color:var(--dim);}
+.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.row:last-child{border-bottom:0;}
+.row .nm{flex:1 1 auto;min-width:0;font-size:var(--fs-sm);}
+.row .sub{font-size:var(--fs-xs);color:var(--dim);}
+.dim{color:var(--dim);font-size:var(--fs-xs);line-height:1.55;}
+.grp{margin:0 0 16px;} .grp h3{margin:0 0 6px;font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.opts{display:flex;flex-wrap:wrap;gap:6px;}
+#drop{margin:0 0 10px;padding:20px 10px;border:1px dashed var(--line);border-radius:12px;
+  text-align:center;color:var(--dim);font-size:var(--fs-sm);cursor:pointer;}
+#drop.hot{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.07);}
+#file{display:none;}
+#toast{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);background:rgba(16,19,27,.96);border:1px solid var(--line);
+  border-radius:11px;padding:9px 14px;font-size:var(--fs-sm);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:80;max-width:92vw;text-align:center;box-shadow:var(--e2);}
+#toast.on{opacity:1;}
+@media (max-width:520px){ #knobs{grid-template-columns:repeat(4,1fr);} }
+</style>
+</head>
+<body>
+
+<div id="splash">
+  <h1>SKRiMPAD <b>SMK</b></h1>
+  <div class="sub">Built for one keyboard: the M-VAVE SMK-25.
+    Twenty-five keys, eight pads, eight knobs across two banks, the arpeggiator,
+    the scale and chord modes, and the transport — all of it, doing what it says
+    on the unit.</div>
+  <svg class="keysvg" viewBox="0 0 300 44" aria-hidden="true">
+    <rect x="0" y="0" width="300" height="44" rx="4" fill="#0d1016" stroke="#22virtual"/>
+    <g fill="#dfe6ee">
+      <rect x="4" y="4" width="18" height="36" rx="2"/><rect x="24" y="4" width="18" height="36" rx="2"/>
+      <rect x="44" y="4" width="18" height="36" rx="2"/><rect x="64" y="4" width="18" height="36" rx="2"/>
+      <rect x="84" y="4" width="18" height="36" rx="2"/><rect x="104" y="4" width="18" height="36" rx="2"/>
+      <rect x="124" y="4" width="18" height="36" rx="2"/><rect x="144" y="4" width="18" height="36" rx="2"/>
+    </g>
+    <g fill="#12161d">
+      <rect x="16" y="4" width="12" height="22" rx="1.5"/><rect x="36" y="4" width="12" height="22" rx="1.5"/>
+      <rect x="76" y="4" width="12" height="22" rx="1.5"/><rect x="96" y="4" width="12" height="22" rx="1.5"/>
+      <rect x="116" y="4" width="12" height="22" rx="1.5"/>
+    </g>
+    <g fill="#4BE3C8" opacity=".8">
+      <rect x="176" y="6" width="26" height="14" rx="3"/><rect x="206" y="6" width="26" height="14" rx="3"/>
+      <rect x="236" y="6" width="26" height="14" rx="3"/><rect x="266" y="6" width="26" height="14" rx="3"/>
+      <rect x="176" y="24" width="26" height="14" rx="3"/><rect x="206" y="24" width="26" height="14" rx="3"/>
+      <rect x="236" y="24" width="26" height="14" rx="3"/><rect x="266" y="24" width="26" height="14" rx="3"/>
+    </g>
+  </svg>
+  <button class="go" id="splashgo">START</button>
+</div>
+
+<div id="app">
+  <div id="top">
+    <span id="brand">SKRiMPAD <b>SMK</b></span>
+    <button id="link"><span class="dot"></span><span id="linktxt">looking for your SMK-25…</span></button>
+    <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="setbtn" aria-label="Setup">⚙</button>
+  </div>
+
+  <div id="stage">
+    <div id="knobs"></div>
+    <div id="pads"></div>
+    <div id="keys"></div>
+  </div>
+
+  <div class="rail">
+    <button class="chip" id="bank" aria-label="Pad bank">PAD-A</button>
+    <button class="chip" id="kbank" aria-label="Knob bank">KNOB-A</button>
+    <button class="chip" id="arp">ARP</button>
+    <button class="chip" id="scch">SC/CH</button>
+    <button class="chip sm" id="octdn" aria-label="Octave down">OCT−</button>
+    <button class="chip sm" id="octup" aria-label="Octave up">OCT+</button>
+  </div>
+
+  <div class="rail">
+    <span class="chip pair"><input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo"><button id="tap">TAP</button></span>
+    <button class="chip rec" id="rec" aria-label="Record">●</button>
+    <button class="chip" id="play" aria-label="Play or pause">▶</button>
+    <button class="chip" id="stop" aria-label="Stop">■</button>
+    <div id="loopbar"><i></i></div>
+    <button class="chip sm" id="undo" aria-label="Undo">↶</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="lib" role="dialog" aria-modal="true" aria-label="Sounds">
+  <header><h2>SOUNDS</h2><span class="sub" id="libcount"></span><button class="x" id="libx">✕</button></header>
+  <div class="body">
+    <div id="drop">DROP AUDIO OR A .ZIP PACK HERE<br><span class="dim">or tap to browse</span></div>
+    <input type="file" id="file" multiple accept="audio/*,.zip,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff">
+    <div id="list"></div>
+  </div>
+</div>
+<div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
+  <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
+  <div class="body" id="setupbody"></div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  // ultimate/src/core/engine.js
+  var NUDGE = 128 * 3 / 44100;
+  function createEngine({ sampleFor, context, onFail } = {}) {
+    let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
+    const meters = new Float32Array(64);
+    let ready = false;
+    let dead = false;
+    function init() {
+      if (ready || dead) return ctx;
+      try {
+        if (context) ctx = typeof context === "function" ? context() : context;
+        else {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) throw new Error("no AudioContext");
+          ctx = new AC({ latencyHint: "interactive" });
+        }
+      } catch (e) {
+        dead = true;
+        ctx = null;
+        onFail && onFail(e);
+        return null;
+      }
+      master = ctx.createGain();
+      master.gain.value = 0.55;
+      comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -6;
+      comp.knee.value = 8;
+      comp.ratio.value = 4;
+      comp.attack.value = 4e-3;
+      comp.release.value = 0.2;
+      spaceIn = ctx.createGain();
+      spaceIn.gain.value = 1;
+      const dl = ctx.createDelay(1);
+      dl.delayTime.value = 0.13;
+      const fb = ctx.createGain();
+      fb.gain.value = 0.42;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 3200;
+      spaceIn.connect(dl);
+      dl.connect(tone);
+      tone.connect(fb);
+      fb.connect(dl);
+      tone.connect(master);
+      const ceiling = ctx.createWaveShaper();
+      const K2 = 1.25;
+      ceiling.curve = makeCurve((x) => Math.tanh(x * K2) / K2);
+      ceiling.oversample = "4x";
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
+      master.connect(comp);
+      comp.connect(ceiling);
+      ceiling.connect(analyser);
+      analyser.connect(ctx.destination);
+      ready = true;
+      return ctx;
+    }
+    const resume = () => {
+      init();
+      if (ctx && ctx.state !== "running" && ctx.resume) ctx.resume().catch(() => {
+      });
+    };
+    const clamp = (v, lo, hi) => {
+      const n = +v;
+      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : lo;
+    };
+    const CURVE_N = 1025, CURVE_MID = (CURVE_N - 1) / 2;
+    function makeCurve(fn) {
+      const c = new Float32Array(CURVE_N);
+      for (let i = 0; i < CURVE_N; i++) c[i] = fn(i / CURVE_MID - 1);
+      c[CURVE_MID] = 0;
+      return c;
+    }
+    const driveCache = /* @__PURE__ */ new Map();
+    function driveCurve(amount) {
+      const q = Math.round(clamp(amount, 0, 1) * 40) / 40;
+      let c = driveCache.get(q);
+      if (!c) {
+        const k = q * 60;
+        c = makeCurve((x) => (1 + k) * x / (1 + k * Math.abs(x)));
+        driveCache.set(q, c);
+      }
+      return c;
+    }
+    const hz = (n) => 440 * Math.pow(2, (clamp(n, 0, 127) - 69) / 12);
+    let noiseBuf = null;
+    function noise() {
+      if (noiseBuf) return noiseBuf;
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return noiseBuf;
+    }
+    function burst(t, dest, { freq, type = "bandpass", q = 1, dur = 0.05, level = 1, at = 1e-3 }) {
+      const s = ctx.createBufferSource();
+      s.buffer = noise();
+      const off = Math.random() * 1.5;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + at);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + at + dur);
+      s.connect(f);
+      f.connect(g);
+      g.connect(dest);
+      s.start(t, off);
+      s.stop(t + at + dur + 0.02);
+      return t + at + dur;
+    }
+    function body(t, dest, { from, to, type = "sine", dur = 0.2, level = 1, bend = 0.06 }) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(from, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + bend);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + 2e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+      o.connect(g);
+      g.connect(dest);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+      return t + dur;
+    }
+    function playDrum(voice, t, dest) {
+      const d = voice.drum || "perc";
+      const n = hz(clamp(voice.note, 0, 127));
+      const dec = clamp(voice.decay, 0.01, 3);
+      let end = t;
+      switch (d) {
+        case "kick":
+          end = Math.max(end, body(t, dest, { from: n * 3.4, to: n * 0.55, dur: dec, level: 1, bend: 0.045 }));
+          end = Math.max(end, burst(t, dest, { freq: 2600, type: "highpass", dur: 0.012, level: 0.32 }));
+          break;
+        case "snare":
+          end = Math.max(end, body(t, dest, { from: 210, to: 155, type: "triangle", dur: dec * 0.45, level: 0.5, bend: 0.05 }));
+          end = Math.max(end, burst(t, dest, { freq: 1900, q: 0.8, dur: dec, level: 0.7 }));
+          break;
+        case "hat":
+          end = Math.max(end, burst(t, dest, { freq: 8600, type: "highpass", dur: dec, level: 0.55 }));
+          break;
+        case "clap": {
+          const sp = [0, 0.011, 0.021];
+          sp.forEach((o) => {
+            end = Math.max(end, burst(t + o, dest, { freq: 1250, q: 1.5, dur: 0.022, level: 0.55 }));
+          });
+          end = Math.max(end, burst(t + 0.03, dest, { freq: 1150, q: 1.1, dur: dec, level: 0.42 }));
+          break;
+        }
+        case "tom":
+          end = Math.max(end, body(t, dest, { from: n * 1.5, to: n * 0.85, dur: dec, level: 0.9, bend: 0.1 }));
+          end = Math.max(end, burst(t, dest, { freq: 3e3, type: "highpass", dur: 0.02, level: 0.12 }));
+          break;
+        case "rim":
+          end = Math.max(end, burst(t, dest, { freq: 2400, q: 7, dur: 0.028, level: 0.7 }));
+          end = Math.max(end, body(t, dest, { from: 1700, to: 1500, type: "square", dur: 0.018, level: 0.16, bend: 0.01 }));
+          break;
+        case "cym":
+          end = Math.max(end, burst(t, dest, { freq: 7200, type: "highpass", dur: dec, level: 0.34 }));
+          end = Math.max(end, burst(t, dest, { freq: 4200, q: 0.6, dur: dec * 0.55, level: 0.2 }));
+          break;
+        default:
+          end = Math.max(end, burst(t, dest, { freq: Math.max(400, n * 6), q: 3, dur: dec, level: 0.6 }));
+          end = Math.max(end, body(t, dest, { from: n * 4, to: n * 3.2, dur: Math.min(dec, 0.06), level: 0.22, bend: 0.03 }));
+          break;
+      }
+      return end;
+    }
+    function makeUnison(voice, t, freq, dest) {
+      const spread = clamp(voice.spread, 0, 1);
+      const cents = spread * 26;
+      const wave = voice.wave || "sawtooth";
+      const parts = spread > 0.02 ? [-1, 0, 1] : [0];
+      const oscs = [];
+      for (const k of parts) {
+        const o = ctx.createOscillator();
+        o.type = wave;
+        o.frequency.setValueAtTime(freq, t);
+        o.detune.setValueAtTime(k * cents + clamp(voice.tune, -24, 24) * 100, t);
+        let node = o;
+        if (k !== 0 && ctx.createStereoPanner) {
+          const p = ctx.createStereoPanner();
+          p.pan.value = k * (0.25 + spread * 0.55);
+          o.connect(p);
+          node = p;
+        }
+        const trim = ctx.createGain();
+        trim.gain.value = parts.length > 1 ? k === 0 ? 0.62 : 0.44 : 1;
+        node.connect(trim);
+        trim.connect(dest);
+        oscs.push(o);
+      }
+      return oscs;
+    }
+    function play(voice, when, vel, cellIndex, semis) {
+      if (!init()) {
+        if (cellIndex != null) meters[cellIndex] = 1;
+        return { stop: 0 };
+      }
+      const t = when || ctx.currentTime + NUDGE;
+      const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
+      const g = ctx.createGain();
+      const pan = ctx.createStereoPanner && Math.abs(clamp(voice.pan, -1, 1)) > 0.02 ? ctx.createStereoPanner() : null;
+      const flt = ctx.createBiquadFilter();
+      flt.type = "lowpass";
+      flt.frequency.setValueAtTime(60 * Math.pow(233, clamp(voice.cutoff, 0, 1)), t);
+      flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
+      const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
+      const s = clamp(voice.sustain, 0, 1), r = clamp(voice.release, 0.01, 4);
+      const peak = v * clamp(voice.gain, 0, 1.4);
+      let chain = flt;
+      if (voice.drive > 0.02) {
+        const ws = ctx.createWaveShaper();
+        ws.curve = driveCurve(voice.drive);
+        ws.oversample = "2x";
+        flt.connect(ws);
+        chain = ws;
+      }
+      chain.connect(g);
+      if (pan) {
+        pan.pan.value = clamp(voice.pan, -1, 1);
+        g.connect(pan);
+        pan.connect(master);
+      } else g.connect(master);
+      if (voice.space > 0.02) {
+        const sd = ctx.createGain();
+        sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
+        g.connect(sd);
+        sd.connect(spaceIn);
+      }
+      let sample = null;
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          sample = ctx.createBufferSource();
+          sample.buffer = buf;
+          sample.playbackRate.value = Math.pow(2, (clamp(voice.tune, -24, 24) + (semis || 0)) / 12);
+          sample.connect(flt);
+        }
+      }
+      let stop;
+      if (sample) {
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        sample.start(t);
+        const natural = sample.buffer.duration / (sample.playbackRate.value || 1);
+        sample.stop(Math.max(stop, t + natural) + 0.02);
+      } else if (voice.kind === "drum") {
+        g.gain.setValueAtTime(Math.max(2e-4, peak), t);
+        const end = playDrum(voice, t, flt);
+        stop = end + 0.05;
+        g.gain.setValueAtTime(Math.max(2e-4, peak), stop - 0.01);
+        g.gain.exponentialRampToValueAtTime(1e-4, stop);
+      } else {
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        const oscs = makeUnison(voice, t, hz(voice.note + (semis || 0)), flt);
+        oscs.forEach((o) => {
+          o.start(t);
+          o.stop(stop + 0.02);
+        });
+      }
+      if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
+      return { stop };
+    }
+    function envelope(g, t, a, d, s, r, peak, stop) {
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak * Math.max(5e-4, s)), t + a + d);
+      g.gain.exponentialRampToValueAtTime(1e-4, stop);
+    }
+    let lfo = null, lfoOut = null;
+    function vibrato() {
+      if (lfoOut) return lfoOut;
+      lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 5.2;
+      lfoOut = ctx.createGain();
+      lfoOut.gain.value = 1;
+      lfo.connect(lfoOut);
+      lfo.start();
+      return lfoOut;
+    }
+    function silentVoice() {
+      let gone = false;
+      const noop = () => {
+      };
+      return {
+        note: 0,
+        isSample: false,
+        get dead() {
+          return gone;
+        },
+        bend: noop,
+        vib: noop,
+        press: noop,
+        timbre: noop,
+        level: noop,
+        off() {
+          gone = true;
+        },
+        steal() {
+          gone = true;
+        }
+      };
+    }
+    function hold(voice, note, vel, when) {
+      if (!init()) return silentVoice();
+      const t = when || ctx.currentTime + NUDGE;
+      const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
+      const env = ctx.createGain(), exp = ctx.createGain();
+      const flt = ctx.createBiquadFilter();
+      flt.type = "lowpass";
+      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      const base = Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75));
+      flt.frequency.setValueAtTime(base, t);
+      flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
+      let src, isSample = false;
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          src = ctx.createBufferSource();
+          src.buffer = buf;
+          isSample = true;
+          if (buf.duration > 0.55) {
+            src.loop = true;
+            src.loopStart = buf.duration * 0.2;
+            src.loopEnd = buf.duration;
+          }
+          src.playbackRate.value = Math.pow(2, (clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24)) / 12);
+        }
+      }
+      let unison = null;
+      if (!src) {
+        unison = makeUnison(voice, t, hz(note), flt);
+        src = unison[0];
+      }
+      const bendable = unison ? unison.map((o) => o.detune) : src.detune ? [src.detune] : [];
+      const baseDetune = unison ? unison.map((o) => o.detune.value) : [0];
+      let vibDepth = null;
+      if (bendable.length) {
+        vibDepth = ctx.createGain();
+        vibDepth.gain.value = 0;
+        vibrato().connect(vibDepth);
+        bendable.forEach((p) => vibDepth.connect(p));
+      }
+      const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
+      const s = clamp(voice.sustain, 0, 1), peak = v * clamp(voice.gain, 0, 1.4);
+      const held2 = Math.max(2e-4, peak * Math.max(0.08, s));
+      env.gain.setValueAtTime(1e-4, t);
+      env.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      env.gain.exponentialRampToValueAtTime(held2, t + a + d);
+      exp.gain.setValueAtTime(1, t);
+      if (!unison) src.connect(flt);
+      let chain = flt;
+      if (voice.drive > 0.02) {
+        const ws = ctx.createWaveShaper();
+        ws.curve = driveCurve(voice.drive);
+        ws.oversample = "2x";
+        flt.connect(ws);
+        chain = ws;
+      }
+      chain.connect(env);
+      env.connect(exp);
+      if (pan) {
+        pan.pan.value = clamp(voice.pan, -1, 1);
+        exp.connect(pan);
+        pan.connect(master);
+      } else exp.connect(master);
+      if (voice.space > 0.02) {
+        const sd = ctx.createGain();
+        sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
+        exp.connect(sd);
+        sd.connect(spaceIn);
+      }
+      const sources = unison || [src];
+      sources.forEach((o) => o.start(t));
+      let dead2 = false, pressure = 0, timbre = 0, lev = 1;
+      function reflt() {
+        if (dead2) return;
+        const open = Math.min(1, pressure * 0.75 + timbre);
+        try {
+          flt.frequency.setTargetAtTime(Math.min(18e3, base * (1 + open * 5.5)), ctx.currentTime, 0.02);
+        } catch (e) {
+        }
+      }
+      function relev() {
+        if (dead2) return;
+        try {
+          exp.gain.setTargetAtTime(Math.max(1e-4, lev * (1 + pressure * 0.35)), ctx.currentTime, 0.025);
+        } catch (e) {
+        }
+      }
+      function fade(secs) {
+        if (dead2) return;
+        dead2 = true;
+        const now = ctx.currentTime;
+        try {
+          env.gain.cancelScheduledValues(now);
+          env.gain.setValueAtTime(Math.max(2e-4, env.gain.value), now);
+          env.gain.exponentialRampToValueAtTime(1e-4, now + secs);
+        } catch (e) {
+        }
+        sources.forEach((o) => {
+          try {
+            o.stop(now + secs + 0.03);
+          } catch (e) {
+          }
+        });
+      }
+      return {
+        note,
+        isSample,
+        get dead() {
+          return dead2;
+        },
+        // Bend arrives in SEMITONES, because that is the unit a player thinks in.
+        // Cents are an implementation detail of the audio graph.
+        // Each voice keeps its own unison offset and the bend is added ON TOP of
+        // it, so a chord bends as a chord instead of collapsing to one pitch.
+        bend(semis) {
+          if (dead2) return;
+          const c = clamp(semis, -48, 48) * 100;
+          bendable.forEach((p, i) => {
+            try {
+              p.setTargetAtTime(baseDetune[i] + c, ctx.currentTime, 6e-3);
+            } catch (e) {
+            }
+          });
+        },
+        vib(cents) {
+          if (vibDepth && !dead2) try {
+            vibDepth.gain.setTargetAtTime(clamp(cents, 0, 200), ctx.currentTime, 0.05);
+          } catch (e) {
+          }
+        },
+        press(p) {
+          pressure = clamp(p, 0, 1);
+          reflt();
+          relev();
+        },
+        timbre(b) {
+          timbre = clamp(b, 0, 1);
+          reflt();
+        },
+        level(l) {
+          lev = clamp(l, 0, 2);
+          relev();
+        },
+        off() {
+          fade(clamp(voice.release, 0.01, 4));
+        },
+        // A stolen voice still gets a release, just a very short one. 12ms is
+        // under the ear's time resolution and above the point where a hard stop
+        // becomes an audible tick.
+        steal() {
+          fade(0.012);
+        }
+      };
+    }
+    const AHEAD_MIN = 0.12, AHEAD_MAX = 0.6, TICK = 25;
+    let ahead = AHEAD_MIN;
+    let playing = false, step = 0, nextTime = 0, timer = 0, onStep = null;
+    const RECENT = 24;
+    const recent = new Float32Array(RECENT).fill(1);
+    let rp = 0;
+    const health = { late: 0, steps: 0 };
+    function worstRecent() {
+      let m = Infinity;
+      for (let i = 0; i < RECENT; i++) if (recent[i] < m) m = recent[i];
+      return m;
+    }
+    function schedule(song) {
+      const spb = 60 / clamp(song.bpm, 20, 300) / 4;
+      const behind = ctx.currentTime - nextTime;
+      if (behind > 0.5) {
+        const missed = Math.ceil(behind / spb);
+        step = (step + missed) % 16;
+        nextTime += missed * spb;
+        health.late++;
+      }
+      while (nextTime < ctx.currentTime + ahead) {
+        const lead = nextTime - ctx.currentTime;
+        health.steps++;
+        recent[rp] = lead;
+        rp = (rp + 1) % RECENT;
+        if (lead <= 0) {
+          health.late++;
+          ahead = Math.min(AHEAD_MAX, ahead + 0.12);
+        } else if (lead > ahead * 0.55 && ahead > AHEAD_MIN) {
+          ahead = Math.max(AHEAD_MIN, ahead - 4e-3);
+        }
+        const cells = song.scenes[song.scene].cells;
+        const anySolo = cells.some((c) => c.solo);
+        const swung = step % 2 ? clamp(song.swing, 0, 0.6) * spb * 0.6 : 0;
+        for (let i = 0; i < cells.length; i++) {
+          const c = cells[i];
+          if (c.mute || anySolo && !c.solo) continue;
+          const vel = c.steps[step % c.steps.length];
+          if (vel > 0) {
+            const semis = c.notes && c.voice.kind !== "drum" ? c.notes[step % c.notes.length] | 0 : 0;
+            play(c.voice, nextTime + swung, vel, i, semis);
+          }
+        }
+        const at = nextTime, s = step;
+        if (onStep) onStep(s, at);
+        nextTime += spb;
+        step = (step + 1) % 16;
+      }
+      if (playing) timer = setTimeout(() => schedule(song), TICK);
+    }
+    return {
+      init,
+      resume,
+      get ctx() {
+        return ctx;
+      },
+      get analyser() {
+        return analyser;
+      },
+      get meters() {
+        return meters;
+      },
+      get playing() {
+        return playing;
+      },
+      play,
+      hold,
+      decayMeters() {
+        for (let i = 0; i < meters.length; i++) meters[i] *= 0.86;
+      },
+      get silent() {
+        return dead;
+      },
+      start(song, cb) {
+        resume();
+        if (playing || !ctx) return;
+        playing = true;
+        step = 0;
+        onStep = cb || null;
+        health.late = 0;
+        health.steps = 0;
+        recent.fill(1);
+        ahead = AHEAD_MIN;
+        nextTime = ctx.currentTime + 0.06;
+        schedule(song);
+      },
+      // What the clock has been doing lately. `worst` is the smallest lead any of
+      // the last 64 notes got, in seconds; `late` counts every note that was
+      // already overdue when it was handed over; `ahead` is how wide the
+      // look-ahead window has had to open to keep up.
+      get health() {
+        return {
+          late: health.late,
+          steps: health.steps,
+          ahead,
+          worst: health.steps ? worstRecent() : 0
+        };
+      },
+      // How long a frame is currently taking, in milliseconds, from whoever is
+      // running the render loop.
+      //
+      // The scheduler cannot see this for itself, and it is the single best
+      // predictor of the thing that hurts it: a frame that takes 60ms is a main
+      // thread that will be unavailable for 60ms at a time, and a look-ahead
+      // window narrower than that is a hole in the music waiting to happen.
+      // Reacting to lateness alone is always one stall too late — the first one
+      // has already been heard. This lets the window open BEFORE anything is
+      // missed, which is the difference between recovering and not crackling.
+      pace(ms) {
+        if (!(ms > 0)) return;
+        const floor = Math.max(AHEAD_MIN, Math.min(AHEAD_MAX, ms * 4 / 1e3));
+        if (floor > ahead) ahead = floor;
+      },
+      stop() {
+        playing = false;
+        clearTimeout(timer);
+        step = 0;
+      },
+      get step() {
+        return step;
+      },
+      // Jump to a step. The queue is scheduled up to about 120ms ahead, so the
+      // steps already handed to the audio clock still sound — this changes where
+      // the loop goes NEXT, not what is already on its way out. Trying to unpick
+      // the queue would mean cancelling sources mid-note, which is a click.
+      seek(s) {
+        step = ((s | 0) % 16 + 16) % 16;
+        return step;
+      }
+    };
+  }
+
+  // ultimate/src/core/ble-midi.js
+  var BLE_MIDI_SERVICE = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
+  var BLE_MIDI_CHAR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
+  var dataLenFor = (status) => {
+    const t = status & 240;
+    if (t === 192 || t === 208) return 1;
+    if (t === 240) {
+      if (status === 241 || status === 243) return 1;
+      if (status === 242) return 2;
+      return 0;
+    }
+    return 2;
+  };
+  var SYSEX_MAX = 65536;
+  function createBleDecoder(onMessage) {
+    let runningStatus = 0;
+    let sysex = null;
+    let sysexLost = false;
+    let pend = null;
+    function fill(state, bytes, from) {
+      let i = from;
+      while (state.msg.length < state.need + 1 && i < bytes.length && !(bytes[i] & 128)) {
+        state.msg.push(bytes[i++]);
+      }
+      return i;
+    }
+    return function decode(bytes) {
+      if (!bytes || bytes.length < 1) return;
+      if (bytes.length < 2) return;
+      let i = 1;
+      if (pend) {
+        i = fill(pend, bytes, i);
+        if (pend.msg.length === pend.need + 1) {
+          onMessage(pend.msg);
+          pend = null;
+        } else if (i >= bytes.length) return;
+        else pend = null;
+      }
+      while (i < bytes.length) {
+        const b = bytes[i];
+        if (sysex) {
+          if (b & 128) {
+            i++;
+            if (i >= bytes.length) break;
+            const s = bytes[i];
+            if (s === 247) {
+              i++;
+              if (!sysexLost) {
+                sysex.push(247);
+                onMessage(sysex);
+              }
+              sysex = null;
+              sysexLost = false;
+              continue;
+            }
+            if (s >= 248) {
+              onMessage([s]);
+              i++;
+              continue;
+            }
+            continue;
+          }
+          if (sysex.length >= SYSEX_MAX) {
+            sysexLost = true;
+            sysex.length = 0;
+          } else sysex.push(b);
+          i++;
+          continue;
+        }
+        if (b & 128) {
+          i++;
+          if (i >= bytes.length) break;
+          const s = bytes[i];
+          if (s & 128) {
+            i++;
+            if (s === 240) {
+              sysex = [240];
+              continue;
+            }
+            if (s >= 248) {
+              onMessage([s]);
+              continue;
+            }
+            runningStatus = s < 240 ? s : 0;
+            const st2 = { msg: [s], need: dataLenFor(s) };
+            i = fill(st2, bytes, i);
+            if (st2.msg.length === st2.need + 1) onMessage(st2.msg);
+            else if (i >= bytes.length) pend = st2;
+            continue;
+          }
+          if (!runningStatus) {
+            continue;
+          }
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill(st, bytes, i);
+          if (st.msg.length === st.need + 1) onMessage(st.msg);
+          else if (i >= bytes.length) pend = st;
+          continue;
+        }
+        if (runningStatus) {
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill(st, bytes, i);
+          if (st.msg.length === st.need + 1) {
+            onMessage(st.msg);
+            continue;
+          }
+          if (i >= bytes.length) {
+            pend = st;
+            continue;
+          }
+        }
+        i++;
+      }
+    };
+  }
+
+  // ultimate/src/core/midi-io.js
+  function createMidiIO({ onEvent, onPorts, onGone } = {}) {
+    let access = null;
+    let bleStatus = 0;
+    const diag = {
+      mode: "starting",
+      err: "",
+      tried: 0,
+      sysex: false,
+      inputs: 0,
+      outputs: 0,
+      bytes: 0,
+      at: 0,
+      ble: 0,
+      auto: "",
+      lost: ""
+    };
+    let bleName = "BLE MIDI";
+    let lastDataAt = 0;
+    const liveAt = /* @__PURE__ */ new Map();
+    const portKey = (p) => p && (p.id || p.name) || "unknown";
+    const emit = (data, port) => {
+      if (!data || data.length < 1) return;
+      const [status, d1 = 0, d2 = 0] = data;
+      if (status < 128) return;
+      if (status === 248 || status === 249 || status === 253 || status === 254 || status === 255) return;
+      const fire = (e) => {
+        lastDataAt = Date.now();
+        liveAt.set(portKey(port), lastDataAt);
+        diag.bytes++;
+        diag.at = lastDataAt;
+        onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 240, chan: status & 15, port, raw: data }, e));
+      };
+      if (status === 250 || status === 251) {
+        fire({ transport: "play" });
+        return;
+      }
+      if (status === 252) {
+        fire({ transport: "stop" });
+        return;
+      }
+      if (status === 240) {
+        if (data.length >= 5 && data[1] === 127 && data[3] === 6) {
+          const c = data[4];
+          const name = c === 1 ? "stop" : c === 2 || c === 3 ? "play" : c === 6 || c === 7 ? "rec" : null;
+          if (name) fire({ transport: name });
+        }
+        return;
+      }
+      if (status >= 241 && status <= 247) return;
+      fire();
+    };
+    const hasLiveData = () => lastDataAt > 0;
+    const portLive = (p) => (liveAt.get(portKey(p)) || 0) > 0;
+    const liveInputs = () => listInputs().filter(portLive);
+    const gone = (port, why) => {
+      if (!port) return;
+      liveAt.delete(portKey(port));
+      diag.lost = (port.name || "a controller") + " \u2014 " + (why || "disconnected");
+      onGone && onGone(port, why);
+    };
+    const bleCtx = /* @__PURE__ */ new Map();
+    window.onNativeMIDIDevices = (list) => {
+      nativeDevices = (list || []).map((d) => ({
+        id: d.id,
+        name: d.name,
+        manufacturer: d.manufacturer || "",
+        props: d.props || ""
+      }));
+      if (nativeDevices.length && typeof nativeName !== "undefined") {
+        try {
+          nativeName = nativeDevices[0].name;
+        } catch (e) {
+        }
+      }
+      onPorts && onPorts(nativeDevices);
+    };
+    window.onNativeBLEPackets = (packets, addr, name) => {
+      if (!packets || !packets.length) return;
+      let ctx = bleCtx.get(addr);
+      if (!ctx) {
+        ctx = { port: { id: "ble:" + addr, name: name || "BLE MIDI", ble: true } };
+        ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+        bleCtx.set(addr, ctx);
+      }
+      for (let i = 0; i < packets.length; i++) ctx.decode(Uint8Array.from(packets[i]));
+    };
+    let nativeName = "MIDI DEVICE";
+    const nativePort = (id, name) => ({
+      id: id || "native",
+      name: name || nativeName,
+      native: true
+    });
+    window.onNativeMIDIMessage = (bytes, id, name) => emit(Array.from(bytes), nativePort(id, name));
+    window.onNativeMIDIBatch = (list, id, name) => {
+      if (!list || !list.length) return;
+      const p = nativePort(id, name);
+      for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
+    };
+    window.onNativeMIDIStatus = (txt) => {
+      const m = String(txt || "").match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
+      if (m) nativeName = m[1].trim();
+      onPorts && onPorts(listInputs());
+    };
+    window.__livexNativeMidi = window.onNativeMIDIMessage;
+    let nativeDevices = [];
+    let nativeMode = false;
+    function listInputs() {
+      if (access) return [...access.inputs.values()];
+      return nativeDevices;
+    }
+    let startPromise = null;
+    function start() {
+      if (startPromise) return startPromise;
+      startPromise = _start().then((r) => {
+        if (!r || r.mode === "none") startPromise = null;
+        return r;
+      }, (e) => {
+        startPromise = null;
+        throw e;
+      });
+      return startPromise;
+    }
+    let sweepTimer = 0, sweeps = 0, sweeping = false;
+    function sweep() {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        nativeMode = true;
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+      }
+      if (access) {
+        try {
+          access.inputs.forEach((inp) => {
+            inp.onmidimessage = (e) => emit(e.data, inp);
+          });
+        } catch (e) {
+        }
+      }
+      start().catch(() => {
+      });
+      onPorts && onPorts(listInputs());
+    }
+    function keepLooking() {
+      if (sweeping) return;
+      sweeping = true;
+      const tick = () => {
+        sweeps++;
+        sweep();
+        const found = inputCount() > 0 || typeof window !== "undefined" && window.AndroidMidi;
+        const wait = found ? 8e3 : Math.min(1200 * Math.pow(1.6, Math.min(sweeps, 6)), 12e3);
+        clearTimeout(sweepTimer);
+        sweepTimer = setTimeout(tick, wait);
+      };
+      tick();
+    }
+    function rescan() {
+      sweeps = 0;
+      sweep();
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) rescan();
+      });
+    }
+    if (typeof window !== "undefined") window.addEventListener("focus", () => rescan());
+    async function _start() {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        nativeMode = true;
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+        diag.mode = "native";
+        return { mode: "native" };
+      }
+      diag.tried++;
+      if ((typeof navigator === "undefined" || !navigator.requestMIDIAccess) && !(typeof window !== "undefined" && window.AndroidMidi)) {
+        diag.mode = "unsupported";
+        diag.err = "navigator.requestMIDIAccess is not available in this build";
+      }
+      if (typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
+        try {
+          access = await navigator.requestMIDIAccess({ sysex: true });
+          diag.sysex = true;
+        } catch (e) {
+          diag.sysex = false;
+          diag.err = "sysex refused: " + (e && e.message || e);
+          try {
+            access = await navigator.requestMIDIAccess({ sysex: false });
+          } catch (e2) {
+            diag.mode = "denied";
+            diag.err = "MIDI access refused: " + (e2 && e2.message || e2);
+            throw e2;
+          }
+        }
+        const hook = () => access.inputs.forEach((inp) => {
+          inp.onmidimessage = (e) => emit(e.data, inp);
+        });
+        hook();
+        access.onstatechange = (ev) => {
+          const p = ev && ev.port;
+          if (p && p.type === "input" && p.state === "disconnected") gone(p, "unplugged");
+          hook();
+          onPorts && onPorts(listInputs());
+        };
+        onPorts && onPorts(listInputs());
+        let seen = new Map([...access.inputs].map(([k, v]) => [k, v]));
+        setInterval(() => {
+          if (!access) return;
+          const now = new Map([...access.inputs].map(([k, v]) => [k, v]));
+          let changed = now.size !== seen.size;
+          for (const [k, v] of seen) if (!now.has(k)) {
+            changed = true;
+            gone(v, "unplugged");
+          }
+          for (const k of now.keys()) if (!seen.has(k)) changed = true;
+          seen = now;
+          hook();
+          if (changed) onPorts && onPorts(listInputs());
+        }, 3e3);
+        diag.mode = "webmidi";
+        return { mode: "webmidi", access };
+      }
+      return { mode: "none" };
+    }
+    function parseBLE(dv, ctx) {
+      const bytes = new Uint8Array(dv.buffer || dv);
+      if (!ctx.decode) ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+      ctx.decode(bytes);
+    }
+    function inputCount() {
+      return access ? access.inputs.size : 0;
+    }
+    async function connectBluetooth({ onStatus } = {}) {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+        onStatus && onStatus({ mode: "native", hint: "Pair the controller in Android Bluetooth settings \u2014 scanning\u2026" });
+        return { mode: "native" };
+      }
+      if (!access && typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
+        await start();
+      }
+      const n = inputCount();
+      const liveN = liveInputs().length;
+      if (n > 0 && liveN >= n) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) connected and live." });
+        return { mode: "port", count: n };
+      }
+      if (typeof navigator !== "undefined" && navigator.bluetooth) {
+        if (!n) {
+          onStatus && onStatus({
+            mode: "own-link",
+            hint: "Windows does not hand Bluetooth MIDI to apps \u2014 opening the link directly\u2026"
+          });
+        }
+        if (n > 0) {
+          const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?");
+          onStatus && onStatus({
+            mode: "silent-port",
+            count: n,
+            silent: mute,
+            hint: (mute.length === 1 ? mute[0] + " exists but has sent nothing" : mute.length + " MIDI ports exist but have sent nothing") + " \u2014 connecting over Bluetooth directly\u2026"
+          });
+        }
+        try {
+          const dev = await connectBLE({ onStatus });
+          return { mode: "gatt", device: dev && dev.name };
+        } catch (err) {
+          if (err && /GATT|connect|Network/i.test(String(err.message || err)) && n > 0) {
+            onStatus && onStatus({
+              mode: "held",
+              hint: "The controller is held by its vendor driver (e.g. the KORG BLE-MIDI panel). Disconnect it there, then tap \u{1F4F6} again."
+            });
+            return { mode: "held", count: n };
+          }
+          throw err;
+        }
+      }
+      if (n > 0) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) found \u2014 play a key to confirm." });
+        return { mode: "port", count: n };
+      }
+      onStatus && onStatus({ mode: "none", hint: "No MIDI device found \u2014 pair the controller, then tap \u{1F4F6} again." });
+      return { mode: "none" };
+    }
+    const KNOWN = [
+      "SMK",
+      "SMK25",
+      "WORLDE",
+      "M-VAVE",
+      "MVAVE",
+      "M-WAVE",
+      "KORG",
+      "nanoKEY",
+      "microKEY",
+      "MPK",
+      "LPK",
+      "MPD",
+      "Launchkey",
+      "JamJum",
+      "JAM JUM",
+      "JP-1",
+      "JP1",
+      "JP-Mini",
+      "JP Mini",
+      "KUWEE"
+    ];
+    const bound = /* @__PURE__ */ new Set();
+    async function attachDevice(dev, { onStatus } = {}) {
+      if (dev && dev.name) bleName = dev.name;
+      const ctx = {
+        status: 0,
+        port: { id: "ble:" + (dev.id || dev.name || Math.random().toString(36).slice(2)), name: dev.name || "BLE MIDI", ble: true }
+      };
+      ctx.onValue = ctx.onValue || ((e) => parseBLE(e.target.value, ctx));
+      const attach = async () => {
+        const server = await dev.gatt.connect();
+        const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+        const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
+        await ch.startNotifications();
+        if (ctx.char) {
+          try {
+            ctx.char.removeEventListener("characteristicvaluechanged", ctx.onValue);
+          } catch (e) {
+          }
+        }
+        ch.addEventListener("characteristicvaluechanged", ctx.onValue);
+        ctx.char = ch;
+        ctx.retrying = false;
+        onStatus && onStatus({ mode: "gatt", connected: true, name: dev.name });
+      };
+      if (!bound.has(dev)) {
+        bound.add(dev);
+        dev.addEventListener("gattserverdisconnected", () => {
+          onStatus && onStatus({ mode: "gatt", connected: false, name: dev.name });
+          gone(ctx.port, "bluetooth link dropped");
+          if (ctx.retrying) return;
+          ctx.retrying = true;
+          let tries = 0;
+          const retry = () => {
+            if (!ctx.retrying) return;
+            if (dev.gatt && dev.gatt.connected) {
+              ctx.retrying = false;
+              return;
+            }
+            attach().catch(() => {
+              if (++tries < 8) setTimeout(retry, Math.min(1e3 * 2 ** tries, 2e4));
+              else ctx.retrying = false;
+            });
+          };
+          setTimeout(retry, 600);
+        });
+      }
+      await attach();
+      return dev;
+    }
+    async function connectBLE({ onStatus, namePrefix } = {}) {
+      if (!(typeof navigator !== "undefined" && navigator.bluetooth)) {
+        throw new Error("This build has no Web Bluetooth, so it cannot open the link itself.");
+      }
+      const opts = { optionalServices: [BLE_MIDI_SERVICE] };
+      if (namePrefix) opts.filters = [{ namePrefix }];
+      else opts.acceptAllDevices = true;
+      const dev = await navigator.bluetooth.requestDevice(opts);
+      return attachDevice(dev, { onStatus });
+    }
+    async function autoReconnect({ onStatus } = {}) {
+      if (typeof navigator === "undefined" || !navigator.bluetooth || !navigator.bluetooth.getDevices) {
+        diag.auto = "this build cannot reopen paired devices";
+        return { mode: "unsupported", devices: 0 };
+      }
+      let devs = [];
+      try {
+        devs = await navigator.bluetooth.getDevices();
+      } catch (e) {
+        diag.auto = "getDevices failed";
+        return { mode: "none", devices: 0 };
+      }
+      if (!devs.length) {
+        diag.auto = "nothing paired with this app yet";
+        return { mode: "none", devices: 0 };
+      }
+      let connected = 0;
+      for (const dev of devs) {
+        try {
+          await attachDevice(dev, { onStatus });
+          connected++;
+        } catch (e) {
+          try {
+            if (!bound.has(dev)) {
+              dev.addEventListener("advertisementreceived", function once() {
+                dev.removeEventListener("advertisementreceived", once);
+                attachDevice(dev, { onStatus }).catch(() => {
+                });
+              });
+            }
+            if (dev.watchAdvertisements) await dev.watchAdvertisements();
+          } catch (e2) {
+          }
+        }
+      }
+      diag.auto = connected + " of " + devs.length + " reopened";
+      if (connected) onStatus && onStatus({ mode: "gatt", connected: true, auto: true, count: connected });
+      return { mode: connected ? "gatt" : "watching", devices: devs.length, connected };
+    }
+    return {
+      start,
+      keepLooking,
+      rescan,
+      listInputs,
+      inputCount,
+      connectBluetooth,
+      connectBLE,
+      autoReconnect,
+      hasLiveData,
+      portLive,
+      liveInputs,
+      access: () => access,
+      _emit: emit,
+      // Test seam: pretend a port vanished, so the note-release path can be
+      // exercised without unplugging real hardware.
+      _gone: gone,
+      // Everything the app knows about why MIDI is or is not working. Read by the
+      // MIDI window, so a controller that will not connect produces a specific
+      // sentence instead of a shrug.
+      diagnostics() {
+        const ins = listInputs();
+        diag.inputs = ins.length;
+        diag.outputs = access ? access.outputs.size : 0;
+        diag.ble = bleCtx.size;
+        return Object.assign({}, diag, {
+          names: ins.map((p) => p.name || "?"),
+          live: lastDataAt > 0,
+          liveNames: liveInputs().map((p) => p.name || "?"),
+          silentNames: listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?"),
+          webBluetooth: !!(typeof navigator !== "undefined" && navigator.bluetooth),
+          canReopen: !!(typeof navigator !== "undefined" && navigator.bluetooth && navigator.bluetooth.getDevices)
+        });
+      },
+      // devices reported by the native bridge, with their raw Android properties —
+      // read by the MIDI monitor so an unidentified controller can be diagnosed
+      devices: () => nativeDevices
+    };
+  }
+
+  // ultimate/src/core/library.js
+  var DB = "skrimpad_ultimate_lib";
+  var STORE = "sounds";
+  var BUDGET = 96 * 1024 * 1024;
+  var AUDIO_RE = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|caf|au)$/i;
+  var KINDS = [
+    [/kick|\bbd\b|bassdrum|\b808\b|boom/i, "KICK"],
+    [/snare|\bsd\b|rim(shot)?/i, "SNARE"],
+    [/clap|hand ?clap/i, "CLAP"],
+    [/hi.?hat|hihat|\bhh\b|\bhat\b/i, "HAT"],
+    [/\btom\b|floor.?tom/i, "TOM"],
+    [/crash|ride|splash|china|cymbal|\bcym\b/i, "CYMBAL"],
+    [/shaker|tamb|conga|bongo|perc|cowbell|clave|block/i, "PERC"],
+    [/sub|\b808 ?bass\b/i, "SUB"],
+    [/bass|reese|wobble/i, "BASS"],
+    [/pad|atmos|drone|choir/i, "PAD"],
+    [/pluck|stab|chord/i, "PLUCK"],
+    [/lead|arp|acid|saw/i, "LEAD"],
+    [/bell|chime|glock|kalimba/i, "BELL"],
+    [/key|piano|rhodes|organ|wurli/i, "KEYS"],
+    [/vox|vocal|voice|acap|chant/i, "VOCAL"],
+    [/riser|sweep|whoosh|impact|fx|noise|foley/i, "FX"],
+    [/loop|beat|groove|break/i, "LOOP"]
+  ];
+  function classify(name, buffer) {
+    const n = String(name || "");
+    for (const [re, kind] of KINDS) if (re.test(n)) return kind;
+    if (!buffer) return "SAMPLE";
+    const d = buffer.getChannelData(0), n2 = d.length;
+    const step = Math.max(1, Math.floor(n2 / 3e4));
+    let zc = 0, peak = 0, energy = 0, count = 0;
+    for (let i = step; i < n2; i += step) {
+      if (d[i - step] < 0 !== d[i] < 0) zc++;
+      const a = Math.abs(d[i]);
+      if (a > peak) peak = a;
+      energy += a;
+      count++;
+    }
+    const zcr = count ? zc / count : 0;
+    const sustained = count && energy / count > peak * 0.18;
+    const dur = buffer.duration;
+    if (dur > 4) return "LOOP";
+    if (dur > 1.2 && sustained) return zcr > 0.22 ? "PAD" : "BASS";
+    if (dur <= 0.22 && zcr > 0.3) return "HAT";
+    if (dur <= 0.5 && zcr > 0.18) return "SNARE";
+    if (dur <= 0.9 && zcr < 0.08) return "KICK";
+    return "PERC";
+  }
+  function openDB() {
+    return new Promise((resolve2) => {
+      if (typeof indexedDB === "undefined") return resolve2(null);
+      let req;
+      try {
+        req = indexedDB.open(DB, 1);
+      } catch (e) {
+        return resolve2(null);
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      };
+      req.onsuccess = () => resolve2(req.result);
+      req.onerror = () => resolve2(null);
+    });
+  }
+  function tx(db, mode, fn) {
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(null);
+      let t;
+      try {
+        t = db.transaction(STORE, mode);
+      } catch (e) {
+        return resolve2(null);
+      }
+      let out = null;
+      try {
+        out = fn(t.objectStore(STORE));
+      } catch (e) {
+        return resolve2(null);
+      }
+      t.oncomplete = () => resolve2(out && out.result !== void 0 ? out.result : out);
+      t.onerror = t.onabort = () => resolve2(null);
+    });
+  }
+  function txWrite(db, fn) {
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(false);
+      let t;
+      try {
+        t = db.transaction(STORE, "readwrite");
+      } catch (e) {
+        return resolve2(false);
+      }
+      try {
+        fn(t.objectStore(STORE));
+      } catch (e) {
+        return resolve2(false);
+      }
+      t.oncomplete = () => resolve2(true);
+      t.onerror = t.onabort = () => resolve2(false);
+    });
+  }
+  function createLibrary({ ctx, onChange, onError } = {}) {
+    const items = [];
+    const cache = /* @__PURE__ */ new Map();
+    const pinned = /* @__PURE__ */ new Set();
+    let bytes = 0, db = null, nextId = 1;
+    const sizeOf = (b) => b ? b.length * b.numberOfChannels * 4 : 0;
+    function evict() {
+      if (bytes <= BUDGET) return;
+      for (const [id, buf] of cache) {
+        if (pinned.has(id)) continue;
+        cache.delete(id);
+        bytes -= sizeOf(buf);
+        if (bytes <= BUDGET * 0.8) break;
+      }
+    }
+    async function boot() {
+      db = await openDB();
+      const rows = await tx(db, "readonly", (s) => s.getAll());
+      (rows || []).forEach((r) => {
+        items.push({ id: r.id, name: r.name, kind: r.kind, dur: r.dur, size: r.size });
+        const n = +String(r.id).replace(/\D/g, "");
+        if (n >= nextId) nextId = n + 1;
+      });
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
+      return items;
+    }
+    async function bufferFor(id) {
+      if (cache.has(id)) {
+        const b = cache.get(id);
+        cache.delete(id);
+        cache.set(id, b);
+        return b;
+      }
+      const row = await tx(db, "readonly", (s) => s.get(id));
+      if (!row || !row.bytes) return null;
+      try {
+        const buf = await ctx().decodeAudioData(row.bytes.slice(0));
+        cache.set(id, buf);
+        bytes += sizeOf(buf);
+        evict();
+        return buf;
+      } catch (e) {
+        return null;
+      }
+    }
+    async function add(file) {
+      if (!file) return null;
+      const name = file.name || "sound " + nextId;
+      if (!AUDIO_RE.test(name) && !/^audio\//.test(file.type || "")) return null;
+      return store(name, await file.arrayBuffer());
+    }
+    async function addRaw(name, raw, origin) {
+      if (!raw || !raw.byteLength) return null;
+      return store(name || "sound " + nextId, raw, origin);
+    }
+    async function store(name, raw, origin) {
+      let buf = null;
+      try {
+        buf = await ctx().decodeAudioData(raw.slice(0));
+      } catch (e) {
+        return null;
+      }
+      const id = "sx" + nextId++;
+      const rec = {
+        id,
+        name: String(name).replace(/\.[^.]+$/, ""),
+        kind: classify(name, buf),
+        dur: +buf.duration.toFixed(3),
+        size: raw.byteLength,
+        bytes: raw,
+        // Which pack it came from. Two kicks called "Kick 01" from two packs are
+        // indistinguishable in a list without it.
+        from: origin || ""
+      };
+      const stored = await txWrite(db, (s) => s.put(rec));
+      if (db && !stored) {
+        onError && onError("storage", name);
+        return null;
+      }
+      const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size, from: rec.from };
+      items.push(meta);
+      cache.set(id, buf);
+      bytes += sizeOf(buf);
+      evict();
+      if (!batching) settle();
+      return meta;
+    }
+    let batching = false;
+    function settle() {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
+    }
+    async function addFiles(list) {
+      const out = [];
+      const files = Array.from(list || []);
+      batching = true;
+      try {
+        for (const f of files) {
+          const m = await add(f);
+          if (m) out.push(m);
+        }
+      } finally {
+        batching = false;
+        settle();
+      }
+      return out;
+    }
+    async function remove(id) {
+      await txWrite(db, (s) => s.delete(id));
+      const i = items.findIndex((x) => x.id === id);
+      if (i >= 0) items.splice(i, 1);
+      if (cache.has(id)) {
+        bytes -= sizeOf(cache.get(id));
+        cache.delete(id);
+      }
+      pinned.delete(id);
+      onChange && onChange(items);
+    }
+    async function clear() {
+      await txWrite(db, (s) => s.clear());
+      items.length = 0;
+      cache.clear();
+      pinned.clear();
+      bytes = 0;
+      onChange && onChange(items);
+    }
+    return {
+      boot,
+      add,
+      addRaw,
+      addFiles,
+      remove,
+      clear,
+      bufferFor,
+      // Batch mode, exposed. A pack import adds hundreds of sounds and each one
+      // would otherwise re-sort the array and rebuild the whole list.
+      batch(on) {
+        batching = !!on;
+        if (!on) settle();
+      },
+      get items() {
+        return items.slice();
+      },
+      find: (id) => items.find((x) => x.id === id) || null,
+      pin(id) {
+        if (id) pinned.add(id);
+      },
+      unpin(id) {
+        pinned.delete(id);
+      },
+      // Re-pin from scratch after any assignment change, so a sample that is no
+      // longer on any cell becomes evictable again instead of leaking.
+      repin(ids) {
+        pinned.clear();
+        (ids || []).forEach((i) => i && pinned.add(i));
+      },
+      stats() {
+        return { count: items.length, ram: Math.round(bytes / 1048576) + "MB", cached: cache.size };
+      }
+    };
+  }
+
+  // ultimate/src/core/menu.js
+  var openEl = null;
+  var closeFn = null;
+  function closeMenu() {
+    if (closeFn) closeFn();
+  }
+  function onLongPress(el, ms, fn) {
+    let timer = 0, sx = 0, sy = 0, id = null;
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      id = null;
+    };
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      cancel();
+      id = ev.pointerId;
+      sx = ev.clientX;
+      sy = ev.clientY;
+      timer = setTimeout(() => {
+        timer = 0;
+        fn(ev, sx, sy);
+      }, ms);
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (ev.pointerId !== id || !timer) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cancel();
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((e) => el.addEventListener(e, cancel));
+    return cancel;
+  }
+  function resolve(v) {
+    return typeof v === "function" ? v() : v;
+  }
+  function openMenu({ x, y, items, title, onClose }) {
+    closeMenu();
+    const root = document.createElement("div");
+    root.className = "menu";
+    root.setAttribute("role", "menu");
+    if (title) root.setAttribute("aria-label", title);
+    const stack = [];
+    function build(list, host) {
+      host.innerHTML = "";
+      resolve(list).forEach((it) => {
+        if (!it) return;
+        if (it.sep) {
+          host.appendChild(document.createElement("hr")).className = "msep";
+          return;
+        }
+        if (it.head) {
+          const h = document.createElement("div");
+          h.className = "mhead";
+          h.textContent = it.head;
+          host.appendChild(h);
+          return;
+        }
+        const b = document.createElement("button");
+        b.className = "mitem" + (it.danger ? " danger" : "") + (it.on ? " on" : "");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        if (it.disabled) b.disabled = true;
+        b.innerHTML = '<span class="ml"></span>' + (it.hint ? '<span class="mh"></span>' : "") + (it.items ? '<span class="mx">\u203A</span>' : "");
+        b.querySelector(".ml").textContent = it.label;
+        if (it.hint) b.querySelector(".mh").textContent = it.hint;
+        b.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (it.disabled) return;
+          if (it.items) {
+            push(it);
+            return;
+          }
+          closeMenu();
+          if (it.run) it.run();
+        });
+        host.appendChild(b);
+      });
+    }
+    function push(it) {
+      stack.push(it);
+      render();
+    }
+    function pop() {
+      stack.pop();
+      render();
+    }
+    function render() {
+      const cur = stack[stack.length - 1];
+      root.innerHTML = "";
+      if (cur) {
+        const back = document.createElement("button");
+        back.className = "mitem back";
+        back.type = "button";
+        back.innerHTML = '<span class="ml"></span>';
+        back.querySelector(".ml").textContent = "\u2039 " + cur.label;
+        back.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          pop();
+        });
+        root.appendChild(back);
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(cur.items, body);
+      } else {
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(items, body);
+      }
+      place();
+      const first = root.querySelector(".mitem:not(:disabled)");
+      if (first) first.focus();
+    }
+    function place() {
+      root.style.left = "0px";
+      root.style.top = "0px";
+      const w = root.offsetWidth, h = root.offsetHeight;
+      const pad = 8;
+      let px = x, py = y;
+      if (px + w > innerWidth - pad) px = Math.max(pad, x - w);
+      if (py + h > innerHeight - pad) py = Math.max(pad, innerHeight - h - pad);
+      root.style.left = Math.max(pad, px) + "px";
+      root.style.top = Math.max(pad, py) + "px";
+    }
+    document.body.appendChild(root);
+    render();
+    requestAnimationFrame(() => root.classList.add("open"));
+    const away = (ev) => {
+      if (!root.contains(ev.target)) closeMenu();
+    };
+    const key = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeMenu();
+        return;
+      }
+      if (ev.key === "ArrowLeft" && stack.length) {
+        ev.preventDefault();
+        pop();
+        return;
+      }
+      if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+      ev.preventDefault();
+      const all = [...root.querySelectorAll(".mitem:not(:disabled)")];
+      if (!all.length) return;
+      const i = all.indexOf(document.activeElement);
+      const n = ev.key === "ArrowDown" ? i + 1 : i - 1;
+      all[(n + all.length) % all.length].focus();
+    };
+    setTimeout(() => {
+      document.addEventListener("pointerdown", away, true);
+      window.addEventListener("keydown", key, true);
+      window.addEventListener("resize", closeMenu);
+      window.addEventListener("blur", closeMenu);
+    }, 0);
+    openEl = root;
+    closeFn = () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+      root.remove();
+      openEl = null;
+      closeFn = null;
+      if (onClose) onClose();
+    };
+    return closeFn;
+  }
+
+  // jp/src/core/zip.js
+  var AUDIO_EXT = /\.(wav|mp3|ogg|oga|flac|m4a|aac|aiff?|opus|weba|webm|caf|wv)$/i;
+  var NON_AUDIO = /\.(txt|pdf|jpe?g|png|gif|bmp|webp|svg|doc[x]?|rtf|html?|css|js|json|xml|md|nfo|url|exe|dll|dmg|zip|rar|7z|fxp|fst|adg|nki|sfz|mid|midi)$/i;
+  var JUNK = /(^|\/)__MACOSX\/|(^|\/)\._|\.DS_Store$|(^|\/)Thumbs\.db$/i;
+  function zipParse(ab) {
+    const dv = new DataView(ab);
+    const n = ab.byteLength;
+    if (n < 22) throw new Error("That file is too small to be a ZIP");
+    let eocd = -1;
+    for (let i = n - 22; i >= Math.max(0, n - 65558); i--) {
+      if (dv.getUint32(i, true) !== 101010256) continue;
+      const cmLen = dv.getUint16(i + 20, true);
+      if (i + 22 + cmLen !== n) continue;
+      const off2 = dv.getUint32(i + 16, true);
+      if (off2 < n && dv.getUint32(off2, true) === 33639248) {
+        eocd = i;
+        break;
+      }
+      if (eocd < 0) eocd = i;
+    }
+    if (eocd < 0) throw new Error("That is not a ZIP file");
+    const count = dv.getUint16(eocd + 10, true);
+    let off = dv.getUint32(eocd + 16, true);
+    if (off === 4294967295 || count === 65535) {
+      throw new Error("That pack is in ZIP64 format \u2014 re-zip it, or drop the audio files in directly");
+    }
+    const entries = [];
+    for (let k = 0; k < count; k++) {
+      if (off + 46 > n || dv.getUint32(off, true) !== 33639248) break;
+      const method = dv.getUint16(off + 10, true);
+      const csize = dv.getUint32(off + 20, true);
+      const usize = dv.getUint32(off + 24, true);
+      const fnLen = dv.getUint16(off + 28, true);
+      const exLen = dv.getUint16(off + 30, true);
+      const cmLen = dv.getUint16(off + 32, true);
+      const lho = dv.getUint32(off + 42, true);
+      const name = new TextDecoder().decode(new Uint8Array(ab, off + 46, fnLen));
+      if (csize > 0 && lho + 30 <= n) {
+        const lfn = dv.getUint16(lho + 26, true), lex = dv.getUint16(lho + 28, true);
+        const start = lho + 30 + lfn + lex;
+        if (start + csize <= n) entries.push({ name, method, csize, usize, dataStart: start });
+      }
+      off += 46 + fnLen + exLen + cmLen;
+    }
+    return entries;
+  }
+  async function zipInflate(ab, e) {
+    const slice = ab.slice(e.dataStart, e.dataStart + e.csize);
+    if (e.method === 0) return slice;
+    if (e.method === 8) {
+      if (typeof DecompressionStream === "undefined") throw new Error("no inflate here");
+      return await new Response(
+        new Blob([slice]).stream().pipeThrough(new DecompressionStream("deflate-raw"))
+      ).arrayBuffer();
+    }
+    throw new Error("unsupported compression");
+  }
+  function candidates(entries) {
+    return (entries || []).filter((e) => !/\/$/.test(e.name) && !JUNK.test(e.name) && (AUDIO_EXT.test(e.name) || !NON_AUDIO.test(e.name)));
+  }
+  var KEYISH = /^[A-G](#|b)?(m|min|maj|major|minor)?\d?$/i;
+  var BPMISH = /^\d{2,3}\s?bpm$/i;
+  var LAYERISH = /^(v\d+|\d+k|\d+bit)$/i;
+  function isMarker(w) {
+    const s = String(w || "").trim();
+    if (!s) return false;
+    if (KEYISH.test(s) || BPMISH.test(s) || LAYERISH.test(s)) return true;
+    if (!/^\d{2,3}$/.test(s)) return false;
+    if (s[0] === "0") return false;
+    const n = +s;
+    return n >= 60 && n <= 200;
+  }
+  var MARKER = { test: isMarker };
+  var INSTR = /\b(kick|bd|bass ?drum|808|snare|sd|rim|clap|snap|hat|hh|hi-?hat|open ?hat|closed ?hat|crash|ride|cym|tom|perc|shaker|tamb|conga|bongo|cowbell|block|bass|sub|reese|lead|pluck|stab|chord|pad|string|brass|horn|key|piano|rhodes|organ|bell|arp|vox|vocal|chant|choir|fx|riser|impact|sweep|noise|drone|atmos|texture|loop|break|fill|roll|snip|one ?shot)\b/i;
+  function cleanName(raw) {
+    const base = String(raw || "").split("/").pop().replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s{2,}/g, " ").trim();
+    let segs = base.split(/\s*[-–]\s*/).map((x) => x.trim()).filter(Boolean);
+    while (segs.length > 1 && MARKER.test(segs[segs.length - 1])) segs.pop();
+    segs = segs.map((s) => {
+      const w = s.split(/\s+/);
+      while (w.length > 1 && MARKER.test(w[w.length - 1])) w.pop();
+      return w.join(" ");
+    });
+    const at = segs.findIndex((sg) => INSTR.test(sg));
+    if (at > 0) segs = segs.slice(at);
+    else if (at < 0 && segs.length > 2) segs = segs.slice(-1);
+    if (segs.length) {
+      const w = segs[0].split(/\s+/);
+      const wi = w.findIndex((x) => INSTR.test(x));
+      if (wi > 0) segs[0] = w.slice(wi).join(" ");
+    }
+    return segs.join(" - ").trim() || base;
+  }
+  async function importZip(ab, { addBuffer, onProgress, packName } = {}) {
+    const entries = zipParse(ab);
+    const list = candidates(entries).slice(0, 400);
+    if (!list.length) return { ok: 0, bad: 0, reason: "no audio files inside that pack" };
+    const MEM_BUDGET = 380 * 1024 * 1024;
+    let ok = 0, bad = 0, mem = 0, stopped = false;
+    for (let i = 0; i < list.length; i++) {
+      if (mem > MEM_BUDGET) {
+        stopped = true;
+        break;
+      }
+      const e = list[i];
+      try {
+        const data = await zipInflate(ab, e);
+        const added = await addBuffer(cleanName(e.name), data, packName);
+        if (added) {
+          ok++;
+          mem += (e.usize || e.csize) * 6;
+        } else bad++;
+      } catch (err) {
+        if (AUDIO_EXT.test(e.name)) bad++;
+      }
+      if ((i & 3) === 3) {
+        onProgress && onProgress(ok, list.length);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    onProgress && onProgress(ok, list.length);
+    return { ok, bad, stopped, total: list.length };
+  }
+  var isZip = (f) => /\.zip$/i.test(f && f.name || "") || f && f.type === "application/zip";
+
+  // jp/src/core/looper.js
+  function createLooper({ now, bpmFor, onFire, onState } = {}) {
+    let state = "empty";
+    let events = [];
+    let undoStack = [];
+    let lenBeats = 0;
+    let startedAt = 0;
+    let posBeat = 0;
+    let timer = 0;
+    let played = /* @__PURE__ */ new Set();
+    let bars = 0;
+    const spb = () => 60 / Math.max(20, Math.min(300, bpmFor()));
+    const say = () => onState && onState(info());
+    function info() {
+      return {
+        state,
+        bars,
+        lenBeats,
+        events: events.length,
+        pos: lenBeats ? posBeat % lenBeats / lenBeats : 0,
+        canUndo: undoStack.length > 0
+      };
+    }
+    function tick() {
+      const t = now();
+      const beat = (t - startedAt) / spb();
+      if (state === "recording") {
+        posBeat = beat;
+        timer = setTimeout(tick, 25);
+        return;
+      }
+      if (state !== "playing" && state !== "overdub") return;
+      const prev = posBeat;
+      posBeat = beat % lenBeats;
+      if (posBeat < prev) played.clear();
+      const ahead = 0.12 / spb();
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        const key = i;
+        if (played.has(key)) continue;
+        let d = e.beat - posBeat;
+        if (d < -1e-3) d += lenBeats;
+        if (d > ahead) continue;
+        played.add(key);
+        onFire && onFire(e.pad, e.vel, t + d * spb(), e.len * spb());
+      }
+      timer = setTimeout(tick, 20);
+      say();
+    }
+    return {
+      get info() {
+        return info();
+      },
+      // ARM, then the first pad hit starts the clock. Recording from the instant
+      // the button is pressed puts the gap between "I pressed record" and "I
+      // started playing" at the front of the loop, which is a bar of silence
+      // nobody asked for and everybody has to edit out.
+      arm() {
+        if (state === "recording") return this.stopRecord();
+        undoStack.push(events.slice());
+        if (state === "playing" || state === "overdub") {
+          state = "overdub";
+          say();
+          return info();
+        }
+        state = "armed";
+        events = [];
+        lenBeats = 0;
+        say();
+        return info();
+      },
+      // Called by the app on every pad hit. Returns true if it was captured.
+      capture(pad, vel, len) {
+        if (state === "armed") {
+          state = "recording";
+          startedAt = now();
+          posBeat = 0;
+          events.push({ pad, beat: 0, vel, len: len || 0.25 });
+          clearTimeout(timer);
+          tick();
+          say();
+          return true;
+        }
+        if (state === "recording") {
+          events.push({ pad, beat: (now() - startedAt) / spb(), vel, len: len || 0.25 });
+          return true;
+        }
+        if (state === "overdub") {
+          let b = (now() - startedAt) / spb() % lenBeats;
+          if (b < 0) b += lenBeats;
+          events.push({ pad, beat: b, vel, len: len || 0.25 });
+          return true;
+        }
+        return false;
+      },
+      stopRecord() {
+        if (state !== "recording" && state !== "armed") return info();
+        if (state === "armed") {
+          state = "empty";
+          say();
+          return info();
+        }
+        const b = (now() - startedAt) / spb();
+        bars = Math.max(1, Math.ceil(b / 4 - 0.15));
+        lenBeats = bars * 4;
+        state = "playing";
+        startedAt = now();
+        posBeat = 0;
+        played.clear();
+        clearTimeout(timer);
+        tick();
+        say();
+        return info();
+      },
+      play() {
+        if (!events.length) return info();
+        if (state === "playing" || state === "overdub") return info();
+        state = "playing";
+        startedAt = now() - posBeat * spb();
+        played.clear();
+        clearTimeout(timer);
+        tick();
+        say();
+        return info();
+      },
+      pause() {
+        if (state !== "playing" && state !== "overdub" && state !== "recording") return info();
+        if (state === "recording") this.stopRecord();
+        state = "paused";
+        clearTimeout(timer);
+        timer = 0;
+        say();
+        return info();
+      },
+      stop() {
+        if (state === "recording") {
+          this.stopRecord();
+        }
+        state = events.length ? "paused" : "empty";
+        posBeat = 0;
+        played.clear();
+        clearTimeout(timer);
+        timer = 0;
+        say();
+        return info();
+      },
+      undo() {
+        if (!undoStack.length) return info();
+        events = undoStack.pop();
+        if (!events.length && state !== "empty") {
+          state = "empty";
+          lenBeats = 0;
+          bars = 0;
+          clearTimeout(timer);
+        }
+        played.clear();
+        say();
+        return info();
+      },
+      clear() {
+        undoStack.push(events.slice());
+        events = [];
+        lenBeats = 0;
+        bars = 0;
+        posBeat = 0;
+        state = "empty";
+        clearTimeout(timer);
+        timer = 0;
+        played.clear();
+        say();
+        return info();
+      },
+      // Everything recorded for one pad, dropped. Removing one part of a loop
+      // without losing the rest is the single most asked-for looper feature and
+      // the one most loopers do not have.
+      clearPad(pad) {
+        undoStack.push(events.slice());
+        events = events.filter((e) => e.pad !== pad);
+        played.clear();
+        say();
+        return info();
+      },
+      padsUsed() {
+        return [...new Set(events.map((e) => e.pad))];
+      }
+    };
+  }
+
+  // smk/src/core/smk25.js
+  var KEYS = 25;
+  var FIRST_NOTE = 48;
+  var PADS = 8;
+  var PAD_BANKS = 2;
+  var KNOBS = 8;
+  var KNOB_BANKS = 2;
+  var PAD_LABELS = ["DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8"];
+  var FACTORY_PAD_NOTES = [36, 37, 38, 39, 40, 41, 42, 43];
+  var FACTORY_PAD_CH = 9;
+  var FACTORY_KNOB_CC = [21, 22, 23, 24, 25, 26, 27, 28];
+  var KNOB_ROLES = [
+    // ---- BANK A: the voice -------------------------------------------------
+    { id: "cutoff", l: "CUTOFF", d: "Brightness. Opens and closes the filter \u2014 the single most useful knob on any synth, which is why it is knob 1." },
+    { id: "reso", l: "RESO", d: "The peak at the cutoff point. A little adds bite; a lot makes the filter sing on its own." },
+    { id: "attack", l: "ATTACK", d: "How fast a note arrives. Down for a stab, up for a swell." },
+    { id: "release", l: "RELEASE", d: "How long it takes to disappear after you let go." },
+    { id: "drive", l: "DRIVE", d: "Saturation before the filter. Adds harmonics and weight rather than just volume." },
+    { id: "spread", l: "SPREAD", d: "Detune between stacked oscillators. The difference between one sawtooth and a supersaw." },
+    { id: "tune", l: "TUNE", d: "Pitch in semitones, \xB124. Centred is no change." },
+    { id: "level", l: "LEVEL", d: "How loud this sound is against the others." },
+    // ---- BANK B: the room and the machine ----------------------------------
+    { id: "space", l: "SPACE", d: "Reverb send. How much room the sound is in." },
+    { id: "delay", l: "DELAY", d: "Echo send, timed to the tempo." },
+    { id: "pan", l: "PAN", d: "Position across the stereo field." },
+    { id: "master", l: "MASTER", d: "The output of the whole app." },
+    { id: "tempo", l: "TEMPO", d: "Beats per minute, 20 to 300. The arpeggiator, the rhythms and the looper all follow it." },
+    { id: "swing", l: "SWING", d: "Delays the offbeats only. Applying it to every step would just be a slower tempo." },
+    { id: "gate", l: "GATE", d: "How long each arpeggiator or rhythm note lasts, as a fraction of its step." },
+    { id: "mix", l: "MIX", d: "Balance between the keys and the pads, so one can sit under the other without touching either level." }
+  ];
+  var ARP_LEGEND = [
+    "UP",
+    "DOWN",
+    "INCL",
+    "EXCL",
+    "RAND",
+    "ORDER",
+    "REPEAT",
+    "OCT+",
+    "LATCH",
+    "GATE+",
+    "GATE-",
+    "TAP",
+    "SWING+",
+    "SWING-",
+    "TEMPO+",
+    "TEMPO-",
+    "SYNC",
+    "1/4",
+    "1/4T",
+    "1/8",
+    "1/8T",
+    "1/16",
+    "1/16T",
+    "1/32",
+    "1/32T"
+  ];
+  var SCCH_LEGEND = {
+    17: "CH",
+    18: "TRIAD",
+    19: "7TH",
+    20: "9TH",
+    21: "RAND",
+    22: "OFF",
+    23: "MAJOR",
+    24: "MINOR"
+  };
+  var ARP_MODES = ["UP", "DOWN", "INCL", "EXCL", "RAND", "ORDER", "REPEAT"];
+  var ARP_RATES = [
+    { id: "1/4", q: 4 },
+    { id: "1/4T", q: 8 / 3 },
+    { id: "1/8", q: 2 },
+    { id: "1/8T", q: 4 / 3 },
+    { id: "1/16", q: 1 },
+    { id: "1/16T", q: 2 / 3 },
+    { id: "1/32", q: 0.5 },
+    { id: "1/32T", q: 1 / 3 }
+  ];
+  var RHYTHMS = [
+    { id: "straight", l: "Straight", d: "Every step, evenly.", s: [9, 6, 7, 6, 8, 6, 7, 6, 9, 6, 7, 6, 8, 6, 7, 7] },
+    { id: "fourfloor", l: "Four-floor", d: "On every beat and nothing else.", s: [9, 0, 0, 0, 8, 0, 0, 0, 9, 0, 0, 0, 8, 0, 0, 0] },
+    { id: "offbeat", l: "Offbeat", d: "Between the beats \u2014 the house pulse.", s: [0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7, 0] },
+    { id: "backbeat", l: "Backbeat", d: "Two and four, where a snare lives.", s: [0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0] },
+    { id: "gallop", l: "Gallop", d: "Long-short-short. Drives forward.", s: [9, 0, 6, 7, 0, 0, 6, 7, 9, 0, 6, 7, 0, 0, 6, 7] },
+    { id: "dotted", l: "Dotted", d: "Every third sixteenth \u2014 the pattern that pulls against the bar.", s: [9, 0, 0, 7, 0, 0, 8, 0, 0, 7, 0, 0, 8, 0, 0, 7] },
+    { id: "clave", l: "Clave", d: "The son clave. Three then two.", s: [9, 0, 0, 7, 0, 0, 8, 0, 0, 0, 7, 0, 8, 0, 0, 0] },
+    { id: "dembow", l: "Dembow", d: "The reggaeton pulse.", s: [9, 0, 0, 7, 0, 0, 8, 0, 9, 0, 0, 7, 0, 0, 8, 0] },
+    { id: "tresillo", l: "Tresillo", d: "Three even hits across the bar.", s: [9, 0, 0, 8, 0, 0, 8, 0, 9, 0, 0, 8, 0, 0, 8, 0] },
+    { id: "shuffle", l: "Shuffle", d: "Swung eighths with a ghost between.", s: [9, 0, 4, 7, 0, 4, 8, 0, 9, 0, 4, 7, 0, 4, 8, 0] },
+    { id: "build", l: "Build", d: "Gets busier and louder across the bar.", s: [6, 0, 0, 0, 6, 0, 7, 0, 7, 0, 7, 7, 8, 8, 9, 9] },
+    { id: "sparse", l: "Sparse", d: "Once a bar, on the one. Room to breathe.", s: [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+  ];
+  var SCALES = {
+    off: { l: "Off", iv: null },
+    major: { l: "Major", iv: [0, 2, 4, 5, 7, 9, 11] },
+    minor: { l: "Minor", iv: [0, 2, 3, 5, 7, 8, 10] },
+    dorian: { l: "Dorian", iv: [0, 2, 3, 5, 7, 9, 10] },
+    phrygian: { l: "Phrygian", iv: [0, 1, 3, 5, 7, 8, 10] },
+    mixolydian: { l: "Mixolydian", iv: [0, 2, 4, 5, 7, 9, 10] },
+    pentatonic: { l: "Pentatonic", iv: [0, 3, 5, 7, 10] }
+  };
+  var CHORDS = {
+    off: { l: "Off", iv: [0] },
+    triad: { l: "Triad", iv: [0, 2, 4] },
+    // scale degrees, not semitones
+    sev: { l: "7th", iv: [0, 2, 4, 6] },
+    nine: { l: "9th", iv: [0, 2, 4, 6, 8] }
+  };
+  var JP_LIKE = /\bjp[-\s]?mini\b|\bjp[-\s]?1\b|\bjam\s?jum\b|\bkuwee\b/i;
+  var SMK_RE = /\bsmk[-\s]?25(?:\s?v\d)?\b|\bsmk25\b|\b(m[-\s]?vave|mvave|m[-\s]?wave|mwave|worlde)\b/i;
+  function identify(name) {
+    const n = String(name || "");
+    if (JP_LIKE.test(n)) return { smk: false, other: "JP pad controller", name: n };
+    if (SMK_RE.test(n)) return { smk: true, name: n, ble: /v\d/i.test(n) };
+    return { smk: false, name: n };
+  }
+  var LS = "skrimpad.smk.map.v1";
+  function blank() {
+    return {
+      pads: Array.from({ length: PAD_BANKS }, () => FACTORY_PAD_NOTES.map((note) => ({ note, ch: FACTORY_PAD_CH }))),
+      knobs: Array.from({ length: KNOB_BANKS }, (_, bank) => FACTORY_KNOB_CC.map((cc) => ({ cc, ch: 0 }))),
+      buttons: {},
+      // name -> { kind:'cc'|'note'|'rt', a, b, ch }
+      learned: { pads: false, knobs: false }
+    };
+  }
+  function createUnitMap() {
+    let all = {};
+    try {
+      all = JSON.parse(localStorage.getItem(LS) || "{}") || {};
+    } catch (e) {
+      all = {};
+    }
+    const save2 = () => {
+      try {
+        localStorage.setItem(LS, JSON.stringify(all));
+      } catch (e) {
+      }
+    };
+    const unitKey = (port) => String(port || "SMK-25").replace(/^MIDIIN\d+\s*\(|\)$/g, "").trim() || "SMK-25";
+    const unit2 = (port) => {
+      const k = unitKey(port);
+      if (!all[k]) all[k] = blank();
+      return all[k];
+    };
+    return {
+      unitKey,
+      padFor(port, bank, note, ch) {
+        const u = unit2(port);
+        const row = u.pads[bank % PAD_BANKS] || [];
+        for (let i = 0; i < row.length; i++) {
+          if (!row[i] || row[i].note !== note) continue;
+          if (u.learned.pads && row[i].ch !== ch) continue;
+          return i;
+        }
+        return -1;
+      },
+      knobFor(port, bank, cc) {
+        const u = unit2(port);
+        const row = u.knobs[bank % KNOB_BANKS] || [];
+        for (let i = 0; i < row.length; i++) if (row[i] && row[i].cc === cc) return i;
+        return -1;
+      },
+      teachPad(port, bank, i, note, ch) {
+        const u = unit2(port);
+        const row = u.pads[bank % PAD_BANKS];
+        for (let k = 0; k < row.length; k++) if (row[k] && row[k].note === note && row[k].ch === ch) row[k] = null;
+        row[i] = { note, ch };
+        u.learned.pads = true;
+        save2();
+      },
+      teachKnob(port, bank, i, cc, ch) {
+        const u = unit2(port);
+        const row = u.knobs[bank % KNOB_BANKS];
+        for (let k = 0; k < row.length; k++) if (row[k] && row[k].cc === cc) row[k] = null;
+        row[i] = { cc, ch: ch || 0 };
+        u.learned.knobs = true;
+        save2();
+      },
+      // A button — PLAY, STOP, REC, ARP, SC/CH, PAD-B, KNOB-B, OCT±. Whatever it
+      // sends is what it sends; the app records the signature rather than
+      // assuming a standard nobody guarantees.
+      teachButton(port, name, sig) {
+        unit2(port).buttons[name] = sig;
+        save2();
+      },
+      buttonFor(port, sig) {
+        const b = unit2(port).buttons;
+        for (const name of Object.keys(b)) {
+          const s = b[name];
+          if (!s) continue;
+          if (s.kind !== sig.kind) continue;
+          if (s.kind === "rt") {
+            if (s.a === sig.a) return name;
+            continue;
+          }
+          if (s.a === sig.a && (s.kind === "note" || s.b === sig.b || sig.b > 0)) return name;
+        }
+        return "";
+      },
+      buttons(port) {
+        return Object.assign({}, unit2(port).buttons);
+      },
+      learned(port) {
+        return Object.assign({}, unit2(port).learned);
+      },
+      padSnapshot(port, bank) {
+        return (unit2(port).pads[bank % PAD_BANKS] || []).map((x) => x && Object.assign({}, x));
+      },
+      knobSnapshot(port, bank) {
+        return (unit2(port).knobs[bank % KNOB_BANKS] || []).map((x) => x && Object.assign({}, x));
+      },
+      reset(port) {
+        all[unitKey(port)] = blank();
+        save2();
+      }
+    };
+  }
+  function signature(e) {
+    if (e.transport) return { kind: "rt", a: e.transport };
+    if (e.cmd === 176) return { kind: "cc", a: e.d1, b: e.d2, ch: e.chan };
+    if (e.cmd === 144 || e.cmd === 128) return { kind: "note", a: e.d1, ch: e.chan };
+    if (e.cmd === 192) return { kind: "pc", a: e.d1, ch: e.chan };
+    return null;
+  }
+
+  // smk/src/.boot.entry.js
+  var $ = (s) => document.querySelector(s);
+  var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  var NOTES = ["C", "C\u266F", "D", "D\u266F", "E", "F", "F\u266F", "G", "G\u266F", "A", "A\u266F", "B"];
+  var BLACK = /* @__PURE__ */ new Set([1, 3, 6, 8, 10]);
+  var LS2 = "skrimpad.smk.state.v1";
+  function fresh() {
+    return {
+      bpm: 100,
+      octave: 0,
+      padBank: 0,
+      knobBank: 0,
+      arp: { on: false, mode: "UP", rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: "" },
+      scale: "off",
+      chord: "off",
+      root: 0,
+      // A voice per PAD, and a voice per KEY. Both are addressable individually,
+      // which is the whole point of "clear all, even the individually set keys" —
+      // there has to be something to clear.
+      pads: Array.from({ length: PAD_BANKS }, () => Array.from({ length: PADS }, () => null)),
+      keys: {},
+      // absolute MIDI note -> { id, name }
+      knob: Array.from({ length: KNOB_BANKS * KNOBS }, () => 0.5)
+    };
+  }
+  var S = load();
+  function load() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LS2) || "null");
+      if (!v || typeof v !== "object") return fresh();
+      const out = fresh();
+      ["bpm", "octave", "padBank", "knobBank", "scale", "chord", "root"].forEach((k) => {
+        if (v[k] != null) out[k] = v[k];
+      });
+      if (v.arp) Object.assign(out.arp, v.arp);
+      if (Array.isArray(v.pads)) v.pads.slice(0, PAD_BANKS).forEach((b, i) => {
+        if (Array.isArray(b)) b.slice(0, PADS).forEach((sl, k) => {
+          if (sl && sl.id) out.pads[i][k] = sl;
+        });
+      });
+      if (v.keys && typeof v.keys === "object") Object.keys(v.keys).forEach((n) => {
+        if (v.keys[n] && v.keys[n].id) out.keys[n] = v.keys[n];
+      });
+      if (Array.isArray(v.knob)) v.knob.forEach((x, i) => {
+        if (i < out.knob.length) out.knob[i] = +x || 0;
+      });
+      return out;
+    } catch (e) {
+      return fresh();
+    }
+  }
+  var saveT = 0;
+  var save = () => {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      try {
+        localStorage.setItem(LS2, JSON.stringify(S));
+      } catch (e) {
+      }
+    }, 350);
+  };
+  var warm = /* @__PURE__ */ new Map();
+  var eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+  var lib = createLibrary({
+    ctx: () => (eng.init(), eng.ctx),
+    onChange: () => renderList(),
+    onError: (k, n) => toast(k === "storage" ? "no room to store " + n : "could not read " + n)
+  });
+  var unit = createUnitMap();
+  var portName = "";
+  var K = (i) => S.knob[S.knobBank * KNOBS + i];
+  var knobRole = (i) => KNOB_ROLES[S.knobBank * KNOBS + i];
+  function keyVoice(note) {
+    const sl = S.keys[note];
+    const v = {
+      kind: sl && sl.id ? "sample" : "synth",
+      wave: "sawtooth",
+      note,
+      gain: 0.5 + K(7) * 0.7,
+      attack: 2e-3 + K(2) * 0.6,
+      decay: 0.4,
+      sustain: 0.7,
+      release: 0.06 + K(3) * 1.4,
+      cutoff: 0.12 + K(0) * 0.85,
+      res: K(1) * 0.8,
+      drive: K(4) * 0.8,
+      space: S.knob[8 + 0],
+      spread: K(5) * 0.9,
+      pan: (S.knob[8 + 2] - 0.5) * 2,
+      tune: Math.round((K(6) - 0.5) * 48)
+    };
+    if (sl && sl.id) {
+      v.sampleId = sl.id;
+      v.decay = 3;
+      v.release = 0.2;
+    }
+    return v;
+  }
+  var HUES = [4, 34, 62, 96, 150, 196, 250, 300];
+  var PAD_DEF = ["kick", "snare", "hat", "clap", "tom", "rim", "perc", "cym"];
+  function padVoice(i) {
+    const sl = S.pads[S.padBank][i];
+    const v = {
+      kind: sl && sl.id ? "sample" : "drum",
+      drum: PAD_DEF[i % 8],
+      note: 36 + i,
+      gain: 0.9 + K(7) * 0.5,
+      attack: 1e-3,
+      decay: 0.4,
+      sustain: 0,
+      release: 0.12,
+      cutoff: 0.5 + K(0) * 0.5,
+      res: K(1) * 0.5,
+      drive: 0.1 + K(4) * 0.6,
+      space: S.knob[8 + 0] * 0.6,
+      spread: 0,
+      pan: 0,
+      tune: 0
+    };
+    if (sl && sl.id) {
+      v.sampleId = sl.id;
+      v.kind = "sample";
+      v.decay = 3;
+    }
+    return v;
+  }
+  var loop = createLooper({
+    now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+    bpmFor: () => S.bpm,
+    onFire: (id, vel, at) => {
+      if (id >= 1e3) eng.play(keyVoice(id - 1e3), at, vel);
+      else {
+        eng.play(padVoice(id), at, vel, id);
+        flashPad(id);
+      }
+    },
+    onState: (i) => paintTransport(i)
+  });
+  var held = /* @__PURE__ */ new Map();
+  function keyOn(note, vel) {
+    eng.init();
+    const n = applyScale(note);
+    if (held.has(n)) {
+      try {
+        held.get(n).off();
+      } catch (e) {
+      }
+    }
+    const h = eng.hold(keyVoice(n), n, vel, 0);
+    held.set(n, h);
+    paintKeys();
+    loop.capture(1e3 + n, vel, 0.25);
+    chordNotes(n).forEach((x) => {
+      const hh = eng.hold(keyVoice(x), x, Math.round(vel * 0.8), 0);
+      held.set(x, hh);
+    });
+  }
+  function keyOff(note) {
+    const n = applyScale(note);
+    [n].concat(chordNotes(n)).forEach((x) => {
+      const h = held.get(x);
+      if (h) {
+        try {
+          h.off();
+        } catch (e) {
+        }
+        held.delete(x);
+      }
+    });
+    paintKeys();
+  }
+  function applyScale(note) {
+    const sc = SCALES[S.scale];
+    if (!sc || !sc.iv) return note;
+    const pc = ((note - S.root) % 12 + 12) % 12;
+    let best = sc.iv[0], d = 99;
+    for (const iv of sc.iv) {
+      const dd = Math.abs(iv - pc);
+      if (dd < d) {
+        d = dd;
+        best = iv;
+      }
+    }
+    return note + (best - pc);
+  }
+  function chordNotes(root) {
+    const ch = CHORDS[S.chord];
+    const sc = SCALES[S.scale];
+    if (!ch || ch.iv.length < 2) return [];
+    const iv = sc && sc.iv || SCALES.major.iv;
+    const out = [];
+    const base = ((root - S.root) % 12 + 12) % 12;
+    let deg = iv.indexOf(base);
+    if (deg < 0) deg = 0;
+    ch.iv.slice(1).forEach((step) => {
+      const k = deg + step;
+      out.push(root + (iv[k % iv.length] + 12 * Math.floor(k / iv.length)) - iv[deg % iv.length]);
+    });
+    return out;
+  }
+  function padHit(i, vel) {
+    eng.init();
+    eng.play(padVoice(i), 0, vel, i);
+    flashPad(i);
+    loop.capture(i, vel, 0.25);
+  }
+  var padEls = [];
+  var knobEls = [];
+  var keyEls = /* @__PURE__ */ new Map();
+  function buildKnobs() {
+    const host = $("#knobs");
+    host.innerHTML = "";
+    knobEls = [];
+    for (let i = 0; i < KNOBS; i++) {
+      const d = document.createElement("div");
+      d.className = "knob";
+      d.dataset.i = i;
+      d.innerHTML = '<span class="kl"></span><span class="kv"></span><span class="kb"><i></i></span>';
+      d.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        openMenu({ x: ev.clientX, y: ev.clientY, items: knobMenu(i), title: "Knob " + (i + 1) });
+      });
+      onLongPress(d, 420, (ev, x, y) => openMenu({ x, y, items: knobMenu(i), title: "Knob " + (i + 1) }));
+      host.appendChild(d);
+      knobEls.push(d);
+    }
+    paintKnobs();
+  }
+  function paintKnobs() {
+    for (let i = 0; i < KNOBS; i++) {
+      const r = knobRole(i), v = K(i), el = knobEls[i];
+      el.querySelector(".kl").textContent = r.l;
+      el.querySelector(".kv").textContent = Math.round(v * 100);
+      el.querySelector(".kb i").style.width = Math.round(v * 100) + "%";
+      el.title = r.l + " \u2014 " + r.d;
+    }
+    $("#kbank").textContent = "KNOB-" + (S.knobBank ? "B" : "A");
+    $("#kbank").classList.toggle("warm", !!S.knobBank);
+    $("#kbank").classList.toggle("on", !!S.knobBank);
+  }
+  function buildPads() {
+    const host = $("#pads");
+    host.innerHTML = "";
+    padEls = [];
+    for (let i = 0; i < PADS; i++) {
+      const b = document.createElement("button");
+      b.className = "pad";
+      b.style.setProperty("--h", HUES[i]);
+      b.dataset.i = i;
+      b.innerHTML = '<i></i><span class="n"></span><span class="t"></span>';
+      b.addEventListener("pointerdown", (ev) => {
+        if (ev.button === 2) return;
+        const r = b.getBoundingClientRect();
+        padHit(i, Math.round(46 + (ev.clientY - r.top) / Math.max(1, r.height) * 81));
+      });
+      b.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: PAD_LABELS[i] });
+      });
+      onLongPress(b, 460, (ev, x, y) => openMenu({ x, y, items: padMenu(i), title: PAD_LABELS[i] }));
+      host.appendChild(b);
+      padEls.push(b);
+    }
+    paintPads();
+  }
+  function paintPads() {
+    for (let i = 0; i < PADS; i++) {
+      const sl = S.pads[S.padBank][i];
+      padEls[i].querySelector(".n").textContent = PAD_LABELS[i] + (S.padBank ? "B" : "");
+      const t = padEls[i].querySelector(".t");
+      t.textContent = sl && sl.name ? sl.name : PAD_DEF[i].toUpperCase();
+      t.classList.toggle("empty", !(sl && sl.id));
+      padEls[i].classList.toggle("arm", learnPad === i);
+    }
+    $("#bank").textContent = "PAD-" + (S.padBank ? "B" : "A");
+    $("#bank").classList.toggle("warm", !!S.padBank);
+    $("#bank").classList.toggle("on", !!S.padBank);
+  }
+  var padT = new Array(PADS).fill(0);
+  function flashPad(i) {
+    const b = padEls[i];
+    if (!b) return;
+    b.classList.add("hit");
+    clearTimeout(padT[i]);
+    padT[i] = setTimeout(() => b.classList.remove("hit"), 60);
+  }
+  function firstNote() {
+    return Math.max(0, Math.min(103, FIRST_NOTE + S.octave * 12));
+  }
+  function buildKeys() {
+    const host = $("#keys");
+    host.innerHTML = "";
+    keyEls.clear();
+    const first = firstNote();
+    const notes = Array.from({ length: KEYS }, (_, i) => first + i);
+    const whites = notes.filter((n) => !BLACK.has(n % 12));
+    const w = 100 / whites.length;
+    let wi = 0;
+    notes.forEach((n, i) => {
+      const black = BLACK.has(n % 12);
+      const e = document.createElement("div");
+      e.className = black ? "kk" : "kw";
+      e.dataset.n = n;
+      e.dataset.i = i;
+      if (black) {
+        e.style.left = wi * w - w * 0.3 + "%";
+        e.style.width = w * 0.6 + "%";
+      } else {
+        e.style.left = wi * w + "%";
+        e.style.width = w + "%";
+        wi++;
+      }
+      const lg = document.createElement("span");
+      lg.className = "lg";
+      e.appendChild(lg);
+      e.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 2) keyOn(n, 100);
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((x) => e.addEventListener(x, () => keyOff(n)));
+      e.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        openMenu({ x: ev.clientX, y: ev.clientY, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) });
+      });
+      onLongPress(e, 460, (ev, x, y) => openMenu({ x, y, items: keyMenu(n), title: NOTES[n % 12] + (Math.floor(n / 12) - 1) }));
+      host.appendChild(e);
+      keyEls.set(n, e);
+    });
+    paintKeys();
+  }
+  function paintKeys() {
+    const shift = shiftHeld;
+    $("#keys").classList.toggle("shift", !!shift);
+    const first = firstNote();
+    keyEls.forEach((e, n) => {
+      e.classList.toggle("on", held.has(n));
+      const i = n - first;
+      const lg = e.querySelector(".lg");
+      if (shift === "arp") lg.textContent = ARP_LEGEND[i] || "";
+      else if (shift === "scch") lg.textContent = SCCH_LEGEND[i] || "";
+      else {
+        const sl = S.keys[n];
+        lg.textContent = sl && sl.name ? sl.name.slice(0, 6) : n % 12 === 0 ? NOTES[0] + (Math.floor(n / 12) - 1) : "";
+      }
+    });
+  }
+  function soundRows(pick) {
+    const items = lib.items;
+    if (!items.length) return [{ label: "No sounds yet", disabled: true }];
+    return items.map((it) => ({ label: it.name, hint: it.from || it.kind || "", run: () => pick(it.id, it.name) }));
+  }
+  function padMenu(i) {
+    const sl = S.pads[S.padBank][i];
+    return [
+      { head: PAD_LABELS[i] + (S.padBank ? " \xB7 bank B" : "") + (sl ? " \u2014 " + sl.name : "") },
+      { label: "Put a sound on it", items: () => soundRows((id, name) => {
+        S.pads[S.padBank][i] = { id, name };
+        save();
+        warmUp();
+        paintPads();
+        toast(name + " \u2192 " + PAD_LABELS[i]);
+      }) },
+      { label: "Take its sound off", disabled: !sl, run: () => {
+        S.pads[S.padBank][i] = null;
+        save();
+        paintPads();
+      } },
+      { sep: 1 },
+      { label: "Teach this pad", hint: "then hit it", run: () => {
+        learnPad = i;
+        learnKnob = null;
+        paintPads();
+        toast("hit " + PAD_LABELS[i] + " on the keyboard");
+      } },
+      { label: "Clear it from the loop", disabled: !loop.padsUsed().includes(i), run: () => {
+        loop.clearPad(i);
+        toast("cleared from the loop");
+      } }
+    ];
+  }
+  function keyMenu(n) {
+    const sl = S.keys[n];
+    const nm = NOTES[n % 12] + (Math.floor(n / 12) - 1);
+    return [
+      { head: nm + (sl ? " \u2014 " + sl.name : "") },
+      { label: "Put a sound on this key", items: () => soundRows((id, name) => {
+        S.keys[n] = { id, name };
+        save();
+        warmUp();
+        paintKeys();
+        toast(name + " \u2192 " + nm);
+      }) },
+      { label: "Back to the synth", disabled: !sl, run: () => {
+        delete S.keys[n];
+        save();
+        paintKeys();
+        toast(nm + " back to the synth");
+      } },
+      { sep: 1 },
+      {
+        label: "Clear every key",
+        danger: 1,
+        disabled: !Object.keys(S.keys).length,
+        run: () => {
+          S.keys = {};
+          save();
+          paintKeys();
+          toast("every key back to the synth");
+        }
+      }
+    ];
+  }
+  function knobMenu(i) {
+    const cur = knobRole(i);
+    return [
+      { head: "Knob " + (i + 1) + " \xB7 " + (S.knobBank ? "bank B" : "bank A") },
+      { label: cur.l, hint: cur.d.slice(0, 46) + "\u2026", disabled: true },
+      { sep: 1 },
+      { label: "Teach this knob", hint: "then turn it", run: () => {
+        learnKnob = i;
+        learnPad = null;
+        toast("turn knob " + (i + 1) + " on the keyboard");
+      } },
+      { label: "Centre it", run: () => {
+        S.knob[S.knobBank * KNOBS + i] = 0.5;
+        save();
+        paintKnobs();
+      } }
+    ];
+  }
+  var armed = 0;
+  function clearAll() {
+    if (!armed) {
+      armed = 1;
+      toast("tap CLEAR ALL again to wipe every sound");
+      setTimeout(() => {
+        armed = 0;
+        renderSetup();
+      }, 4e3);
+      renderSetup();
+      return;
+    }
+    armed = 0;
+    S.pads = Array.from({ length: PAD_BANKS }, () => Array.from({ length: PADS }, () => null));
+    S.keys = {};
+    loop.clear();
+    warm.clear();
+    lib.repin([]);
+    save();
+    paintPads();
+    paintKeys();
+    renderSetup();
+    toast("every pad and every key cleared");
+  }
+  async function warmUp() {
+    const ids = /* @__PURE__ */ new Set();
+    S.pads.forEach((b) => b.forEach((sl) => sl && sl.id && ids.add(sl.id)));
+    Object.values(S.keys).forEach((sl) => sl && sl.id && ids.add(sl.id));
+    lib.repin([...ids]);
+    for (const id of ids) if (!warm.has(id)) {
+      const buf = await lib.bufferFor(id);
+      if (buf) warm.set(id, buf);
+    }
+    for (const id of [...warm.keys()]) if (!ids.has(id)) warm.delete(id);
+  }
+  var learnPad = null;
+  var learnKnob = null;
+  var learnBtn = "";
+  var shiftHeld = "";
+  var io = createMidiIO({
+    onEvent: (e) => {
+      const nm = e.port && e.port.name || "";
+      const viaBle = !!(e.port && e.port.ble);
+      const id = identify(nm);
+      if (!id.smk && !viaBle) return;
+      portName = unit.unitKey(nm);
+      const sig = signature(e);
+      if (learnBtn && sig) {
+        unit.teachButton(portName, learnBtn, sig);
+        toast(learnBtn + " learned");
+        learnBtn = "";
+        renderSetup();
+        return;
+      }
+      const named = sig ? unit.buttonFor(portName, sig) : "";
+      if (named) {
+        doButton(named, sig);
+        return;
+      }
+      if (e.transport) {
+        transport(e.transport);
+        return;
+      }
+      if (e.cmd === 176) {
+        if (learnKnob != null) {
+          unit.teachKnob(portName, S.knobBank, learnKnob, e.d1, e.chan);
+          toast("knob " + (learnKnob + 1) + " learned");
+          learnKnob = null;
+          renderSetup();
+          return;
+        }
+        const k = unit.knobFor(portName, S.knobBank, e.d1);
+        if (k >= 0) {
+          setKnob(k, e.d2 / 127);
+          return;
+        }
+        return;
+      }
+      const on = e.cmd === 144 && e.d2 > 0;
+      const off = e.cmd === 128 || e.cmd === 144 && e.d2 === 0;
+      if (!on && !off) return;
+      if (on && learnPad != null) {
+        unit.teachPad(portName, S.padBank, learnPad, e.d1, e.chan);
+        toast(PAD_LABELS[learnPad] + " learned");
+        learnPad = null;
+        paintPads();
+        renderSetup();
+        return;
+      }
+      const pi = unit.padFor(portName, S.padBank, e.d1, e.chan);
+      if (pi >= 0) {
+        if (on) padHit(pi, e.d2);
+        return;
+      }
+      if (shiftHeld && on) {
+        shortcut(e.d1);
+        return;
+      }
+      if (shiftHeld) return;
+      on ? keyOn(e.d1, e.d2) : keyOff(e.d1);
+    },
+    onPorts: () => paintLink(),
+    onGone: () => {
+      held.forEach((h) => {
+        try {
+          h.off();
+        } catch (e) {
+        }
+      });
+      held.clear();
+      paintKeys();
+      paintLink();
+    }
+  });
+  function doButton(name, sig) {
+    const down = sig.kind !== "cc" || sig.b > 0;
+    if (name === "arp" || name === "scch") {
+      shiftHeld = down ? name : "";
+      paintKeys();
+      return;
+    }
+    if (!down) return;
+    if (name === "play" || name === "stop" || name === "rec") return transport(name);
+    if (name === "padB") return setPadBank(S.padBank ? 0 : 1);
+    if (name === "knobB") return setKnobBank(S.knobBank ? 0 : 1);
+    if (name === "oct+") return setOctave(S.octave + 1);
+    if (name === "oct-") return setOctave(S.octave - 1);
+  }
+  function shortcut(note) {
+    const i = note - firstNote();
+    const word = shiftHeld === "arp" ? ARP_LEGEND[i] : SCCH_LEGEND[i];
+    if (!word) return;
+    const A = S.arp;
+    if (ARP_MODES.includes(word)) {
+      A.mode = word;
+      A.on = true;
+    } else if (word === "LATCH") A.latch = !A.latch;
+    else if (word === "GATE+") A.gate = Math.min(1, A.gate + 0.1);
+    else if (word === "GATE-") A.gate = Math.max(0.05, A.gate - 0.1);
+    else if (word === "SWING+") A.swing = Math.min(0.6, A.swing + 0.05);
+    else if (word === "SWING-") A.swing = Math.max(0, A.swing - 0.05);
+    else if (word === "TEMPO+") setTempo(S.bpm + 1);
+    else if (word === "TEMPO-") setTempo(S.bpm - 1);
+    else if (word === "TAP") tap();
+    else if (word === "OCT+") setOctave(S.octave + 1);
+    else if (word === "MAJOR") S.scale = "major";
+    else if (word === "MINOR") S.scale = "minor";
+    else if (word === "OFF") {
+      S.scale = "off";
+      S.chord = "off";
+    } else if (word === "TRIAD") S.chord = "triad";
+    else if (word === "7TH") S.chord = "sev";
+    else if (word === "9TH") S.chord = "nine";
+    else if (word === "CH") S.chord = S.chord === "off" ? "triad" : "off";
+    else {
+      const r = ARP_RATES.findIndex((x) => x.id === word);
+      if (r >= 0) A.rate = r;
+    }
+    save();
+    paintRail();
+    toast(word);
+  }
+  function setKnob(i, v) {
+    S.knob[S.knobBank * KNOBS + i] = Math.max(0, Math.min(1, v));
+    const role = knobRole(i);
+    if (role.id === "tempo") setTempo(Math.round(20 + v * 280));
+    if (role.id === "swing") S.arp.swing = v * 0.6;
+    if (role.id === "gate") S.arp.gate = 0.05 + v * 0.95;
+    knobEls[i] && knobEls[i].classList.add("live");
+    setTimeout(() => knobEls[i] && knobEls[i].classList.remove("live"), 220);
+    save();
+    paintKnobs();
+  }
+  function setTempo(v) {
+    S.bpm = Math.max(20, Math.min(300, v | 0));
+    $("#tempo").value = S.bpm;
+    save();
+  }
+  function setOctave(o) {
+    S.octave = Math.max(-4, Math.min(4, o));
+    held.forEach((h) => {
+      try {
+        h.off();
+      } catch (e) {
+      }
+    });
+    held.clear();
+    save();
+    buildKeys();
+    toast("octave " + (S.octave > 0 ? "+" : "") + S.octave);
+  }
+  function setPadBank(b) {
+    S.padBank = b % PAD_BANKS;
+    save();
+    paintPads();
+    warmUp();
+    toast("PAD-" + (b ? "B" : "A"));
+  }
+  function setKnobBank(b) {
+    S.knobBank = b % KNOB_BANKS;
+    save();
+    paintKnobs();
+    toast("KNOB-" + (b ? "B" : "A"));
+  }
+  function transport(name) {
+    if (name === "play") {
+      const st = loop.info.state;
+      st === "playing" || st === "overdub" ? loop.pause() : loop.play();
+    } else if (name === "stop") {
+      loop.stop();
+      held.forEach((h) => {
+        try {
+          h.off();
+        } catch (e) {
+        }
+      });
+      held.clear();
+      paintKeys();
+    } else if (name === "rec") loop.arm();
+    paintTransport(loop.info);
+    toast(name);
+  }
+  function paintTransport(info) {
+    const st = info.state, playing = st === "playing" || st === "overdub";
+    $("#rec").classList.toggle("on", st === "recording" || st === "armed" || st === "overdub");
+    $("#play").classList.toggle("on", playing);
+    $("#play").textContent = playing ? "\u2759\u2759" : "\u25B6";
+    $("#undo").disabled = !info.canUndo;
+    $("#loopbar").firstElementChild.style.width = Math.round(info.pos * 100) + "%";
+  }
+  function paintRail() {
+    $("#arp").classList.toggle("on", S.arp.on);
+    $("#arp").textContent = S.arp.on ? S.arp.mode + " " + ARP_RATES[S.arp.rate].id + (S.arp.latch ? " \xB7" : "") : "ARP";
+    $("#scch").classList.toggle("on", S.scale !== "off" || S.chord !== "off");
+    $("#scch").textContent = S.scale === "off" && S.chord === "off" ? "SC/CH" : SCALES[S.scale].l + (S.chord !== "off" ? " " + CHORDS[S.chord].l : "");
+  }
+  function paintLink() {
+    const ins = io.listInputs();
+    const mine = ins.filter((p) => identify(p.name).smk || p.ble);
+    const el = $("#link"), t = $("#linktxt");
+    el.classList.toggle("live", mine.length > 0);
+    t.textContent = mine.length ? unit.unitKey(mine[0].name) + (mine.length > 1 ? " \xB7 " + mine.length + " ports" : "") : ins.length ? ins.length + " MIDI port(s), no SMK-25" : "looking for your SMK-25\u2026";
+  }
+  var taps = [];
+  function tap() {
+    const t = performance.now();
+    taps = taps.filter((x) => t - x < 2400);
+    taps.push(t);
+    if (taps.length < 3) {
+      toast("keep tapping\u2026");
+      return;
+    }
+    const g = [];
+    for (let i = 1; i < taps.length; i++) g.push(taps[i] - taps[i - 1]);
+    g.sort((a, b) => a - b);
+    setTempo(Math.round(6e4 / g[g.length >> 1]));
+    toast(S.bpm + " BPM");
+  }
+  $("#tap").addEventListener("click", tap);
+  $("#tempo").addEventListener("input", (e) => setTempo(+e.target.value || 100));
+  $("#bank").addEventListener("click", () => setPadBank(S.padBank ? 0 : 1));
+  $("#kbank").addEventListener("click", () => setKnobBank(S.knobBank ? 0 : 1));
+  $("#octup").addEventListener("click", () => setOctave(S.octave + 1));
+  $("#octdn").addEventListener("click", () => setOctave(S.octave - 1));
+  $("#rec").addEventListener("click", () => transport("rec"));
+  $("#play").addEventListener("click", () => transport("play"));
+  $("#stop").addEventListener("click", () => transport("stop"));
+  $("#undo").addEventListener("click", () => {
+    loop.undo();
+    toast("undone");
+  });
+  $("#arp").addEventListener("click", () => {
+    S.arp.on = !S.arp.on;
+    save();
+    paintRail();
+  });
+  $("#arp").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: arpMenu(), title: "Arpeggiator" });
+  });
+  onLongPress($("#arp"), 420, (ev, x, y) => openMenu({ x, y, items: arpMenu(), title: "Arpeggiator" }));
+  $("#scch").addEventListener("click", (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: scchMenu(), title: "Scale and chord" }));
+  function arpMenu() {
+    return [
+      { head: "Arpeggiator" },
+      { label: S.arp.on ? "Turn it off" : "Turn it on", on: S.arp.on, run: () => {
+        S.arp.on = !S.arp.on;
+        save();
+        paintRail();
+      } },
+      { label: "Latch", on: S.arp.latch, run: () => {
+        S.arp.latch = !S.arp.latch;
+        save();
+        paintRail();
+      } },
+      { sep: 1 },
+      { label: "Mode", hint: S.arp.mode, items: () => ARP_MODES.map((m) => ({ label: m, on: S.arp.mode === m, run: () => {
+        S.arp.mode = m;
+        save();
+        paintRail();
+      } })) },
+      { label: "Rate", hint: ARP_RATES[S.arp.rate].id, items: () => ARP_RATES.map((r, i) => ({ label: r.id, on: S.arp.rate === i, run: () => {
+        S.arp.rate = i;
+        save();
+        paintRail();
+      } })) },
+      {
+        label: "Rhythm",
+        hint: S.arp.rhythm ? (RHYTHMS.find((r) => r.id === S.arp.rhythm) || {}).l : "even",
+        items: () => [{ label: "Even", on: !S.arp.rhythm, run: () => {
+          S.arp.rhythm = "";
+          save();
+          paintRail();
+        } }].concat(RHYTHMS.map((r) => ({ label: r.l, hint: r.d, on: S.arp.rhythm === r.id, run: () => {
+          S.arp.rhythm = r.id;
+          save();
+          paintRail();
+        } })))
+      }
+    ];
+  }
+  function scchMenu() {
+    return [
+      { head: "Scale and chord" },
+      { label: "Scale", hint: SCALES[S.scale].l, items: () => Object.keys(SCALES).map((k) => ({ label: SCALES[k].l, on: S.scale === k, run: () => {
+        S.scale = k;
+        save();
+        paintRail();
+      } })) },
+      { label: "Chord", hint: CHORDS[S.chord].l, items: () => Object.keys(CHORDS).map((k) => ({ label: CHORDS[k].l, on: S.chord === k, run: () => {
+        S.chord = k;
+        save();
+        paintRail();
+      } })) },
+      { label: "Root", hint: NOTES[S.root], items: () => NOTES.map((n, i) => ({ label: n, on: S.root === i, run: () => {
+        S.root = i;
+        save();
+        paintRail();
+      } })) }
+    ];
+  }
+  function openSheet(id) {
+    $("#scrim").classList.add("open");
+    $(id).classList.add("open");
+  }
+  function closeSheets() {
+    $("#scrim").classList.remove("open");
+    document.querySelectorAll(".sheet").forEach((s) => s.classList.remove("open"));
+  }
+  $("#libbtn").addEventListener("click", () => {
+    renderList();
+    openSheet("#lib");
+  });
+  $("#libx").addEventListener("click", closeSheets);
+  $("#setbtn").addEventListener("click", () => {
+    renderSetup();
+    openSheet("#setup");
+  });
+  $("#setx").addEventListener("click", closeSheets);
+  $("#scrim").addEventListener("click", closeSheets);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeMenu();
+      closeSheets();
+    }
+  });
+  function renderList() {
+    const box = $("#list"), items = lib.items;
+    $("#libcount").textContent = items.length ? items.length + " sounds" : "";
+    box.innerHTML = items.length ? items.map((it) => '<div class="row" data-id="' + esc(it.id) + '"><span class="nm">' + esc(it.name) + (it.from ? '<br><span class="sub">' + esc(it.from) + "</span>" : "") + '</span><button class="chip sm" data-put>PUT IT SOMEWHERE</button><button class="chip sm" data-del>\u2715</button></div>').join("") : '<div class="dim">Nothing yet. Drop audio files or a .zip pack anywhere on the window \u2014 a pack unpacks itself.</div>';
+  }
+  $("#list").addEventListener("click", async (ev) => {
+    const row = ev.target.closest(".row");
+    if (!row) return;
+    const id = row.dataset.id, it = lib.find(id);
+    if (ev.target.closest("[data-del]")) {
+      await lib.remove(id);
+      S.pads.forEach((b) => b.forEach((sl, i) => {
+        if (sl && sl.id === id) b[i] = null;
+      }));
+      Object.keys(S.keys).forEach((n) => {
+        if (S.keys[n].id === id) delete S.keys[n];
+      });
+      warm.delete(id);
+      save();
+      paintPads();
+      paintKeys();
+      renderList();
+      return;
+    }
+    if (ev.target.closest("[data-put]")) {
+      openMenu({ x: ev.clientX, y: ev.clientY, title: "Where?", items: [
+        { head: "A pad" },
+        ...Array.from({ length: PADS }, (_, i) => ({
+          label: PAD_LABELS[i],
+          hint: S.pads[S.padBank][i] ? S.pads[S.padBank][i].name : "",
+          run: () => {
+            S.pads[S.padBank][i] = { id, name: it.name };
+            save();
+            warmUp();
+            paintPads();
+            closeSheets();
+            toast(it.name + " \u2192 " + PAD_LABELS[i]);
+          }
+        })),
+        { sep: 1 },
+        { label: "A key \u2014 hold the key instead", disabled: true }
+      ] });
+    }
+  });
+  async function takeFiles(list) {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    eng.init();
+    let audio = 0;
+    lib.batch(true);
+    try {
+      for (const f of files) {
+        if (isZip(f)) {
+          try {
+            const r = await importZip(await f.arrayBuffer(), {
+              packName: f.name.replace(/\.zip$/i, ""),
+              addBuffer: (n, raw, o) => lib.addRaw(n, raw, o),
+              onProgress: (n, t) => toast("unpacking " + n + " of " + t + "\u2026")
+            });
+            toast(r.ok + " sounds from " + f.name + (r.bad ? " \xB7 " + r.bad + " skipped" : ""));
+          } catch (err) {
+            toast(String(err.message || err));
+          }
+        } else if (await lib.add(f)) audio++;
+      }
+    } finally {
+      lib.batch(false);
+    }
+    if (audio) toast(audio + " sound" + (audio === 1 ? "" : "s") + " imported");
+    renderList();
+  }
+  $("#drop").addEventListener("click", () => $("#file").click());
+  $("#file").addEventListener("change", async (e) => {
+    await takeFiles(e.target.files);
+    e.target.value = "";
+  });
+  ["dragenter", "dragover"].forEach((n) => window.addEventListener(n, (e) => {
+    e.preventDefault();
+    $("#drop").classList.add("hot");
+  }));
+  window.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget) $("#drop").classList.remove("hot");
+  });
+  window.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    $("#drop").classList.remove("hot");
+    if (!e.dataTransfer) return;
+    if (!$("#lib").classList.contains("open")) openSheet("#lib");
+    await takeFiles(e.dataTransfer.files);
+  });
+  var BUTTONS = ["play", "stop", "rec", "arp", "scch", "padB", "knobB", "oct+", "oct-"];
+  function renderSetup() {
+    const d = io.diagnostics(), ins = io.listInputs();
+    const mine = ins.filter((p) => identify(p.name).smk || p.ble);
+    const bt = unit.buttons(portName), lr = unit.learned(portName);
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">' + (mine.length ? esc(unit.unitKey(mine[0].name)) + " \u2014 " + (lr.pads ? "pads learned" : "pads not taught yet") + ", " + (lr.knobs ? "knobs learned" : "knobs not taught yet") + "." : ins.length ? esc(ins.length + " MIDI port(s), none an SMK-25") : "Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the app reads all of them, because the pads and the transport arrive on the second.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="forget">FORGET THIS UNIT</button><button class="chip sm" id="clearall">' + (armed ? "TAP AGAIN TO WIPE" : "CLEAR ALL") + '</button></div></div><div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a published CC number or pad note \u2014 every one is reassignable in M-VAVE\u2019s editor, and units ship set up differently. So the app learns yours rather than guessing. Press a row, then move that control on the keyboard.</div><div class="opts" style="margin-top:8px">' + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase() + (bt[b] ? " \u2713" : "") + "</button>").join("") + '</div></div><div class="grp"><h3>WHAT THE KNOBS DO</h3>' + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>' + (i < KNOBS ? "A" : "B") + (i % KNOBS + 1) + " \xB7 " + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>' + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + "</div></div>";
+    $("#clearall").addEventListener("click", clearAll);
+    $("#forget").addEventListener("click", () => {
+      unit.reset(portName);
+      toast("unit forgotten");
+      renderSetup();
+    });
+    $("#rescanbtn").addEventListener("click", () => {
+      io.rescan();
+      setTimeout(renderSetup, 500);
+    });
+    $("#btbtn").addEventListener("click", async () => {
+      try {
+        const r = await io.connectBluetooth({ onStatus: (s) => {
+          if (s && s.hint) toast(s.hint.slice(0, 80));
+        } });
+        toast("bluetooth: " + (r && r.mode));
+      } catch (e) {
+        toast(String(e && e.message || e).slice(0, 80));
+      }
+      renderSetup();
+      paintLink();
+    });
+    $("#setupbody").querySelectorAll("[data-learn]").forEach((b) => b.addEventListener("click", () => {
+      learnBtn = b.dataset.learn;
+      closeSheets();
+      toast("press " + learnBtn.toUpperCase() + " on the keyboard");
+    }));
+  }
+  var toastT = 0;
+  function toast(m) {
+    const e = $("#toast");
+    e.textContent = m;
+    e.classList.add("on");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => e.classList.remove("on"), 2500);
+  }
+  buildKnobs();
+  buildPads();
+  buildKeys();
+  paintRail();
+  paintTransport(loop.info);
+  $("#tempo").value = S.bpm;
+  lib.boot().then(() => {
+    renderList();
+    warmUp();
+  });
+  io.start().catch(() => {
+  });
+  io.keepLooking();
+  io.autoReconnect({ onStatus: (s) => {
+    if (s && s.connected) toast("reconnected");
+  } }).catch(() => {
+  });
+  paintLink();
+  setInterval(() => paintTransport(loop.info), 140);
+  $("#splashgo").addEventListener("click", () => {
+    eng.init();
+    eng.resume();
+    $("#splash").classList.add("gone");
+    setTimeout(() => {
+      const s = $("#splash");
+      if (s) s.style.display = "none";
+    }, 500);
+  });
+  window.__smk = {
+    get S() {
+      return S;
+    },
+    eng,
+    io,
+    lib,
+    unit,
+    loop,
+    keyOn,
+    keyOff,
+    padHit,
+    setKnob,
+    setOctave,
+    setPadBank,
+    setKnobBank,
+    transport,
+    shortcut,
+    clearAll,
+    renderSetup,
+    takeFiles,
+    applyScale,
+    chordNotes,
+    get shift() {
+      return shiftHeld;
+    },
+    set shift(v) {
+      shiftHeld = v;
+      paintKeys();
+    },
+    KNOB_ROLES,
+    RHYTHMS,
+    ARP_LEGEND,
+    SCCH_LEGEND
+  };
+})();
+
+</script>
+</body>
+</html>
