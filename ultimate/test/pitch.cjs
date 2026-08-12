@@ -26,10 +26,17 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'skrimpitch-'));
 
 // Bundle the REAL modules — not a copy, not a re-implementation. If pitch.js
 // and engine.js stop agreeing with each other this fails at build time.
+//
+// The paths are written with FORWARD SLASHES and quoted by JSON.stringify. On
+// Windows path.join hands back D:\a\SKRiMPAD-M2\..., and dropping that between
+// quotes in generated JavaScript makes \a and \S escape sequences — esbuild
+// reported `Syntax error "l"` on a line that looked perfectly fine, on the
+// Windows runner only. esbuild takes D:/a/... quite happily.
+const mod = (p) => JSON.stringify(path.join(ROOT, p).split(path.sep).join('/'));
 const entry = path.join(TMP, 'entry.js');
 fs.writeFileSync(entry, `
-import { playPitched, createGrainStream, needsShift, semitonesFor } from '${path.join(ROOT, 'ultimate/src/core/pitch.js')}';
-import { createEngine } from '${path.join(ROOT, 'ultimate/src/core/engine.js')}';
+import { playPitched, createGrainStream, needsShift, semitonesFor } from ${mod('ultimate/src/core/pitch.js')};
+import { createEngine } from ${mod('ultimate/src/core/engine.js')};
 window.P = { playPitched, createGrainStream, needsShift, semitonesFor, createEngine };
 `);
 const bundleFile = path.join(TMP, 'bundle.js');
