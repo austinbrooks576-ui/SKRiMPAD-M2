@@ -23,7 +23,15 @@
 // 44.1kHz. See play() for why zero is the wrong answer.
 const NUDGE = 128 * 3 / 44100;
 
-export function createEngine({ sampleFor, context, onFail } = {}) {
+import { needsShift, playPitched, createGrainStream } from './pitch.js';
+
+// `preserveLength` switches sample pitching from tape speed to granular
+// resynthesis — the same note, the same duration. It is an OPTION and not the
+// default because the two are genuinely different instruments: a drum machine
+// wants a pitched-down kick to get longer, and a keyboard does not. ULTIMATE,
+// LIVEx and JP are pad machines and keep tape speed; SMK is a keyboard and asks
+// for this. See pitch.js for why the two cannot be the same code path.
+export function createEngine({ sampleFor, context, onFail, preserveLength } = {}) {
   let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
   const meters = new Float32Array(64);
   let ready = false;
@@ -358,28 +366,38 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     // function is called from the scheduler with an exact future start time, and
     // an await would hand that time back to the event loop and land the note
     // late. The library warms the buffer when the sample is assigned instead.
-    let sample = null;
+    let buf = null, shift = 0, granular = false;
     if (voice.sampleId && sampleFor) {
-      const buf = sampleFor(voice.sampleId);
+      buf = sampleFor(voice.sampleId) || null;
       if (buf) {
-        sample = ctx.createBufferSource();
-        sample.buffer = buf;
-        // Tune a sample by playback rate — the honest, zero-cost way. tune is in
-        // semitones so it reads the same as it does on a synth voice.
-        sample.playbackRate.value = Math.pow(2, (clamp(voice.tune, -24, 24) + (semis || 0)) / 12);
-        sample.connect(flt);
+        // tune is in semitones so it reads the same as it does on a synth voice.
+        shift = clamp(voice.tune, -24, 24) + (semis || 0);
+        granular = !!preserveLength && needsShift(shift);
       }
     }
 
     let stop;
-    if (sample) {
+    if (buf) {
+      const rate = Math.pow(2, shift / 12);
+      // How long the sample actually lasts. Tape speed divides its length by
+      // the rate; granular does not change it at all. That difference is the
+      // entire point of preserveLength, and it has to be known HERE too or the
+      // envelope stops governing the right amount of sound.
+      const natural = granular ? buf.duration : buf.duration / (rate || 1);
       stop = t + a + d + r;
       envelope(g, t, a, d, s, r, peak, stop);
-      sample.start(t);
-      // A one-shot sample should be allowed to finish. Stopping it at the
-      // envelope release would chop the tail off every crash and every vocal.
-      const natural = sample.buffer.duration / (sample.playbackRate.value || 1);
-      sample.stop(Math.max(stop, t + natural) + 0.02);
+      if (granular) {
+        playPitched(ctx, buf, t, shift, flt);
+      } else {
+        const sample = ctx.createBufferSource();
+        sample.buffer = buf;
+        sample.playbackRate.value = rate;
+        sample.connect(flt);
+        sample.start(t);
+        // A one-shot sample should be allowed to finish. Stopping it at the
+        // envelope release would chop the tail off every crash and every vocal.
+        sample.stop(Math.max(stop, t + natural) + 0.02);
+      }
     } else if (voice.kind === 'drum') {
       // A drum's shape lives inside its own layers — each one already carries
       // the envelope that makes it that drum. So the voice gain here is a level
@@ -469,20 +487,35 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     flt.frequency.setValueAtTime(base, t);
     flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
 
-    let src, isSample = false;
+    let src, isSample = false, stream = null;
     if (voice.sampleId && sampleFor) {
       const buf = sampleFor(voice.sampleId);
       if (buf) {
-        src = ctx.createBufferSource(); src.buffer = buf; isSample = true;
+        isSample = true;
+        // Treat the sample's recorded pitch as middle C, so a key plays the
+        // interval you expect rather than an arbitrary transposition.
+        const shift = clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24);
         // A held key wants the sample to keep sounding, so anything long enough
         // to be a tone gets looped. Short samples are one-shots, and looping one
         // turns a hit into a machine gun.
-        if (buf.duration > 0.55) {
-          src.loop = true; src.loopStart = buf.duration * 0.2; src.loopEnd = buf.duration;
+        const looping = buf.duration > 0.55;
+        if (preserveLength && needsShift(shift)) {
+          // The granular stream, which is what makes seven octaves usable: the
+          // loop goes round in the same wall-clock time at every pitch, so a
+          // held chord stays in time with the sequencer instead of the top note
+          // cycling twice as fast as the bottom one.
+          stream = createGrainStream(ctx, buf, flt, {
+            semis: shift, loop: looping,
+            loopStart: looping ? buf.duration * 0.2 : 0, loopEnd: buf.duration,
+            offset: looping ? 0 : 0,
+          });
+        } else {
+          src = ctx.createBufferSource(); src.buffer = buf;
+          if (looping) {
+            src.loop = true; src.loopStart = buf.duration * 0.2; src.loopEnd = buf.duration;
+          }
+          src.playbackRate.value = Math.pow(2, shift / 12);
         }
-        // Treat the sample's recorded pitch as middle C, so a key plays the
-        // interval you expect rather than an arbitrary transposition.
-        src.playbackRate.value = Math.pow(2, (clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24)) / 12);
       }
     }
     // A held key gets the same unison as a triggered one, or the LEAD would be
@@ -490,7 +523,7 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     // the same cell sounding like two different instruments depending on what
     // you touched.
     let unison = null;
-    if (!src) {
+    if (!src && !stream) {
       unison = makeUnison(voice, t, hz(note), flt);
       src = unison[0];
     }
@@ -499,13 +532,17 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     // bend and vibrato reach a sample and a synth down the same wire. With a
     // unison every voice has to be bent TOGETHER, or the chord detunes itself
     // as you move the wheel.
-    const bendable = unison ? unison.map((o) => o.detune) : (src.detune ? [src.detune] : []);
+    const bendable = unison ? unison.map((o) => o.detune) : (src && src.detune ? [src.detune] : []);
     const baseDetune = unison ? unison.map((o) => o.detune.value) : [0];
     let vibDepth = null;
-    if (bendable.length) {
+    if (bendable.length || stream) {
       vibDepth = ctx.createGain(); vibDepth.gain.value = 0;
       vibrato().connect(vibDepth);
       bendable.forEach((p) => vibDepth.connect(p));
+      // A granular voice has no single source to attach to — the source it
+      // would use is replaced twenty times a second — so the stream connects
+      // the LFO into each grain as it makes it.
+      if (stream) stream.mod(vibDepth);
     }
 
     const a = clamp(voice.attack, 0.001, 2), d = clamp(voice.decay, 0.01, 3);
@@ -521,7 +558,9 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
     // makeUnison already wired its oscillators into the filter, so only a
     // sample still needs connecting — doing both would route the unison through
     // the filter twice and double its level.
-    if (!unison) src.connect(flt);
+    // makeUnison wired itself in, and a grain stream was handed `flt` as its
+    // destination when it was made. Only a plain buffer source is still loose.
+    if (!unison && src) src.connect(flt);
     let chain = flt;
     if (voice.drive > 0.02) {
       const ws = ctx.createWaveShaper();
@@ -535,8 +574,9 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
       const sd = ctx.createGain(); sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
       exp.connect(sd); sd.connect(spaceIn);
     }
-    const sources = unison || [src];
+    const sources = unison || (src ? [src] : []);
     sources.forEach((o) => o.start(t));
+    if (stream) stream.start(t);
 
     let dead = false, pressure = 0, timbre = 0, lev = 1;
     // Brightness has two independent sources — pressure and a timbre controller
@@ -562,6 +602,11 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
         env.gain.exponentialRampToValueAtTime(0.0001, now + secs);
       } catch (e) { /* param already past its schedule; the stop below frees it */ }
       sources.forEach((o) => { try { o.stop(now + secs + 0.03); } catch (e) {} });
+      // A stream must be told to stop MAKING grains as well as to stop the ones
+      // it has. Left running it would keep topping itself up behind a closed
+      // envelope forever — a silent note that never gets collected, once per
+      // key press, for as long as the app is open.
+      if (stream) { try { stream.stop(now + secs + 0.03); } catch (e) {} }
     }
     return {
       note, isSample,
@@ -574,6 +619,11 @@ export function createEngine({ sampleFor, context, onFail } = {}) {
         if (dead) return;
         const c = clamp(semis, -48, 48) * 100;
         bendable.forEach((p, i) => { try { p.setTargetAtTime(baseDetune[i] + c, ctx.currentTime, 0.006); } catch (e) {} });
+        // Bend a granular voice by detuning the grains rather than by moving
+        // the shift, because the shift decides how much SOURCE each grain eats
+        // and changing that mid-note makes the read head jump. Detune is a
+        // per-grain trim on top and is what a wheel should feel like.
+        if (stream) stream.setDetune(c);
       },
       vib(cents) { if (vibDepth && !dead) try { vibDepth.gain.setTargetAtTime(clamp(cents, 0, 200), ctx.currentTime, 0.05); } catch (e) {} },
       press(p) { pressure = clamp(p, 0, 1); reflt(); relev(); },

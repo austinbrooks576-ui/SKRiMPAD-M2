@@ -40,6 +40,7 @@ jobs:
           npm install --no-audit --no-fund playwright-core
           npx --yes playwright install --with-deps chromium
           node ultimate/test/ultimate.cjs
+          node ultimate/test/pitch.cjs
 
       # Straight from dist, not from android/assets. The APK job happens to put
       # the same file there, but depending on that would couple two independent

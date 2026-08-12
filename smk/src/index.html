@@ -287,7 +287,12 @@ const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { try { local
 
 // ---------------------------------------------------------------------------
 const warm = new Map();
-const eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+// preserveLength: this is a KEYBOARD. A sample laid across seven octaves has to
+// stay the same length at every one of them, or the same loop is a bar wide at
+// the bottom of the keyboard and half a bar at the top and nothing lines up
+// with anything. See ultimate/src/core/pitch.js for how, and for why the pad
+// editions deliberately keep the old tape-speed behaviour.
+const eng = createEngine({ sampleFor: (id) => warm.get(id) || null, preserveLength: true });
 const lib = createLibrary({
   ctx: () => (eng.init(), eng.ctx),
   onChange: () => renderList(),

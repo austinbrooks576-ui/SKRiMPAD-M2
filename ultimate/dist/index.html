@@ -1183,9 +1183,190 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
   var liveScene = (song2) => song2.scenes[song2.scene];
   var liveCells = (song2) => liveScene(song2).cells;
 
+  // ultimate/src/core/pitch.js
+  var GRAIN = 0.09;
+  var SHORT_GRAIN = 0.035;
+  var SHORT_ENOUGH = 0.45;
+  var MAX_SEMIS = 24;
+  var MAX_GRAINS = 400;
+  var needsShift = (semis) => Math.abs(semis || 0) > 0.01;
+  var clampSemis = (n) => Math.max(-MAX_SEMIS, Math.min(MAX_SEMIS, n || 0));
+  var grainFor = (dur) => dur <= SHORT_ENOUGH ? SHORT_GRAIN : GRAIN;
+  function playPitched(ctx, buffer, when, semis, dest, opts = {}) {
+    const n = clampSemis(semis);
+    const dur = buffer.duration;
+    if (!needsShift(n)) {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(dest);
+      src.start(when);
+      return { stop: when + dur, duration: dur, grains: 1, srcs: [src] };
+    }
+    const rate = Math.pow(2, n / 12);
+    const g = opts.grain || grainFor(dur);
+    const hop = g / 2;
+    const count = Math.min(MAX_GRAINS, Math.max(1, Math.ceil(dur / hop)));
+    const srcs = [];
+    for (let i = 0; i < count; i++) {
+      const readAt = i * hop;
+      if (readAt >= dur) break;
+      const room = Math.max(0, dur - i * hop);
+      const take = Math.min(Math.min(g, room) * rate, Math.max(0, dur - readAt));
+      if (take <= 1e-3) break;
+      const out = take / rate;
+      const t0 = when + i * hop;
+      const win = ctx.createGain();
+      if (i === 0) win.gain.setValueAtTime(1, t0);
+      else {
+        win.gain.setValueAtTime(1e-4, t0);
+        win.gain.linearRampToValueAtTime(1, t0 + out / 2);
+      }
+      win.gain.linearRampToValueAtTime(1e-4, t0 + out);
+      win.connect(dest);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = rate;
+      src.connect(win);
+      src.start(t0, readAt, take);
+      src.stop(t0 + out + 0.01);
+      srcs.push(src);
+    }
+    return { stop: when + dur, duration: dur, grains: srcs.length, srcs };
+  }
+  function createGrainStream(ctx, buffer, dest, opts = {}) {
+    const dur = buffer.duration;
+    const loop = !!opts.loop;
+    const loopStart = Math.max(0, Math.min(dur, opts.loopStart || 0));
+    const loopEnd = Math.max(loopStart + 0.01, Math.min(dur, opts.loopEnd == null ? dur : opts.loopEnd));
+    const g = opts.grain || grainFor(dur);
+    const hop = g / 2;
+    const AHEAD = 0.25, TICK = 60;
+    const offline = typeof ctx.startRendering === "function";
+    const horizon = opts.horizon || 8;
+    let semis = clampSemis(opts.semis);
+    let detune = 0;
+    const mods = [];
+    let read = Math.max(0, Math.min(dur, opts.offset || 0));
+    let nextAt = 0;
+    let timer = 0, started = false, done = false, endAt = Infinity;
+    const live = [];
+    function reap(now) {
+      for (let i = live.length - 1; i >= 0; i--) if (live[i].until < now - 0.05) live.splice(i, 1);
+    }
+    function one() {
+      const rate = Math.pow(2, semis / 12);
+      const limit = loop ? loopEnd : dur;
+      const room = loop ? g : Math.max(0, dur - read);
+      const take = Math.min(Math.min(g, room) * rate, Math.max(0, limit - read));
+      if (take <= 1e-3) {
+        done = true;
+        return false;
+      }
+      const out = take / rate;
+      const t0 = nextAt;
+      if (t0 >= endAt) {
+        done = true;
+        return false;
+      }
+      const win = ctx.createGain();
+      win.gain.setValueAtTime(1e-4, t0);
+      win.gain.linearRampToValueAtTime(1, t0 + out / 2);
+      win.gain.linearRampToValueAtTime(1e-4, t0 + out);
+      win.connect(dest);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = rate;
+      if (src.detune) {
+        src.detune.value = detune;
+        mods.forEach((m) => {
+          try {
+            m.connect(src.detune);
+          } catch (e) {
+          }
+        });
+      }
+      src.connect(win);
+      src.start(t0, read, take);
+      src.stop(t0 + out + 0.01);
+      live.push({ src, win, until: t0 + out });
+      read += hop;
+      if (loop && read >= loopEnd - 1e-3) read = loopStart + (read - loopEnd);
+      nextAt += hop;
+      return true;
+    }
+    function fill2() {
+      if (done) return;
+      const limit = offline ? horizon : ctx.currentTime + AHEAD;
+      let guard = MAX_GRAINS;
+      while (!done && nextAt < limit && guard-- > 0) if (!one()) break;
+      if (done) clear();
+    }
+    function clear() {
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    }
+    return {
+      get running() {
+        return started && !done;
+      },
+      start(when) {
+        if (started) return;
+        started = true;
+        nextAt = when;
+        fill2();
+        if (!offline && !done) timer = setInterval(fill2, TICK);
+      },
+      // Live pitch change. Grains already scheduled keep the old rate — they are
+      // 90ms long, so the stream has fully followed within one grain, which is
+      // faster than a hand can move a wheel.
+      setSemis(n) {
+        semis = clampSemis(n);
+      },
+      // Bend, in cents. Applied to the grains already in flight AND remembered
+      // for the ones not yet made, or the pitch would snap back every 45ms.
+      setDetune(cents) {
+        detune = cents;
+        const now = ctx.currentTime;
+        reap(now);
+        live.forEach((l) => {
+          try {
+            l.src.detune && l.src.detune.setTargetAtTime(cents, now, 6e-3);
+          } catch (e) {
+          }
+        });
+      },
+      // Register an LFO (or any node) to be summed into every grain's detune —
+      // this is how vibrato reaches a granular voice, since the "source" it would
+      // normally attach to is replaced twenty times a second.
+      mod(node) {
+        if (!node) return;
+        mods.push(node);
+        live.forEach((l) => {
+          try {
+            l.src.detune && node.connect(l.src.detune);
+          } catch (e) {
+          }
+        });
+      },
+      stop(when) {
+        endAt = when;
+        clear();
+        done = true;
+        live.forEach((l) => {
+          try {
+            l.src.stop(Math.min(l.until + 0.01, when + 0.02));
+          } catch (e) {
+          }
+        });
+      }
+    };
+  }
+
   // ultimate/src/core/engine.js
   var NUDGE = 128 * 3 / 44100;
-  function createEngine({ sampleFor, context, onFail } = {}) {
+  function createEngine({ sampleFor, context, onFail, preserveLength } = {}) {
     let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
     const meters = new Float32Array(64);
     let ready = false;
@@ -1417,23 +1598,30 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         g.connect(sd);
         sd.connect(spaceIn);
       }
-      let sample = null;
+      let buf2 = null, shift = 0, granular = false;
       if (voice.sampleId && sampleFor) {
-        const buf2 = sampleFor(voice.sampleId);
+        buf2 = sampleFor(voice.sampleId) || null;
         if (buf2) {
-          sample = ctx.createBufferSource();
-          sample.buffer = buf2;
-          sample.playbackRate.value = Math.pow(2, (clamp(voice.tune, -24, 24) + (semis || 0)) / 12);
-          sample.connect(flt);
+          shift = clamp(voice.tune, -24, 24) + (semis || 0);
+          granular = !!preserveLength && needsShift(shift);
         }
       }
       let stop;
-      if (sample) {
+      if (buf2) {
+        const rate = Math.pow(2, shift / 12);
+        const natural = granular ? buf2.duration : buf2.duration / (rate || 1);
         stop = t + a + d + r;
         envelope(g, t, a, d, s, r, peak, stop);
-        sample.start(t);
-        const natural = sample.buffer.duration / (sample.playbackRate.value || 1);
-        sample.stop(Math.max(stop, t + natural) + 0.02);
+        if (granular) {
+          playPitched(ctx, buf2, t, shift, flt);
+        } else {
+          const sample = ctx.createBufferSource();
+          sample.buffer = buf2;
+          sample.playbackRate.value = rate;
+          sample.connect(flt);
+          sample.start(t);
+          sample.stop(Math.max(stop, t + natural) + 0.02);
+        }
       } else if (voice.kind === "drum") {
         g.gain.setValueAtTime(Math.max(2e-4, peak), t);
         const end = playDrum(voice, t, flt);
@@ -1504,34 +1692,47 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       const base = Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75));
       flt.frequency.setValueAtTime(base, t);
       flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
-      let src, isSample = false;
+      let src, isSample = false, stream = null;
       if (voice.sampleId && sampleFor) {
         const buf2 = sampleFor(voice.sampleId);
         if (buf2) {
-          src = ctx.createBufferSource();
-          src.buffer = buf2;
           isSample = true;
-          if (buf2.duration > 0.55) {
-            src.loop = true;
-            src.loopStart = buf2.duration * 0.2;
-            src.loopEnd = buf2.duration;
+          const shift = clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24);
+          const looping = buf2.duration > 0.55;
+          if (preserveLength && needsShift(shift)) {
+            stream = createGrainStream(ctx, buf2, flt, {
+              semis: shift,
+              loop: looping,
+              loopStart: looping ? buf2.duration * 0.2 : 0,
+              loopEnd: buf2.duration,
+              offset: looping ? 0 : 0
+            });
+          } else {
+            src = ctx.createBufferSource();
+            src.buffer = buf2;
+            if (looping) {
+              src.loop = true;
+              src.loopStart = buf2.duration * 0.2;
+              src.loopEnd = buf2.duration;
+            }
+            src.playbackRate.value = Math.pow(2, shift / 12);
           }
-          src.playbackRate.value = Math.pow(2, (clamp(note, 0, 127) - 60 + clamp(voice.tune, -24, 24)) / 12);
         }
       }
       let unison = null;
-      if (!src) {
+      if (!src && !stream) {
         unison = makeUnison(voice, t, hz(note), flt);
         src = unison[0];
       }
-      const bendable = unison ? unison.map((o) => o.detune) : src.detune ? [src.detune] : [];
+      const bendable = unison ? unison.map((o) => o.detune) : src && src.detune ? [src.detune] : [];
       const baseDetune = unison ? unison.map((o) => o.detune.value) : [0];
       let vibDepth = null;
-      if (bendable.length) {
+      if (bendable.length || stream) {
         vibDepth = ctx.createGain();
         vibDepth.gain.value = 0;
         vibrato().connect(vibDepth);
         bendable.forEach((p) => vibDepth.connect(p));
+        if (stream) stream.mod(vibDepth);
       }
       const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
       const s = clamp(voice.sustain, 0, 1), peak = v * clamp(voice.gain, 0, 1.4);
@@ -1540,7 +1741,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
       env.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
       env.gain.exponentialRampToValueAtTime(held, t + a + d);
       exp.gain.setValueAtTime(1, t);
-      if (!unison) src.connect(flt);
+      if (!unison && src) src.connect(flt);
       let chain = flt;
       if (voice.drive > 0.02) {
         const ws = ctx.createWaveShaper();
@@ -1562,8 +1763,9 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
         exp.connect(sd);
         sd.connect(spaceIn);
       }
-      const sources = unison || [src];
+      const sources = unison || (src ? [src] : []);
       sources.forEach((o) => o.start(t));
+      if (stream) stream.start(t);
       let dead2 = false, pressure = 0, timbre = 0, lev = 1;
       function reflt() {
         if (dead2) return;
@@ -1596,6 +1798,12 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
           } catch (e) {
           }
         });
+        if (stream) {
+          try {
+            stream.stop(now + secs + 0.03);
+          } catch (e) {
+          }
+        }
       }
       return {
         note,
@@ -1616,6 +1824,7 @@ body.ready .pane{transition:margin-bottom .28s cubic-bezier(.2,.7,.3,1),
             } catch (e) {
             }
           });
+          if (stream) stream.setDetune(c);
         },
         vib(cents) {
           if (vibDepth && !dead2) try {

@@ -38,6 +38,7 @@ jobs:
           npm install --no-audit --no-fund playwright-core
           npx --yes playwright install --with-deps chromium
           node ultimate/test/ultimate.cjs
+          node ultimate/test/pitch.cjs
 
       # The bundle is the app. Copying it into assets is what makes the APK
       # ULTIMATE rather than M2 — there is no edition flag to flip here,
