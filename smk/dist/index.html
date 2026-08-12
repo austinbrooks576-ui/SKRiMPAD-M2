@@ -2852,6 +2852,144 @@ button{border:0;background:none;cursor:pointer;}
     } };
   }
 
+  // smk/src/core/arp.js
+  function arpStep(notes, mode, i, rnd) {
+    const n = notes.length;
+    if (!n) return [];
+    if (mode === "REPEAT") return notes.slice();
+    if (mode === "ORDER") {
+      const byPress = notes.slice().sort((a, b) => a.at - b.at);
+      return [byPress[(i % n + n) % n]];
+    }
+    if (mode === "RAND") {
+      const r = typeof rnd === "function" ? rnd() : Math.random();
+      return [notes[Math.min(n - 1, Math.floor(r * n))]];
+    }
+    const up = notes.slice().sort((a, b) => a.note - b.note);
+    if (mode === "UP") return [up[(i % n + n) % n]];
+    if (mode === "DOWN") return [up[n - 1 - (i % n + n) % n]];
+    if (n === 1) return [up[0]];
+    if (mode === "INCL") {
+      const period2 = n * 2;
+      const k2 = (i % period2 + period2) % period2;
+      return [up[k2 < n ? k2 : period2 - 1 - k2]];
+    }
+    const period = n * 2 - 2;
+    const k = (i % period + period) % period;
+    return [up[k < n ? k : period - k]];
+  }
+  function rhythmAt(rhythm, i, q) {
+    if (!rhythm || !rhythm.length) return 1;
+    const pos = i * (q == null ? 1 : q);
+    const k = Math.round(pos) % rhythm.length;
+    const w = rhythm[(k % rhythm.length + rhythm.length) % rhythm.length];
+    return w > 0 ? w / 9 : 0;
+  }
+  function stepTime(i, secsPerStep, swing) {
+    const base = i * secsPerStep;
+    const odd = (i % 2 + 2) % 2 === 1;
+    return base + (odd ? secsPerStep * Math.max(0, Math.min(0.6, swing || 0)) : 0);
+  }
+  function createArp({ now, onNote, onStep } = {}) {
+    const AHEAD = 0.18, TICK = 25;
+    const CHORD = 0.055;
+    let notes = [];
+    let latched = [];
+    let running = false, timer = 0, step = 0, nextAt = 0, startedAt = 0;
+    let cfg = { mode: "UP", q: 1, bpm: 100, gate: 0.5, swing: 0, rhythm: null, octaves: 1 };
+    let rnd = Math.random;
+    const active = () => latched.length ? latched : notes;
+    const secsPerStep = () => 60 / Math.max(20, cfg.bpm) * (cfg.q || 1) / 4;
+    function spread(list) {
+      const oct = Math.max(1, Math.min(4, cfg.octaves | 0 || 1));
+      if (oct === 1) return list;
+      const out = [];
+      for (let o = 0; o < oct; o++) list.forEach((x) => out.push({ note: x.note + 12 * o, vel: x.vel, at: x.at + o * 1e-3 }));
+      return out;
+    }
+    function fill() {
+      if (!running) return;
+      const t = now();
+      if (t < startedAt - 5e-3) return;
+      const sps = secsPerStep();
+      let guard = 64;
+      while (nextAt < t + AHEAD && guard-- > 0) {
+        const due = startedAt + stepTime(step, sps, cfg.swing);
+        const when = Math.max(due, t + 8e-3);
+        if (due >= t - sps * 0.5) {
+          const list = spread(active());
+          const w = rhythmAt(cfg.rhythm, step, cfg.q);
+          if (list.length && w > 0) {
+            const picked = arpStep(list, cfg.mode, step, rnd);
+            const len = Math.max(0.02, sps * Math.max(0.05, Math.min(1, cfg.gate)));
+            picked.forEach((p) => onNote && onNote(p.note, Math.max(1, Math.round(p.vel * w)), when, len));
+          }
+          onStep && onStep(step, when, w > 0 && list.length > 0);
+        }
+        step++;
+        nextAt = startedAt + stepTime(step, sps, cfg.swing);
+      }
+    }
+    function begin() {
+      if (running) return;
+      running = true;
+      step = 0;
+      startedAt = now() + CHORD;
+      nextAt = startedAt;
+      fill();
+      timer = setInterval(fill, TICK);
+    }
+    function end() {
+      running = false;
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    }
+    return {
+      get running() {
+        return running;
+      },
+      // Top the queue up NOW rather than waiting for the next tick. The interval
+      // calls exactly this, so a caller that drives it by hand — a test with its
+      // own clock, or a tempo change that wants its new spacing heard on the very
+      // next step rather than up to 25ms later — gets the real scheduler and not
+      // a second implementation of it.
+      pump() {
+        fill();
+      },
+      get notes() {
+        return active().map((x) => x.note);
+      },
+      set(c) {
+        Object.assign(cfg, c || {});
+      },
+      // For tests: a seeded generator makes RAND reproducible without making it
+      // any less random in the app.
+      seed(fn) {
+        rnd = fn || Math.random;
+      },
+      hold(note, vel) {
+        if (latched.length && !notes.length) latched = [];
+        if (!notes.some((x) => x.note === note)) notes.push({ note, vel: vel || 100, at: now() });
+        if (!running) begin();
+      },
+      release(note) {
+        if (cfg.latch && !latched.length && notes.length) latched = notes.slice();
+        notes = notes.filter((x) => x.note !== note);
+        if (!cfg.latch && !notes.length) end();
+      },
+      clear() {
+        notes = [];
+        latched = [];
+        end();
+      },
+      stop() {
+        end();
+      }
+    };
+  }
+
   // smk/src/.boot.entry.js
   var $ = (s) => document.querySelector(s);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -2865,7 +3003,7 @@ button{border:0;background:none;cursor:pointer;}
       octave: 0,
       padBank: 0,
       knobBank: 0,
-      arp: { on: false, mode: "UP", rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: "" },
+      arp: { on: false, mode: "UP", rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: "", octaves: 1 },
       scale: "off",
       chord: "off",
       root: 0,
@@ -2992,9 +3130,40 @@ button{border:0;background:none;cursor:pointer;}
     onState: (i) => paintTransport(i)
   });
   var held = /* @__PURE__ */ new Map();
+  var arp = createArp({
+    now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+    onNote: (note, vel, when, len) => {
+      const v = keyVoice(note);
+      v.decay = Math.max(0.04, len * 0.7);
+      v.sustain = 0;
+      v.release = Math.max(0.03, len * 0.3);
+      eng.play(v, when, vel);
+      loop.capture(1e3 + note, vel, len);
+      flashKey(note, len);
+    }
+  });
+  function syncArp() {
+    arp.set({
+      mode: S.arp.mode,
+      q: ARP_RATES[S.arp.rate].q,
+      bpm: S.bpm,
+      gate: S.arp.gate,
+      swing: S.arp.swing,
+      latch: S.arp.latch,
+      octaves: S.arp.octaves || 1,
+      rhythm: S.arp.rhythm ? (RHYTHMS.find((r) => r.id === S.arp.rhythm) || {}).s || null : null
+    });
+  }
   function keyOn(note, vel) {
     eng.init();
     const n = applyScale(note);
+    if (S.arp.on) {
+      syncArp();
+      arp.hold(n, vel);
+      chordNotes(n).forEach((x) => arp.hold(x, Math.round(vel * 0.8)));
+      paintKeys();
+      return;
+    }
     if (held.has(n)) {
       try {
         held.get(n).off();
@@ -3012,6 +3181,11 @@ button{border:0;background:none;cursor:pointer;}
   }
   function keyOff(note) {
     const n = applyScale(note);
+    if (S.arp.on) {
+      [n].concat(chordNotes(n)).forEach((x) => arp.release(x));
+      paintKeys();
+      return;
+    }
     [n].concat(chordNotes(n)).forEach((x) => {
       const h = held.get(x);
       if (h) {
@@ -3138,6 +3312,16 @@ button{border:0;background:none;cursor:pointer;}
     b.classList.add("hit");
     clearTimeout(padT[i]);
     padT[i] = setTimeout(() => b.classList.remove("hit"), 60);
+  }
+  var keyT = /* @__PURE__ */ new Map();
+  function flashKey(note, len) {
+    const e = keyEls.get(note);
+    if (!e) return;
+    e.classList.add("on");
+    clearTimeout(keyT.get(note));
+    keyT.set(note, setTimeout(() => {
+      if (!held.has(note)) e.classList.remove("on");
+    }, Math.max(60, Math.round((len || 0.1) * 1e3))));
   }
   function firstNote() {
     return Math.max(0, Math.min(103, FIRST_NOTE + S.octave * 12));
@@ -3300,6 +3484,7 @@ button{border:0;background:none;cursor:pointer;}
     loop.clear();
     warm.clear();
     lib.repin([]);
+    arp.clear();
     save();
     paintPads();
     paintKeys();
@@ -3467,6 +3652,7 @@ button{border:0;background:none;cursor:pointer;}
     if (role.id === "tempo") setTempo(Math.round(20 + v * 280));
     if (role.id === "swing") S.arp.swing = v * 0.6;
     if (role.id === "gate") S.arp.gate = 0.05 + v * 0.95;
+    syncArp();
     knobEls[i] && knobEls[i].classList.add("live");
     setTimeout(() => knobEls[i] && knobEls[i].classList.remove("live"), 220);
     save();
@@ -3475,6 +3661,7 @@ button{border:0;background:none;cursor:pointer;}
   function setTempo(v) {
     S.bpm = Math.max(20, Math.min(300, v | 0));
     $("#tempo").value = S.bpm;
+    syncArp();
     save();
   }
   function setOctave(o) {
@@ -3509,6 +3696,7 @@ button{border:0;background:none;cursor:pointer;}
       st === "playing" || st === "overdub" ? loop.pause() : loop.play();
     } else if (name === "stop") {
       loop.stop();
+      arp.clear();
       held.forEach((h) => {
         try {
           h.off();
@@ -3530,6 +3718,7 @@ button{border:0;background:none;cursor:pointer;}
     $("#loopbar").firstElementChild.style.width = Math.round(info.pos * 100) + "%";
   }
   function paintRail() {
+    syncArp();
     $("#arp").classList.toggle("on", S.arp.on);
     $("#arp").textContent = S.arp.on ? S.arp.mode + " " + ARP_RATES[S.arp.rate].id + (S.arp.latch ? " \xB7" : "") : "ARP";
     $("#scch").classList.toggle("on", S.scale !== "off" || S.chord !== "off");
@@ -3572,6 +3761,7 @@ button{border:0;background:none;cursor:pointer;}
   });
   $("#arp").addEventListener("click", () => {
     S.arp.on = !S.arp.on;
+    if (!S.arp.on) arp.clear();
     save();
     paintRail();
   });
@@ -3586,6 +3776,7 @@ button{border:0;background:none;cursor:pointer;}
       { head: "Arpeggiator" },
       { label: S.arp.on ? "Turn it off" : "Turn it on", on: S.arp.on, run: () => {
         S.arp.on = !S.arp.on;
+        if (!S.arp.on) arp.clear();
         save();
         paintRail();
       } },
@@ -3760,7 +3951,7 @@ button{border:0;background:none;cursor:pointer;}
     const d = io.diagnostics(), ins = io.listInputs();
     const mine = ins.filter((p) => identify(p.name).smk || p.ble);
     const bt = unit.buttons(portName), lr = unit.learned(portName);
-    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">' + (mine.length ? esc(unit.unitKey(mine[0].name)) + " \u2014 " + (lr.pads ? "pads learned" : "pads not taught yet") + ", " + (lr.knobs ? "knobs learned" : "knobs not taught yet") + "." : ins.length ? esc(ins.length + " MIDI port(s), none an SMK-25") : "Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the app reads all of them, because the pads and the transport arrive on the second.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="forget">FORGET THIS UNIT</button><button class="chip sm" id="clearall">' + (armed ? "TAP AGAIN TO WIPE" : "CLEAR ALL") + '</button></div></div><div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a published CC number or pad note \u2014 every one is reassignable in M-VAVE\u2019s editor, and units ship set up differently. So the app learns yours rather than guessing. Press a row, then move that control on the keyboard.</div><div class="opts" style="margin-top:8px">' + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase() + (bt[b] ? " \u2713" : "") + "</button>").join("") + '</div></div><div class="grp"><h3>WHAT THE KNOBS DO</h3>' + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>' + (i < KNOBS ? "A" : "B") + (i % KNOBS + 1) + " \xB7 " + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>' + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>PLAY \xB7 STOP \xB7 REC</h3><div class="dim">A transport button has no standard, and this keyboard can send any of four things depending on how it was set up. The app understands all four, so in most cases there is nothing to do here.<br><br><b>Out of the box the SMK-25 sends MMC over SysEx</b> \u2014 which the browser drops entirely unless it was asked for SysEx permission at startup. That is the usual reason these buttons appear dead in a DAW. SysEx here: <b>' + (d.sysex ? "allowed" : "REFUSED \u2014 reload and allow MIDI") + "</b>.<br>Also understood: system real-time (FA/FB/FC), Mackie notes 93\u201395, and CC 117/118/119 or 93\u201395 if you reassigned them in M-VAVE\u2019s editor. A CC you have taught to a knob stays a knob.<br><br>Last transport received: <b>" + (lastTransport ? esc(lastTransport.name.toUpperCase() + " \xB7 " + HOW[lastTransport.how]) : "none yet") + "</b>" + (lastUnknown ? "<br>Last unrecognised message: <b>" + esc(lastUnknown) + "</b> \u2014 if that was a transport button, teach it above." : "") + "<br><br>" + esc(whyQuiet({
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR SMK-25</h3><div class="dim">' + (mine.length ? esc(unit.unitKey(mine[0].name)) + " \u2014 " + (lr.pads ? "pads learned" : "pads not taught yet") + ", " + (lr.knobs ? "knobs learned" : "knobs not taught yet") + "." : ins.length ? esc(ins.length + " MIDI port(s), none an SMK-25") : "Nothing yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind an interface browsers and desktop apps do not use, so a keyboard paired perfectly in Windows settings is invisible to every app without its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself. Over USB the keyboard publishes three ports and the app reads all of them, because the pads and the transport arrive on the second.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="forget">FORGET THIS UNIT</button><button class="chip sm" id="clearall">' + (armed ? "TAP AGAIN TO WIPE" : "CLEAR ALL") + '</button></div></div><div class="grp"><h3>TEACH THE CONTROLS</h3><div class="dim">Nothing on this keyboard has a published CC number or pad note \u2014 every one is reassignable in M-VAVE\u2019s editor, and units ship set up differently. So the app learns yours rather than guessing. Press a row, then move that control on the keyboard.</div><div class="opts" style="margin-top:8px">' + BUTTONS.map((b) => '<button class="chip sm" data-learn="' + b + '">' + b.toUpperCase() + (bt[b] ? " \u2713" : "") + "</button>").join("") + '</div></div><div class="grp"><h3>WHAT THE KNOBS DO</h3>' + KNOB_ROLES.map((r, i) => '<div class="row"><span class="nm"><b>' + (i < KNOBS ? "A" : "B") + (i % KNOBS + 1) + " \xB7 " + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>HOW THE ARP WORKS</h3><div class="dim">Five controls, and the reason it stays clear is that <b>none of them overlap</b>. Each answers a different question, so any setting of one works under any setting of the rest.<br><br><b>MODE \u2014 which note.</b><br>\xB7 <b>UP</b> lowest to highest, then round again. \xB7 <b>DOWN</b> the reverse.<br>\xB7 <b>INCL</b> up then down, <i>repeating</i> the ends \u2014 C E G G E C, so the turn has weight.<br>\xB7 <b>EXCL</b> up then down <i>without</i> repeating \u2014 C E G E, so the turn is smooth. That is the only difference between the two, and it is the difference between an arpeggio that lands on the top note and one that flows past it.<br>\xB7 <b>RAND</b> a different one each step.<br>\xB7 <b>ORDER</b> the order you actually pressed them \u2014 the only mode that plays a shape you fingered rather than one sorted for you. Press G, then C, then E, and that is what comes out.<br>\xB7 <b>REPEAT</b> the whole chord every step, so the rhythm plays block chords.<br><br><b>RATE \u2014 how often a step happens.</b> 1/4 down to 1/32T: the unit\u2019s own eight divisions.<br><br><b>RHYTHM \u2014 whether that step sounds at all.</b> Twelve patterns of sixteen weights; a zero is a rest and the rest are velocities. This is what stops an arpeggio being a machine gun. The weights are read <i>by time</i> rather than by counting, so Four-floor still lands on the beat at 1/8 as well as at 1/16.<br><br><b>GATE \u2014 how long each note holds,</b> as a fraction of the step. Short is staccato, long runs the notes into one another. <b>KNOB-B 7.</b><br><br><b>SWING \u2014 how late the offbeats land.</b> Only the odd steps move; delaying every step would just be playing slower. <b>KNOB-B 6.</b><br><br><b>LATCH</b> keeps it running after you let go, and it captures the <i>whole</i> chord \u2014 taken at the moment the first finger lifts, because by the time the last one leaves there is nothing left to capture. Pressing any new key starts a new chord rather than adding to the old one. Hold <b>ARP</b> and press LATCH.</div></div><div class="grp"><h3>HOW THE CHORD SYSTEM WORKS</h3><div class="dim">Two separate things, and they stack.<br><br><b>SCALE</b> bends every incoming note to the nearest note of the scale, so a wrong note is not available \u2014 only a less interesting right one. It runs on everything: your fingers, the arpeggiator, and the loop on playback.<br><br><b>CHORD</b> builds a chord on top of the key you played, and builds it <b>out of the scale</b> rather than from a fixed interval. That is the part that matters: a triad on the second degree of a major scale is <i>minor</i>, and it comes out minor here, because the notes are found by counting degrees of the scale \u2014 not by adding four and seven semitones to everything. With the scale Off, chords fall back to major.<br><br>Triad is 1-3-5; 7th adds the seventh; 9th adds the ninth. Every added note is its own voice, so releasing the key releases the whole chord and never leaves an upper note hanging. With the arpeggiator on, those notes are handed to it \u2014 so one finger arpeggiates a full chord.<br><br>Hold <b>SC/CH</b> and the keys become the shortcut row printed on the unit.</div></div><div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>' + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">' + esc(r.d) + "</span></span></div>").join("") + '</div><div class="grp"><h3>PLAY \xB7 STOP \xB7 REC</h3><div class="dim">A transport button has no standard, and this keyboard can send any of four things depending on how it was set up. The app understands all four, so in most cases there is nothing to do here.<br><br><b>Out of the box the SMK-25 sends MMC over SysEx</b> \u2014 which the browser drops entirely unless it was asked for SysEx permission at startup. That is the usual reason these buttons appear dead in a DAW. SysEx here: <b>' + (d.sysex ? "allowed" : "REFUSED \u2014 reload and allow MIDI") + "</b>.<br>Also understood: system real-time (FA/FB/FC), Mackie notes 93\u201395, and CC 117/118/119 or 93\u201395 if you reassigned them in M-VAVE\u2019s editor. A CC you have taught to a knob stays a knob.<br><br>Last transport received: <b>" + (lastTransport ? esc(lastTransport.name.toUpperCase() + " \xB7 " + HOW[lastTransport.how]) : "none yet") + "</b>" + (lastUnknown ? "<br>Last unrecognised message: <b>" + esc(lastUnknown) + "</b> \u2014 if that was a transport button, teach it above." : "") + "<br><br>" + esc(whyQuiet({
       sysex: d.sysex,
       ports: ins.length,
       everSpoke: d.bytes > 0,
@@ -3842,6 +4033,8 @@ button{border:0;background:none;cursor:pointer;}
     unit,
     loop,
     sky,
+    arp,
+    syncArp,
     get lastTransport() {
       return lastTransport;
     },

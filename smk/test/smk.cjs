@@ -185,6 +185,38 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
      (seen.match(/Last unrecognised message: [^—]+/) || ['not shown'])[0].trim());
   ok(/MMC over SysEx/.test(seen), 'and SETUP explains why these buttons usually appear dead');
 
+  // ---- the arpeggiator actually runs --------------------------------------
+  // arp.cjs proves the maths. This proves the app reaches for it — which is a
+  // different failure, and the one that was true until now: the ARP rail and
+  // all twelve rhythms were displayed and set, and nothing ever ran them.
+  const arpRan = await p.evaluate(async () => {
+    const A = window.__smk;
+    A.transport('stop');
+    A.S.arp.on = true; A.S.arp.mode = 'UP'; A.S.arp.rate = 4; A.S.bpm = 120;
+    A.S.arp.rhythm = ''; A.S.arp.latch = false;
+    A.syncArp();
+    const fired = [];
+    const real = A.eng.play;
+    A.eng.play = function (v, when, vel) { fired.push({ note: v.note, when }); return real.apply(this, arguments); };
+    A.keyOn(60, 100); A.keyOn(64, 100); A.keyOn(67, 100);
+    await new Promise((r) => setTimeout(r, 700));
+    const running = A.arp.running;
+    A.keyOff(60); A.keyOff(64); A.keyOff(67);
+    await new Promise((r) => setTimeout(r, 250));
+    const after = fired.length;
+    await new Promise((r) => setTimeout(r, 300));
+    A.eng.play = real;
+    A.S.arp.on = false; A.arp.clear();
+    return { count: fired.length, order: fired.slice(0, 6).map((f) => f.note).join(' '),
+             running, settled: fired.length === after };
+  });
+  ok(arpRan.count >= 4, 'with ARP on, holding keys actually produces notes',
+     arpRan.count + ' notes in 0.7s at 120bpm 1/16');
+  ok(arpRan.running === true, 'and the arpeggiator reports itself running');
+  ok(/^60 64 67/.test(arpRan.order), 'in the order UP means — and the chord is complete from the first step',
+     arpRan.order);
+  ok(arpRan.settled, 'and letting go of every key stops it dead');
+
   // ---- CLEAR ALL means all ------------------------------------------------
   const cleared = await p.evaluate(async () => {
     const A = window.__smk;

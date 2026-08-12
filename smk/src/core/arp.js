@@ -105,6 +105,8 @@ export function stepTime(i, secsPerStep, swing) {
 // time before the timer fires.
 export function createArp({ now, onNote, onStep } = {}) {
   const AHEAD = 0.18, TICK = 25;
+  // How long a chord is given to assemble before the first step is committed.
+  const CHORD = 0.055;
   let notes = [];          // [{ note, vel, at }]
   let latched = [];        // notes kept after release, when latch is on
   let running = false, timer = 0, step = 0, nextAt = 0, startedAt = 0;
@@ -128,14 +130,30 @@ export function createArp({ now, onNote, onStep } = {}) {
   function fill() {
     if (!running) return;
     const t = now();
+    // THE CHORD WINDOW. Nothing at all is committed until this has passed.
+    //
+    // A chord is not pressed simultaneously — three fingers land over about
+    // twenty-five milliseconds — and the look-ahead commits the first steps the
+    // instant the FIRST key goes down. So an arpeggiator with a 180ms horizon
+    // plays its first second as a one-note arpeggio and only then notices the
+    // other two notes. Measured: pressing C-E-G gave `60 60 67 60 64 67`.
+    //
+    // Fifty-odd milliseconds is under the threshold where a player feels a
+    // keyboard as laggy, and comfortably longer than a hand takes to land.
+    if (t < startedAt - 0.005) return;
     const sps = secsPerStep();
     let guard = 64;
     while (nextAt < t + AHEAD && guard-- > 0) {
-      const when = startedAt + stepTime(step, sps, cfg.swing);
-      // A step whose swung time has already gone past is dropped rather than
-      // played late — a late note is worse than a missing one, and this only
-      // happens after the machine has stalled.
-      if (when >= t - 0.002) {
+      const due = startedAt + stepTime(step, sps, cfg.swing);
+      // The first step is due exactly when the chord window closes, so by the
+      // time this runs it is a few milliseconds in the past. Nudge it forward
+      // rather than dropping it — a missing first note is far more noticeable
+      // than one eight milliseconds late.
+      const when = Math.max(due, t + 0.008);
+      // A step whose swung time has already gone well past is dropped rather
+      // than played late — a late note is worse than a missing one, and this
+      // only happens after the machine has stalled.
+      if (due >= t - sps * 0.5) {
         const list = spread(active());
         const w = rhythmAt(cfg.rhythm, step, cfg.q);
         if (list.length && w > 0) {
@@ -153,7 +171,7 @@ export function createArp({ now, onNote, onStep } = {}) {
   function begin() {
     if (running) return;
     running = true; step = 0;
-    startedAt = now() + 0.03;
+    startedAt = now() + CHORD;
     nextAt = startedAt;
     fill();
     timer = setInterval(fill, TICK);
@@ -165,6 +183,12 @@ export function createArp({ now, onNote, onStep } = {}) {
 
   return {
     get running() { return running; },
+    // Top the queue up NOW rather than waiting for the next tick. The interval
+    // calls exactly this, so a caller that drives it by hand — a test with its
+    // own clock, or a tempo change that wants its new spacing heard on the very
+    // next step rather than up to 25ms later — gets the real scheduler and not
+    // a second implementation of it.
+    pump() { fill(); },
     get notes() { return active().map((x) => x.note); },
     set(c) { Object.assign(cfg, c || {}); },
     // For tests: a seeded generator makes RAND reproducible without making it
@@ -179,13 +203,14 @@ export function createArp({ now, onNote, onStep } = {}) {
       if (!running) begin();
     },
     release(note) {
+      // LATCH CAPTURES BEFORE IT REMOVES. The obvious order — drop the note,
+      // then latch whatever is left — latches nothing, because by the time the
+      // last finger lifts there is nothing left to latch. The chord has to be
+      // taken at the FIRST release, while it is still complete.
+      if (cfg.latch && !latched.length && notes.length) latched = notes.slice();
       notes = notes.filter((x) => x.note !== note);
-      if (cfg.latch) { if (notes.length === 0 && latched.length === 0) latched = []; }
-      if (!cfg.latch && !notes.length) { end(); }
+      if (!cfg.latch && !notes.length) end();
     },
-    // Called when the last physical key goes up and latch is ON: whatever was
-    // held becomes the latched chord.
-    latchNow() { if (notes.length) latched = notes.slice(); },
     clear() { notes = []; latched = []; end(); },
     stop() { end(); },
   };

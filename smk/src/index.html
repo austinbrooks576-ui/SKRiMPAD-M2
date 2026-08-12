@@ -297,6 +297,7 @@ import {
 } from './core/smk25.js';
 import { decode as decodeTransport, describe as describeMsg, whyQuiet } from '../../ultimate/src/core/transport-in.js';
 import { mountGalaxy } from './core/galaxy.js';
+import { createArp } from './core/arp.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -313,7 +314,7 @@ const LS = 'skrimpad.smk.state.v1';
 function fresh() {
   return {
     bpm: 100, octave: 0, padBank: 0, knobBank: 0,
-    arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '' },
+    arp: { on: false, mode: 'UP', rate: 4, gate: 0.5, swing: 0, latch: false, rhythm: '', octaves: 1 },
     scale: 'off', chord: 'off', root: 0,
     // A voice per PAD, and a voice per KEY. Both are addressable individually,
     // which is the whole point of "clear all, even the individually set keys" —
@@ -408,9 +409,49 @@ const loop = createLooper({
 });
 
 const held = new Map();
+
+// THE ARPEGGIATOR. It does not hold notes itself — it asks for one at a time
+// and each one is fired as a short PLAY rather than a sustained HOLD, because
+// an arpeggiated note has a length decided by the gate control, not by a
+// finger. See core/arp.js: mode says which note, rhythm says whether the step
+// sounds at all, gate says how long, and the three are independent.
+const arp = createArp({
+  now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+  onNote: (note, vel, when, len) => {
+    const v = keyVoice(note);
+    // The gate is the whole envelope of an arpeggiated note. Handing it to
+    // decay+release rather than sustaining means a short gate is genuinely
+    // staccato instead of a long note faded early.
+    v.decay = Math.max(0.04, len * 0.7); v.sustain = 0; v.release = Math.max(0.03, len * 0.3);
+    eng.play(v, when, vel);
+    loop.capture(1000 + note, vel, len);
+    flashKey(note, len);
+  },
+});
+function syncArp() {
+  arp.set({
+    mode: S.arp.mode, q: ARP_RATES[S.arp.rate].q, bpm: S.bpm,
+    gate: S.arp.gate, swing: S.arp.swing, latch: S.arp.latch,
+    octaves: S.arp.octaves || 1,
+    rhythm: S.arp.rhythm ? (RHYTHMS.find((r) => r.id === S.arp.rhythm) || {}).s || null : null,
+  });
+}
+
 function keyOn(note, vel) {
   eng.init();
   const n = applyScale(note);
+
+  // WITH THE ARPEGGIATOR ON, a key is not a note — it is a note added to the
+  // set the arpeggiator is cycling through. Sounding it here as well would
+  // double every note you press.
+  if (S.arp.on) {
+    syncArp();
+    arp.hold(n, vel);
+    chordNotes(n).forEach((x) => arp.hold(x, Math.round(vel * 0.8)));
+    paintKeys();
+    return;
+  }
+
   if (held.has(n)) { try { held.get(n).off(); } catch (e) {} }
   const h = eng.hold(keyVoice(n), n, vel, 0);
   held.set(n, h);
@@ -425,6 +466,11 @@ function keyOn(note, vel) {
 }
 function keyOff(note) {
   const n = applyScale(note);
+  if (S.arp.on) {
+    [n].concat(chordNotes(n)).forEach((x) => arp.release(x));
+    paintKeys();
+    return;
+  }
   [n].concat(chordNotes(n)).forEach((x) => {
     const h = held.get(x);
     if (h) { try { h.off(); } catch (e) {} held.delete(x); }
@@ -525,6 +571,22 @@ function flashPad(i) {
   const b = padEls[i]; if (!b) return;
   b.classList.add('hit'); clearTimeout(padT[i]);
   padT[i] = setTimeout(() => b.classList.remove('hit'), 60);
+}
+
+// An arpeggiated note lights its key for as long as the note lasts. This is the
+// only way to SEE what the arpeggiator is doing — mode, rate, rhythm and gate
+// are four interacting controls, and reading four labels tells you far less
+// than watching the keys move.
+const keyT = new Map();
+function flashKey(note, len) {
+  const e = keyEls.get(note); if (!e) return;
+  e.classList.add('on');
+  clearTimeout(keyT.get(note));
+  keyT.set(note, setTimeout(() => {
+    // Only clear it if a finger is not actually holding that key down, or the
+    // arpeggiator's own flash would switch the light off under your hand.
+    if (!held.has(note)) e.classList.remove('on');
+  }, Math.max(60, Math.round((len || 0.1) * 1000))));
 }
 
 // The 25 keys, drawn as a keyboard. Octave shifting is LIVEx's rule: OCT± moves
@@ -632,6 +694,7 @@ function clearAll() {
   S.keys = {};
   loop.clear();
   warm.clear(); lib.repin([]);
+  arp.clear();
   save(); paintPads(); paintKeys(); renderSetup();
   toast('every pad and every key cleared');
 }
@@ -772,11 +835,12 @@ function setKnob(i, v) {
   if (role.id === 'tempo') setTempo(Math.round(20 + v * 280));
   if (role.id === 'swing') S.arp.swing = v * 0.6;
   if (role.id === 'gate') S.arp.gate = 0.05 + v * 0.95;
+  syncArp();
   knobEls[i] && knobEls[i].classList.add('live');
   setTimeout(() => knobEls[i] && knobEls[i].classList.remove('live'), 220);
   save(); paintKnobs();
 }
-function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; save(); }
+function setTempo(v) { S.bpm = Math.max(20, Math.min(300, v | 0)); $('#tempo').value = S.bpm; syncArp(); save(); }
 function setOctave(o) {
   S.octave = Math.max(-4, Math.min(4, o));
   held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear();
@@ -787,7 +851,8 @@ function setKnobBank(b) { S.knobBank = b % KNOB_BANKS; save(); paintKnobs(); toa
 
 function transport(name) {
   if (name === 'play') { const st = loop.info.state; (st === 'playing' || st === 'overdub') ? loop.pause() : loop.play(); }
-  else if (name === 'stop') { loop.stop(); held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); }
+  else if (name === 'stop') { loop.stop(); arp.clear();
+    held.forEach((h) => { try { h.off(); } catch (e) {} }); held.clear(); paintKeys(); }
   else if (name === 'rec') loop.arm();
   paintTransport(loop.info);
   toast(name);
@@ -801,6 +866,7 @@ function paintTransport(info) {
   $('#loopbar').firstElementChild.style.width = Math.round(info.pos * 100) + '%';
 }
 function paintRail() {
+  syncArp();
   $('#arp').classList.toggle('on', S.arp.on);
   $('#arp').textContent = S.arp.on ? (S.arp.mode + ' ' + ARP_RATES[S.arp.rate].id + (S.arp.latch ? ' ·' : '')) : 'ARP';
   $('#scch').classList.toggle('on', S.scale !== 'off' || S.chord !== 'off');
@@ -836,7 +902,7 @@ $('#rec').addEventListener('click', () => transport('rec'));
 $('#play').addEventListener('click', () => transport('play'));
 $('#stop').addEventListener('click', () => transport('stop'));
 $('#undo').addEventListener('click', () => { loop.undo(); toast('undone'); });
-$('#arp').addEventListener('click', () => { S.arp.on = !S.arp.on; save(); paintRail(); });
+$('#arp').addEventListener('click', () => { S.arp.on = !S.arp.on; if (!S.arp.on) arp.clear(); save(); paintRail(); });
 $('#arp').addEventListener('contextmenu', (ev) => { ev.preventDefault(); openMenu({ x: ev.clientX, y: ev.clientY, items: arpMenu(), title: 'Arpeggiator' }); });
 onLongPress($('#arp'), 420, (ev, x, y) => openMenu({ x, y, items: arpMenu(), title: 'Arpeggiator' }));
 $('#scch').addEventListener('click', (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: scchMenu(), title: 'Scale and chord' }));
@@ -844,7 +910,7 @@ $('#scch').addEventListener('click', (ev) => openMenu({ x: ev.clientX, y: ev.cli
 function arpMenu() {
   return [
     { head: 'Arpeggiator' },
-    { label: S.arp.on ? 'Turn it off' : 'Turn it on', on: S.arp.on, run: () => { S.arp.on = !S.arp.on; save(); paintRail(); } },
+    { label: S.arp.on ? 'Turn it off' : 'Turn it on', on: S.arp.on, run: () => { S.arp.on = !S.arp.on; if (!S.arp.on) arp.clear(); save(); paintRail(); } },
     { label: 'Latch', on: S.arp.latch, run: () => { S.arp.latch = !S.arp.latch; save(); paintRail(); } },
     { sep: 1 },
     { label: 'Mode', hint: S.arp.mode, items: () => ARP_MODES.map((m) => ({ label: m, on: S.arp.mode === m, run: () => { S.arp.mode = m; save(); paintRail(); } })) },
@@ -971,6 +1037,48 @@ function renderSetup() {
         + (i < KNOBS ? 'A' : 'B') + (i % KNOBS + 1) + ' · ' + esc(r.l) + '</b><br><span class="sub">'
         + esc(r.d) + '</span></span></div>').join('')
     + '</div>'
+    + '<div class="grp"><h3>HOW THE ARP WORKS</h3><div class="dim">'
+    + 'Five controls, and the reason it stays clear is that <b>none of them overlap</b>. Each answers a '
+    + 'different question, so any setting of one works under any setting of the rest.'
+    + '<br><br><b>MODE — which note.</b><br>'
+    + '· <b>UP</b> lowest to highest, then round again. · <b>DOWN</b> the reverse.<br>'
+    + '· <b>INCL</b> up then down, <i>repeating</i> the ends — C E G G E C, so the turn has weight.<br>'
+    + '· <b>EXCL</b> up then down <i>without</i> repeating — C E G E, so the turn is smooth. That is the '
+    + 'only difference between the two, and it is the difference between an arpeggio that lands on the '
+    + 'top note and one that flows past it.<br>'
+    + '· <b>RAND</b> a different one each step.<br>'
+    + '· <b>ORDER</b> the order you actually pressed them — the only mode that plays a shape you fingered '
+    + 'rather than one sorted for you. Press G, then C, then E, and that is what comes out.<br>'
+    + '· <b>REPEAT</b> the whole chord every step, so the rhythm plays block chords.'
+    + '<br><br><b>RATE — how often a step happens.</b> 1/4 down to 1/32T: the unit’s own eight divisions.'
+    + '<br><br><b>RHYTHM — whether that step sounds at all.</b> Twelve patterns of sixteen weights; a zero '
+    + 'is a rest and the rest are velocities. This is what stops an arpeggio being a machine gun. The '
+    + 'weights are read <i>by time</i> rather than by counting, so Four-floor still lands on the beat at '
+    + '1/8 as well as at 1/16.'
+    + '<br><br><b>GATE — how long each note holds,</b> as a fraction of the step. Short is staccato, long '
+    + 'runs the notes into one another. <b>KNOB-B 7.</b>'
+    + '<br><br><b>SWING — how late the offbeats land.</b> Only the odd steps move; delaying every step '
+    + 'would just be playing slower. <b>KNOB-B 6.</b>'
+    + '<br><br><b>LATCH</b> keeps it running after you let go, and it captures the <i>whole</i> chord — '
+    + 'taken at the moment the first finger lifts, because by the time the last one leaves there is '
+    + 'nothing left to capture. Pressing any new key starts a new chord rather than adding to the old '
+    + 'one. Hold <b>ARP</b> and press LATCH.'
+    + '</div></div>'
+    + '<div class="grp"><h3>HOW THE CHORD SYSTEM WORKS</h3><div class="dim">'
+    + 'Two separate things, and they stack.'
+    + '<br><br><b>SCALE</b> bends every incoming note to the nearest note of the scale, so a wrong note is '
+    + 'not available — only a less interesting right one. It runs on everything: your fingers, the '
+    + 'arpeggiator, and the loop on playback.'
+    + '<br><br><b>CHORD</b> builds a chord on top of the key you played, and builds it <b>out of the '
+    + 'scale</b> rather than from a fixed interval. That is the part that matters: a triad on the second '
+    + 'degree of a major scale is <i>minor</i>, and it comes out minor here, because the notes are found '
+    + 'by counting degrees of the scale — not by adding four and seven semitones to everything. With the '
+    + 'scale Off, chords fall back to major.'
+    + '<br><br>Triad is 1-3-5; 7th adds the seventh; 9th adds the ninth. Every added note is its own '
+    + 'voice, so releasing the key releases the whole chord and never leaves an upper note hanging. With '
+    + 'the arpeggiator on, those notes are handed to it — so one finger arpeggiates a full chord.'
+    + '<br><br>Hold <b>SC/CH</b> and the keys become the shortcut row printed on the unit.'
+    + '</div></div>'
     + '<div class="grp"><h3>TWELVE RHYTHMS</h3><div class="dim">An arpeggiator decides WHICH note; a '
     + 'rhythm decides WHEN. These run under a held chord or a pad, and are chosen by holding ARP.</div>'
     + RHYTHMS.map((r) => '<div class="row"><span class="nm"><b>' + esc(r.l) + '</b><br><span class="sub">'
@@ -1036,7 +1144,7 @@ $('#splashgo').addEventListener('click', () => {
 const sky = mountGalaxy($('#sky'));
 
 window.__smk = {
-  get S() { return S; }, eng, io, lib, unit, loop, sky,
+  get S() { return S; }, eng, io, lib, unit, loop, sky, arp, syncArp,
   get lastTransport() { return lastTransport; }, get lastUnknown() { return lastUnknown; },
   keyOn, keyOff, padHit, setKnob, setOctave, setPadBank, setKnobBank, transport,
   shortcut, clearAll, renderSetup, takeFiles, applyScale, chordNotes,
