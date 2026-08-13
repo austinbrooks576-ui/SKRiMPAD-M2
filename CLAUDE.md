@@ -33,6 +33,8 @@ that is still going.
 | `se-win-` / `se-v` | Special Edition | Windows / Android |
 | `vga-win-` / `vga-v` | VGA | Windows / Android |
 | `livex-win-` / `livex-v` | LIVEx | Windows / Android |
+| `jp-win-` / `jp-v` | JP | Windows / Android |
+| `smk-win-` / `smk-v` | SMK (M-VAVE SMK-25) | Windows / Android |
 
 **Always say with the macOS link** that it is unsigned — first launch is
 right-click → Open — and that it does not auto-update. Leaving that out means
@@ -40,6 +42,24 @@ someone hits Gatekeeper, believes the build is broken, and throws it away.
 
 **Always say with the web link** that Add to Home Screen needs the hosted URL,
 not the zip; a page opened from a local file cannot register a service worker.
+
+## A red build is not automatically a broken app
+
+Two things in CI download from the internet and neither of them is the repo:
+the gradle wrapper fetching its distribution, and Electron's postinstall
+fetching its ~100MB binary. Both have failed mid-download and taken a build
+down with them — `SocketException: Unexpected end of file from server` and
+`RequestError: socket hang up`, with nothing wrong in the code at all.
+
+Both are retried three times with a backoff now. **Read the log before
+changing any app code in response to a red build**, because the fix for a
+socket hang up is not in the app, and a day spent "fixing" working audio code
+is a day lost.
+
+`test/workflows.cjs` runs those retry loops for real — it pulls each one out
+of the YAML and executes it under the shell GitHub uses against a stub that
+fails on demand. Run it after touching any workflow. A retry loop only
+executes on the bad day, so it has to be tested on a good one.
 
 ## Branches
 
