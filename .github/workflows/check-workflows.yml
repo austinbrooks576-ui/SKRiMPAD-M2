@@ -1,0 +1,38 @@
+name: Check workflows
+
+# The CI that checks the CI.
+#
+# Two builds have been lost to downloads that had nothing to do with the repo —
+# the gradle wrapper fetching its distribution, and Electron's postinstall
+# fetching its binary — and both are retried now. A retry loop is the classic
+# piece of code that never runs until the bad day, so this executes each one
+# against a stub that fails on demand and checks it recovers, still goes red on
+# a real failure, and does not sleep before an attempt it will never make.
+#
+# Deliberately cheap: no playwright, no android SDK, no electron. It is worth
+# ~20 seconds to know the retries work before finding out at 2am.
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - '.github/workflows/**'
+      - 'test/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'test/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the retry loops for real
+        run: node test/workflows.cjs

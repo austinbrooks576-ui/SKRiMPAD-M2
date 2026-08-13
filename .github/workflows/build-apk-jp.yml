@@ -77,8 +77,10 @@ jobs:
           cd android
           for attempt in 1 2 3; do
             if ./gradlew assembleDebug --no-daemon; then exit 0; fi
-            echo "gradle attempt $attempt failed; retrying in $((attempt * 15))s"
-            sleep $((attempt * 15))
+            if [ "$attempt" -lt 3 ]; then
+              echo "gradle attempt $attempt failed; retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            fi
           done
           echo "gradle failed three times"
           exit 1
