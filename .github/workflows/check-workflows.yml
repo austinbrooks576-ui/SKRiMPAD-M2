@@ -72,3 +72,5 @@ jobs:
           npx --yes playwright install --with-deps chromium
       - name: Boot every edition
         run: node test/boot.cjs
+      - name: Stress every edition through its real handlers
+        run: node test/edition-stress.cjs
