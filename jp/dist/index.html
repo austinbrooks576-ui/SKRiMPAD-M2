@@ -415,6 +415,7 @@ button{border:0;background:none;cursor:pointer;}
   var NUDGE = 128 * 3 / 44100;
   function createEngine({ sampleFor, context, onFail, preserveLength } = {}) {
     let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
+    let fxA = null, fxB = null;
     const meters = new Float32Array(64);
     let ready = false;
     let dead = false;
@@ -462,7 +463,11 @@ button{border:0;background:none;cursor:pointer;}
       analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.7;
-      master.connect(comp);
+      fxA = ctx.createGain();
+      fxB = ctx.createGain();
+      master.connect(fxA);
+      fxA.connect(fxB);
+      fxB.connect(comp);
       comp.connect(ceiling);
       ceiling.connect(analyser);
       analyser.connect(ctx.destination);
@@ -620,7 +625,10 @@ button{border:0;background:none;cursor:pointer;}
       const pan = ctx.createStereoPanner && Math.abs(clamp(voice.pan, -1, 1)) > 0.02 ? ctx.createStereoPanner() : null;
       const flt = ctx.createBiquadFilter();
       flt.type = "lowpass";
-      flt.frequency.setValueAtTime(60 * Math.pow(233, clamp(voice.cutoff, 0, 1)), t);
+      flt.frequency.setValueAtTime(
+        Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75)),
+        t
+      );
       flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
       const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
       const s = clamp(voice.sustain, 0, 1), r = clamp(voice.release, 0.01, 4);
@@ -966,6 +974,33 @@ button{border:0;background:none;cursor:pointer;}
       // the one thing in the app that can clip.
       get bus() {
         return init(), master;
+      },
+      // Patch an effects chain into the seam. `build(ctx, input, output)` wires
+      // whatever it likes between the two nodes and returns a handle the caller
+      // keeps; passing null restores the straight wire. The seam always
+      // reconnects input→output first, so a builder that throws half way cannot
+      // leave the app silent — the dry path is never broken, only paralleled.
+      patchFx(build) {
+        if (!init() || !fxA) return null;
+        try {
+          fxA.disconnect();
+        } catch (e) {
+        }
+        fxA.connect(fxB);
+        if (!build) return null;
+        let out = null;
+        try {
+          out = build(ctx, fxA, fxB);
+        } catch (e) {
+          return null;
+        }
+        if (out) {
+          try {
+            fxA.disconnect(fxB);
+          } catch (e) {
+          }
+        }
+        return out;
       },
       get analyser() {
         return analyser;
