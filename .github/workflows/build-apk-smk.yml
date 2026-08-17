@@ -1,0 +1,157 @@
+name: Build APK (SMK)
+
+# SKRiMPAD SMK — the app for the M-VAVE SMK-25 keyboard and nothing else.
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - 'smk/**'
+      - 'ultimate/src/core/**'      # SMK shares the audio, MIDI, pitch and library core
+      - 'jp/src/core/**'            # ...and JP's looper and zip reader
+      - 'android/**'
+      - 'scripts/prep-android-edition.js'
+      - '.github/workflows/build-apk-smk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the SMK bundle
+        run: node smk/tools/bundle.js
+
+      # THE TESTS RUN BEFORE THE BUILD. An APK that reaches a phone and then
+      # turns out to have a dead transport has already cost somebody an install;
+      # a red job costs nobody anything.
+      - name: Test it
+        run: |
+          npm install --no-audit --no-fund playwright-core
+          npx --yes playwright install --with-deps chromium
+          node smk/test/mix.cjs
+          node smk/test/snip.cjs
+          node smk/test/arp.cjs
+          node smk/test/seq.cjs
+          node smk/test/roll.cjs
+          node smk/test/velocity.cjs
+          node smk/test/smk.cjs
+          node smk/test/stress.cjs
+          node smk/test/fx.cjs
+          node ultimate/test/pitch.cjs
+
+      - name: Install the bundle as the app
+        run: cp smk/dist/index.html android/app/src/main/assets/index.html
+
+      - name: Verify the bundle is self-contained
+        run: |
+          f=android/app/src/main/assets/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="keys"' "$f" || { echo "bundle has no keybed — wrong file?"; exit 1; }
+          grep -q 'id="pads"' "$f" || { echo "bundle has no pad block — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      # Give this edition its own Android identity. Without it every APK in
+      # this repo builds with ULTIMATE's applicationId, so installing one
+      # REPLACES the other on the phone and leaves a launcher icon with the
+      # wrong name on it.
+      - name: Name this edition
+        run: node scripts/prep-android-edition.js smk ${{ github.run_number }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+      # RETRIED. The gradle wrapper downloads its own distribution on first run,
+      # and that download fails on the runner often enough to matter — a build
+      # was lost to `SocketException: Unexpected end of file from server` with
+      # nothing wrong in the repo at all. Three attempts with a backoff turns a
+      # transient network blip into a slower green build instead of a red one.
+      - name: Build APK
+        run: |
+          cd android
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon; then exit 0; fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "gradle attempt $attempt failed; retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "gradle failed three times"
+          exit 1
+
+      - name: Name the download file
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "SKRiMPAD SMK ${{ github.run_number }}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-smk-${{ github.run_number }}
+          path: SKRiMPAD SMK ${{ github.run_number }}.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: smk-v1.0.${{ github.run_number }}
+          name: SKRiMPAD SMK — Android ${{ github.run_number }}
+          body: |
+            **SKRiMPAD SMK** — built for one controller: the M-VAVE **SMK-25**.
+
+            Twenty-five keys, the 2×4 pad block with DP1 in its top-left corner,
+            eight knobs across two banks, and the octave buttons — laid out the
+            way the unit is, so you can follow one while looking at the other.
+            **The pads are never mapped to keys.** A keyboard whose C4 secretly
+            fires a snare is a keyboard you cannot play.
+
+            **PLAY, STOP and REC do their job.** These buttons have no standard,
+            and the same unit sends one of four different things depending on how
+            it was set up. All four are understood:
+
+            · **MMC over SysEx** — what the SMK-25 sends out of the box, and what
+              every app that did not ask for SysEx permission silently throws
+              away. This is the usual reason they appear dead in a DAW.
+            · **System real-time** — FA / FB / FC
+            · **Mackie notes** 93 / 94 / 95, in DAW mode
+            · **Plain CC** — 117/118/119 or 93/94/95, if you reassigned them in
+              M-VAVE's own editor
+
+            Anything you have taught the app always wins over that, so a CC you
+            mapped to a knob stays a knob. When a button still does nothing,
+            SETUP tells you which of the four last arrived and what the last
+            unrecognised message was, instead of shrugging.
+
+            **An octave that changes the note, not the length.** Samples used to
+            pitch by playback rate, which is a tape speed control — up an octave
+            is twice as fast and half as long. Here a sample is resynthesised
+            grain by grain, so seven octaves of the same loop all take exactly
+            the same time and still land on the beat.
+
+            **Your own sounds.** Drag audio files or a whole `.zip` pack onto the
+            window. Hold a pad or a key to drop a sound straight onto it, and
+            CLEAR ALL means all — both pad banks and every individually set key.
+
+            **Plugged in or over the air.** USB-C, or Bluetooth LE MIDI.
+
+            Download **`SKRiMPAD SMK ${{ github.run_number }}.apk`**, enable
+            "Install unknown apps", then open it to install.
+          files: SKRiMPAD SMK ${{ github.run_number }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

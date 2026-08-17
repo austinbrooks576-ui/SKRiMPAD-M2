@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash.
+
+     This is not decoration. A WebView app has a real gap between the process
+     starting and the first paint of the page, and with nothing here the user
+     stares at a blank window and assumes the app hung. A layer-list window
+     background costs nothing, needs no library, and works on every API level
+     this app supports — androidx.core.splashscreen would only add a dependency
+     to reach API 31+ devices that already handle this well.
+
+     It is the launcher mark on the app's own void, so opening the app is
+     visually continuous with the icon you tapped. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/void_bg"/>
+    <item
+        android:gravity="center"
+        android:width="132dp"
+        android:height="132dp"
+        android:drawable="@drawable/ic_launcher_foreground"/>
+</layer-list>

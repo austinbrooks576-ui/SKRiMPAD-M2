@@ -8,7 +8,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.firstriff.skrimpadm2"
+        // ULTIMATE is its own app, not a reskin, so it gets its own id. Sharing
+        // an applicationId means installing one edition uninstalls the other,
+        // and someone who wants ULTIMATE almost certainly also has M2 on the
+        // phone they are comparing it against.
+        applicationId "com.firstriff.skrimpad.ultimate"
         minSdk 24
         targetSdk 34
         versionCode 1

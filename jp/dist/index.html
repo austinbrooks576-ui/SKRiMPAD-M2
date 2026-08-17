@@ -1,0 +1,3452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<title>SKRiMPAD JP</title>
+<meta name="theme-color" content="#07080C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* ONE DEVICE, ONE SCREEN.
+   This app has exactly one instrument in front of it, so it has exactly one
+   layout: the grid, and a rail of the things you reach for while your other
+   hand is on the pads. There is nothing to navigate, because there is nowhere
+   else to be. */
+:root{
+  --bg:#07080C; --panel:#10131B; --line:rgba(255,255,255,.09);
+  --txt:#EAF0F6; --dim:#7D8798; --acc:#4BE3C8; --rec:#FF3B5C; --warm:#FFB454;
+  --fs-xs:clamp(9px,1.5vw,11px); --fs-sm:clamp(11px,1.8vw,13px);
+  --fs-md:clamp(13px,2.2vw,16px); --fs-lg:clamp(17px,3vw,22px);
+  --sp:clamp(6px,1.2vw,12px);
+  --hit:44px;
+  --e1:0 1px 2px rgba(0,0,0,.5),0 4px 14px rgba(0,0,0,.35);
+  --e2:0 2px 6px rgba(0,0,0,.55),0 14px 40px rgba(0,0,0,.45);
+  --lip:inset 0 1px 0 rgba(255,255,255,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);overflow:hidden;
+  font-family:'Oswald','Arial Narrow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-size:var(--fs-md);letter-spacing:.02em;}
+button,input,select{font-family:inherit;color:inherit;}
+button{border:0;background:none;cursor:pointer;}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+
+#app{position:fixed;inset:0;display:flex;flex-direction:column;
+  padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right))
+          max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
+  gap:var(--sp);}
+
+/* ---------- top bar ---------- */
+#top{display:flex;align-items:center;gap:var(--sp);min-height:34px;flex:0 0 auto;}
+#brand{font-weight:600;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);}
+#brand b{color:var(--acc);}
+#link{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);
+  color:var(--dim);background:none;padding:5px 9px;border:1px solid var(--line);border-radius:999px;
+  min-height:26px;}
+#link .dot{width:7px;height:7px;border-radius:50%;background:#54607A;flex:0 0 auto;}
+#link.live .dot{background:var(--acc);box-shadow:0 0 8px var(--acc);}
+#link.live{color:var(--txt);border-color:rgba(75,227,200,.4);}
+
+/* ---------- the grid ---------- */
+/* The grid sits at the BOTTOM of whatever room is left, not the middle. On a
+   tall phone the grid can only be as wide as the screen, so being square leaves
+   real space above it — and pads belong under your thumb, not floating in the
+   middle of the glass with the transport a stretch away. */
+#gridwrap{flex:1 1 auto;min-height:0;display:flex;align-items:flex-end;justify-content:center;}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);
+  gap:clamp(5px,1vw,12px);
+  /* SQUARE AT EVERY SIZE. A pad grid that is not square does not match the
+     thing under your hands, and the whole point of a dedicated app is that the
+     screen and the hardware agree.
+     Width is the constraint and height follows it — `height:100%` alongside
+     aspect-ratio wins over the ratio, which on a tall phone stretched all
+     sixteen pads into portrait rectangles while a square desktop window looked
+     perfectly fine. The 300px is the two rails and the top bar. */
+  width:min(100%,calc(100dvh - 300px),calc(100vh - 300px));
+  max-width:100%;aspect-ratio:1;height:auto;margin:0 auto;}
+.pad{position:relative;border-radius:clamp(8px,1.4vw,16px);border:1px solid rgba(255,255,255,.08);
+  overflow:hidden;box-shadow:var(--e1),var(--lip);
+  background:linear-gradient(160deg,hsl(var(--h) 62% 26%),hsl(var(--h) 58% 15%));
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:clamp(5px,1vw,10px);text-align:left;transition:transform .05s;}
+.pad .n{font-size:var(--fs-xs);color:rgba(255,255,255,.45);font-variant-numeric:tabular-nums;}
+.pad .t{font-size:var(--fs-sm);font-weight:600;line-height:1.15;word-break:break-word;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);}
+.pad .t.empty{color:rgba(255,255,255,.3);font-weight:400;}
+/* The strike glow is a separate layer so lighting a pad never touches layout —
+   an opacity change on a child cannot reflow anything. */
+.pad i{position:absolute;inset:0;background:hsl(var(--h) 90% 62%);opacity:0;pointer-events:none;
+  transition:opacity .18s ease-out;}
+.pad.hit i{opacity:.55;transition:none;}
+.pad.held{border-color:hsl(var(--h) 90% 65%);box-shadow:0 0 0 2px hsl(var(--h) 90% 60% / .5),var(--e1);}
+.pad.latch{border-color:var(--warm);box-shadow:0 0 0 2px rgba(255,180,84,.55),var(--e1);}
+.pad.loop::after{content:'';position:absolute;right:6px;top:6px;width:7px;height:7px;
+  border-radius:50%;background:var(--rec);box-shadow:0 0 7px var(--rec);}
+.pad.arm{animation:armpulse 1s ease-in-out infinite;}
+@keyframes armpulse{0%,100%{box-shadow:0 0 0 2px rgba(75,227,200,.25),var(--e1);}
+  50%{box-shadow:0 0 0 4px rgba(75,227,200,.75),var(--e1);}}
+.pad:active{transform:scale(.985);}
+
+/* ---------- rails ---------- */
+.rail{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;}
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:var(--hit);padding:0 11px;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);
+  font-size:var(--fs-sm);white-space:nowrap;box-shadow:var(--lip);}
+.chip.sm{min-height:32px;padding:0 9px;font-size:var(--fs-xs);}
+.chip.on{background:var(--acc);color:#04140F;border-color:var(--acc);font-weight:600;}
+.chip.rec.on{background:var(--rec);border-color:var(--rec);color:#fff;}
+.chip.warm.on{background:var(--warm);border-color:var(--warm);color:#241300;}
+.chip:disabled{opacity:.4;}
+.lab{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.12em;margin-right:2px;}
+/* Tempo and TAP are one chip with two targets: the number if you know it, the
+   button if you do not. Two ways to say the same thing, neither hidden behind a
+   gesture nobody would guess at. */
+.chip.pair{padding:0 4px 0 2px;gap:0;}
+.chip.pair #tap{min-height:30px;padding:0 8px;border-radius:8px;font-size:var(--fs-xs);
+  color:var(--dim);border:1px solid transparent;}
+.chip.pair #tap:hover{color:var(--txt);border-color:var(--line);}
+#tempo{width:46px;min-height:30px;background:transparent;border:0;text-align:center;
+  font-size:var(--fs-md);font-variant-numeric:tabular-nums;outline:none;
+  -moz-appearance:textfield;}
+#tempo::-webkit-outer-spin-button,#tempo::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+#loopbar{flex:1 1 90px;height:6px;min-width:70px;border-radius:99px;background:rgba(255,255,255,.08);
+  overflow:hidden;}
+#loopbar i{display:block;height:100%;width:0;background:var(--acc);}
+
+/* ---------- sheets ---------- */
+.scrim{position:fixed;inset:0;background:rgba(3,4,7,.72);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:40;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(560px,94vw);max-height:min(84vh,760px);background:var(--panel);
+  border:1px solid var(--line);border-radius:16px;box-shadow:var(--e2);
+  display:flex;flex-direction:column;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;z-index:50;}
+.sheet.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1);}
+.sheet header{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.sheet h2{margin:0;font-size:var(--fs-sm);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.sheet .body{overflow:auto;padding:12px 14px;-webkit-overflow-scrolling:touch;}
+.x{margin-left:auto;min-width:34px;min-height:34px;border-radius:9px;border:1px solid var(--line);
+  color:var(--dim);font-size:16px;line-height:1;}
+.row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.row:last-child{border-bottom:0;}
+.row .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--fs-sm);}
+.row .sub{font-size:var(--fs-xs);color:var(--dim);}
+.dim{color:var(--dim);font-size:var(--fs-xs);line-height:1.5;}
+#drop{margin:0 0 10px;padding:20px 10px;border:1px dashed var(--line);border-radius:12px;
+  text-align:center;color:var(--dim);font-size:var(--fs-sm);cursor:pointer;}
+#drop.hot{border-color:var(--acc);color:var(--acc);background:rgba(75,227,200,.07);}
+#file{display:none;}
+#toast{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);background:rgba(16,19,27,.96);border:1px solid var(--line);
+  border-radius:11px;padding:9px 14px;font-size:var(--fs-sm);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:80;max-width:92vw;text-align:center;box-shadow:var(--e2);}
+#toast.on{opacity:1;}
+.grp{margin:0 0 16px;}
+.grp h3{margin:0 0 6px;font-size:var(--fs-xs);letter-spacing:.16em;color:var(--dim);font-weight:600;}
+.opts{display:flex;flex-wrap:wrap;gap:6px;}
+@media (max-width:430px){ .rail{gap:5px;} .chip{padding:0 9px;} }
+
+/* ---------- the drop-down menus ----------
+   menu.js was imported and wired to every pad, key and knob in this edition,
+   and NONE of it was visible: the module builds `.menu` / `.mitem` elements and
+   the stylesheet for them lives in ULTIMATE, which this edition never copied.
+   So every right-click and every long-press was building a real, working menu
+   as an unstyled div at the end of <body> — behind #app, at opacity 0, with no
+   position. Wired, working, and invisible. */
+.menu{position:fixed;z-index:70;min-width:min(230px,72vw);max-width:min(300px,86vw);
+  max-height:min(70svh,520px);overflow-y:auto;overscroll-behavior:contain;
+  background:rgba(11,14,20,.985);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--e2),var(--lip);padding:5px;
+  opacity:0;transform:scale(.97);transform-origin:top left;
+  transition:opacity .11s,transform .11s cubic-bezier(.2,.7,.3,1);}
+.menu.open{opacity:1;transform:none;}
+.mitem{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--txt);
+  font-size:var(--fs-sm);letter-spacing:.06em;cursor:pointer;min-height:var(--hit);}
+.mitem:hover:not(:disabled),.mitem:focus-visible{background:rgba(75,227,200,.12);color:var(--acc);}
+.mitem:disabled{opacity:.35;cursor:default;}
+.mitem.danger:hover{background:rgba(255,107,132,.14);color:#FF6B84;}
+.mitem.on .ml::before{content:'\2713 ';color:var(--acc);}
+.mitem.back{color:var(--dim);}
+.mitem .ml{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mitem .mh{flex:none;font-size:var(--fs-xs);color:var(--dim);letter-spacing:.1em;}
+.mitem .mx{flex:none;color:var(--dim);font-size:var(--fs-md);}
+.mhead{font-size:var(--fs-xs);color:var(--dim);letter-spacing:.18em;padding:7px 10px 4px;}
+.msep{border:0;border-top:1px solid var(--line);margin:4px 6px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <span id="brand">SKRiMPAD <b>JP</b></span>
+    <button id="link" aria-live="polite"><span class="dot"></span><span id="linktxt">looking for your JP mini…</span></button>
+    <button class="chip sm" id="libbtn">SOUNDS</button>
+    <button class="chip sm" id="setbtn" aria-label="Setup and help">⚙</button>
+  </div>
+
+  <div id="gridwrap"><div id="grid" role="group" aria-label="Sixteen pads"></div></div>
+
+  <!-- ONE RAIL. This was three, holding fourteen controls, and a pad instrument
+       does not have fourteen things you touch while playing. What is left is
+       what a hand actually reaches for mid-phrase; everything else moved under
+       the control it belongs to, or into SETUP if it is a thing you decide once
+       and never think about again. Nothing was removed. -->
+  <div class="rail">
+    <button class="chip" id="bank" aria-label="Preset">1</button>
+    <button class="chip" id="repeat">REPEAT</button>
+    <span class="chip pair">
+      <input id="tempo" type="number" min="20" max="300" value="100" aria-label="Tempo">
+      <button id="tap">TAP</button>
+    </span>
+    <button class="chip rec" id="rec" aria-label="Record">●</button>
+    <button class="chip" id="play" aria-label="Play or pause">▶</button>
+    <button class="chip" id="stop" aria-label="Stop">■</button>
+    <div id="loopbar"><i></i></div>
+    <button class="chip sm" id="undo" aria-label="Undo">↶</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="sheet" id="lib" role="dialog" aria-modal="true" aria-label="Sounds">
+  <header><h2>SOUNDS</h2><span class="sub" id="libcount"></span><button class="x" id="libx">✕</button></header>
+  <div class="body">
+    <div id="drop">DROP AUDIO OR A .ZIP PACK HERE<br><span class="dim">or tap to browse</span></div>
+    <input type="file" id="file" multiple accept="audio/*,.zip,.wav,.mp3,.ogg,.flac,.m4a,.aif,.aiff">
+    <div id="list"></div>
+  </div>
+</div>
+
+<div class="sheet" id="setup" role="dialog" aria-modal="true" aria-label="Setup">
+  <header><h2>SETUP</h2><button class="x" id="setx">✕</button></header>
+  <div class="body" id="setupbody"></div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  // ultimate/src/core/pitch.js
+  var GRAIN = 0.09;
+  var SHORT_GRAIN = 0.035;
+  var SHORT_ENOUGH = 0.45;
+  var MAX_SEMIS = 24;
+  var MAX_GRAINS = 400;
+  var needsShift = (semis) => Math.abs(semis || 0) > 0.01;
+  var clampSemis = (n) => Math.max(-MAX_SEMIS, Math.min(MAX_SEMIS, n || 0));
+  var grainFor = (dur) => dur <= SHORT_ENOUGH ? SHORT_GRAIN : GRAIN;
+  function playPitched(ctx, buffer, when, semis, dest, opts = {}) {
+    const n = clampSemis(semis);
+    const dur = buffer.duration;
+    if (!needsShift(n)) {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(dest);
+      src.start(when);
+      return { stop: when + dur, duration: dur, grains: 1, srcs: [src] };
+    }
+    const rate = Math.pow(2, n / 12);
+    const g = opts.grain || grainFor(dur);
+    const hop = g / 2;
+    const count = Math.min(MAX_GRAINS, Math.max(1, Math.ceil(dur / hop)));
+    const srcs = [];
+    for (let i = 0; i < count; i++) {
+      const readAt = i * hop;
+      if (readAt >= dur) break;
+      const room = Math.max(0, dur - i * hop);
+      const take = Math.min(Math.min(g, room) * rate, Math.max(0, dur - readAt));
+      if (take <= 1e-3) break;
+      const out = take / rate;
+      const t0 = when + i * hop;
+      const win = ctx.createGain();
+      if (i === 0) win.gain.setValueAtTime(1, t0);
+      else {
+        win.gain.setValueAtTime(1e-4, t0);
+        win.gain.linearRampToValueAtTime(1, t0 + out / 2);
+      }
+      win.gain.linearRampToValueAtTime(1e-4, t0 + out);
+      win.connect(dest);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = rate;
+      src.connect(win);
+      src.start(t0, readAt, take);
+      src.stop(t0 + out + 0.01);
+      srcs.push(src);
+    }
+    return { stop: when + dur, duration: dur, grains: srcs.length, srcs };
+  }
+  function createGrainStream(ctx, buffer, dest, opts = {}) {
+    const dur = buffer.duration;
+    const loop2 = !!opts.loop;
+    const loopStart = Math.max(0, Math.min(dur, opts.loopStart || 0));
+    const loopEnd = Math.max(loopStart + 0.01, Math.min(dur, opts.loopEnd == null ? dur : opts.loopEnd));
+    const g = opts.grain || grainFor(dur);
+    const hop = g / 2;
+    const AHEAD = 0.25, TICK = 60;
+    const offline = typeof ctx.startRendering === "function";
+    const horizon = opts.horizon || 8;
+    let semis = clampSemis(opts.semis);
+    let detune = 0;
+    const mods = [];
+    let read = Math.max(0, Math.min(dur, opts.offset || 0));
+    let nextAt = 0;
+    let timer = 0, started = false, done = false, endAt = Infinity;
+    const live = [];
+    function reap(now) {
+      for (let i = live.length - 1; i >= 0; i--) if (live[i].until < now - 0.05) live.splice(i, 1);
+    }
+    function one() {
+      const rate = Math.pow(2, semis / 12);
+      const limit = loop2 ? loopEnd : dur;
+      const room = loop2 ? g : Math.max(0, dur - read);
+      const take = Math.min(Math.min(g, room) * rate, Math.max(0, limit - read));
+      if (take <= 1e-3) {
+        done = true;
+        return false;
+      }
+      const out = take / rate;
+      const t0 = nextAt;
+      if (t0 >= endAt) {
+        done = true;
+        return false;
+      }
+      const win = ctx.createGain();
+      win.gain.setValueAtTime(1e-4, t0);
+      win.gain.linearRampToValueAtTime(1, t0 + out / 2);
+      win.gain.linearRampToValueAtTime(1e-4, t0 + out);
+      win.connect(dest);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = rate;
+      if (src.detune) {
+        src.detune.value = detune;
+        mods.forEach((m) => {
+          try {
+            m.connect(src.detune);
+          } catch (e) {
+          }
+        });
+      }
+      src.connect(win);
+      src.start(t0, read, take);
+      src.stop(t0 + out + 0.01);
+      live.push({ src, win, until: t0 + out });
+      read += hop;
+      if (loop2 && read >= loopEnd - 1e-3) read = loopStart + (read - loopEnd);
+      nextAt += hop;
+      return true;
+    }
+    function fill() {
+      if (done) return;
+      const limit = offline ? horizon : ctx.currentTime + AHEAD;
+      let guard = MAX_GRAINS;
+      while (!done && nextAt < limit && guard-- > 0) if (!one()) break;
+      if (done) clear();
+    }
+    function clear() {
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    }
+    return {
+      get running() {
+        return started && !done;
+      },
+      start(when) {
+        if (started) return;
+        started = true;
+        nextAt = when;
+        fill();
+        if (!offline && !done) timer = setInterval(fill, TICK);
+      },
+      // Live pitch change. Grains already scheduled keep the old rate — they are
+      // 90ms long, so the stream has fully followed within one grain, which is
+      // faster than a hand can move a wheel.
+      setSemis(n) {
+        semis = clampSemis(n);
+      },
+      // Bend, in cents. Applied to the grains already in flight AND remembered
+      // for the ones not yet made, or the pitch would snap back every 45ms.
+      setDetune(cents) {
+        detune = cents;
+        const now = ctx.currentTime;
+        reap(now);
+        live.forEach((l) => {
+          try {
+            l.src.detune && l.src.detune.setTargetAtTime(cents, now, 6e-3);
+          } catch (e) {
+          }
+        });
+      },
+      // Register an LFO (or any node) to be summed into every grain's detune —
+      // this is how vibrato reaches a granular voice, since the "source" it would
+      // normally attach to is replaced twenty times a second.
+      mod(node) {
+        if (!node) return;
+        mods.push(node);
+        live.forEach((l) => {
+          try {
+            l.src.detune && node.connect(l.src.detune);
+          } catch (e) {
+          }
+        });
+      },
+      stop(when) {
+        endAt = when;
+        clear();
+        done = true;
+        live.forEach((l) => {
+          try {
+            l.src.stop(Math.min(l.until + 0.01, when + 0.02));
+          } catch (e) {
+          }
+        });
+      }
+    };
+  }
+
+  // ultimate/src/core/engine.js
+  var NUDGE = 128 * 3 / 44100;
+  function createEngine({ sampleFor, context, onFail, preserveLength } = {}) {
+    let ctx = null, master = null, comp = null, spaceIn = null, analyser = null;
+    let fxA = null, fxB = null;
+    const meters = new Float32Array(64);
+    let ready = false;
+    let dead = false;
+    function init() {
+      if (ready || dead) return ctx;
+      try {
+        if (context) ctx = typeof context === "function" ? context() : context;
+        else {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) throw new Error("no AudioContext");
+          ctx = new AC({ latencyHint: "interactive" });
+        }
+      } catch (e) {
+        dead = true;
+        ctx = null;
+        onFail && onFail(e);
+        return null;
+      }
+      master = ctx.createGain();
+      master.gain.value = 0.55;
+      comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -6;
+      comp.knee.value = 8;
+      comp.ratio.value = 4;
+      comp.attack.value = 4e-3;
+      comp.release.value = 0.2;
+      spaceIn = ctx.createGain();
+      spaceIn.gain.value = 1;
+      const dl = ctx.createDelay(1);
+      dl.delayTime.value = 0.13;
+      const fb = ctx.createGain();
+      fb.gain.value = 0.42;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 3200;
+      spaceIn.connect(dl);
+      dl.connect(tone);
+      tone.connect(fb);
+      fb.connect(dl);
+      tone.connect(master);
+      const ceiling = ctx.createWaveShaper();
+      const K = 1.25;
+      ceiling.curve = makeCurve((x) => Math.tanh(x * K) / K);
+      ceiling.oversample = "4x";
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
+      fxA = ctx.createGain();
+      fxB = ctx.createGain();
+      master.connect(fxA);
+      fxA.connect(fxB);
+      fxB.connect(comp);
+      comp.connect(ceiling);
+      ceiling.connect(analyser);
+      analyser.connect(ctx.destination);
+      ready = true;
+      return ctx;
+    }
+    const resume = () => {
+      init();
+      if (ctx && ctx.state !== "running" && ctx.resume) ctx.resume().catch(() => {
+      });
+    };
+    const clamp = (v, lo, hi) => {
+      const n = +v;
+      return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : lo;
+    };
+    const CURVE_N = 1025, CURVE_MID = (CURVE_N - 1) / 2;
+    function makeCurve(fn) {
+      const c = new Float32Array(CURVE_N);
+      for (let i = 0; i < CURVE_N; i++) c[i] = fn(i / CURVE_MID - 1);
+      c[CURVE_MID] = 0;
+      return c;
+    }
+    const driveCache = /* @__PURE__ */ new Map();
+    function driveCurve(amount) {
+      const q = Math.round(clamp(amount, 0, 1) * 40) / 40;
+      let c = driveCache.get(q);
+      if (!c) {
+        const k = q * 60;
+        c = makeCurve((x) => (1 + k) * x / (1 + k * Math.abs(x)));
+        driveCache.set(q, c);
+      }
+      return c;
+    }
+    const hz = (n) => 440 * Math.pow(2, (clamp(n, 0, 127) - 69) / 12);
+    let noiseBuf = null;
+    function noise() {
+      if (noiseBuf) return noiseBuf;
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return noiseBuf;
+    }
+    function burst(t, dest, { freq, type = "bandpass", q = 1, dur = 0.05, level = 1, at = 1e-3 }) {
+      const s = ctx.createBufferSource();
+      s.buffer = noise();
+      const off = Math.random() * 1.5;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + at);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + at + dur);
+      s.connect(f);
+      f.connect(g);
+      g.connect(dest);
+      s.start(t, off);
+      s.stop(t + at + dur + 0.02);
+      return t + at + dur;
+    }
+    function body(t, dest, { from, to, type = "sine", dur = 0.2, level = 1, bend = 0.06 }) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(from, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + bend);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, level), t + 2e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+      o.connect(g);
+      g.connect(dest);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+      return t + dur;
+    }
+    function playDrum(voice, t, dest) {
+      const d = voice.drum || "perc";
+      const n = hz(clamp(voice.note, 0, 127));
+      const dec = clamp(voice.decay, 0.01, 3);
+      let end = t;
+      switch (d) {
+        case "kick":
+          end = Math.max(end, body(t, dest, { from: n * 3.4, to: n * 0.55, dur: dec, level: 1, bend: 0.045 }));
+          end = Math.max(end, burst(t, dest, { freq: 2600, type: "highpass", dur: 0.012, level: 0.32 }));
+          break;
+        case "snare":
+          end = Math.max(end, body(t, dest, { from: 210, to: 155, type: "triangle", dur: dec * 0.45, level: 0.5, bend: 0.05 }));
+          end = Math.max(end, burst(t, dest, { freq: 1900, q: 0.8, dur: dec, level: 0.7 }));
+          break;
+        case "hat":
+          end = Math.max(end, burst(t, dest, { freq: 8600, type: "highpass", dur: dec, level: 0.55 }));
+          break;
+        case "clap": {
+          const sp = [0, 0.011, 0.021];
+          sp.forEach((o) => {
+            end = Math.max(end, burst(t + o, dest, { freq: 1250, q: 1.5, dur: 0.022, level: 0.55 }));
+          });
+          end = Math.max(end, burst(t + 0.03, dest, { freq: 1150, q: 1.1, dur: dec, level: 0.42 }));
+          break;
+        }
+        case "tom":
+          end = Math.max(end, body(t, dest, { from: n * 1.5, to: n * 0.85, dur: dec, level: 0.9, bend: 0.1 }));
+          end = Math.max(end, burst(t, dest, { freq: 3e3, type: "highpass", dur: 0.02, level: 0.12 }));
+          break;
+        case "rim":
+          end = Math.max(end, burst(t, dest, { freq: 2400, q: 7, dur: 0.028, level: 0.7 }));
+          end = Math.max(end, body(t, dest, { from: 1700, to: 1500, type: "square", dur: 0.018, level: 0.16, bend: 0.01 }));
+          break;
+        case "cym":
+          end = Math.max(end, burst(t, dest, { freq: 7200, type: "highpass", dur: dec, level: 0.34 }));
+          end = Math.max(end, burst(t, dest, { freq: 4200, q: 0.6, dur: dec * 0.55, level: 0.2 }));
+          break;
+        default:
+          end = Math.max(end, burst(t, dest, { freq: Math.max(400, n * 6), q: 3, dur: dec, level: 0.6 }));
+          end = Math.max(end, body(t, dest, { from: n * 4, to: n * 3.2, dur: Math.min(dec, 0.06), level: 0.22, bend: 0.03 }));
+          break;
+      }
+      return end;
+    }
+    function makeUnison(voice, t, freq, dest) {
+      const spread = clamp(voice.spread, 0, 1);
+      const cents = spread * 26;
+      const wave = voice.wave || "sawtooth";
+      const parts = spread > 0.02 ? [-1, 0, 1] : [0];
+      const oscs = [];
+      for (const k of parts) {
+        const o = ctx.createOscillator();
+        o.type = wave;
+        o.frequency.setValueAtTime(freq, t);
+        o.detune.setValueAtTime(k * cents + clamp(voice.tune, -24, 24) * 100, t);
+        let node = o;
+        if (k !== 0 && ctx.createStereoPanner) {
+          const p = ctx.createStereoPanner();
+          p.pan.value = k * (0.25 + spread * 0.55);
+          o.connect(p);
+          node = p;
+        }
+        const trim = ctx.createGain();
+        trim.gain.value = parts.length > 1 ? k === 0 ? 0.62 : 0.44 : 1;
+        node.connect(trim);
+        trim.connect(dest);
+        oscs.push(o);
+      }
+      return oscs;
+    }
+    function play(voice, when, vel, cellIndex, semis) {
+      if (!init()) {
+        if (cellIndex != null) meters[cellIndex] = 1;
+        return { stop: 0 };
+      }
+      const t = when || ctx.currentTime + NUDGE;
+      const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
+      const g = ctx.createGain();
+      const pan = ctx.createStereoPanner && Math.abs(clamp(voice.pan, -1, 1)) > 0.02 ? ctx.createStereoPanner() : null;
+      const flt = ctx.createBiquadFilter();
+      flt.type = "lowpass";
+      flt.frequency.setValueAtTime(
+        Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75)),
+        t
+      );
+      flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
+      const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
+      const s = clamp(voice.sustain, 0, 1), r = clamp(voice.release, 0.01, 4);
+      const peak = v * clamp(voice.gain, 0, 1.4);
+      let chain = flt;
+      if (voice.drive > 0.02) {
+        const ws = ctx.createWaveShaper();
+        ws.curve = driveCurve(voice.drive);
+        ws.oversample = "2x";
+        flt.connect(ws);
+        chain = ws;
+      }
+      chain.connect(g);
+      if (pan) {
+        pan.pan.value = clamp(voice.pan, -1, 1);
+        g.connect(pan);
+        pan.connect(master);
+      } else g.connect(master);
+      if (voice.space > 0.02) {
+        const sd = ctx.createGain();
+        sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
+        g.connect(sd);
+        sd.connect(spaceIn);
+      }
+      let buf = null, shift = 0, granular = false;
+      if (voice.sampleId && sampleFor) {
+        buf = sampleFor(voice.sampleId) || null;
+        if (buf) {
+          shift = clamp(voice.tune, -24, 24) + (semis || 0);
+          granular = !!preserveLength && needsShift(shift);
+        }
+      }
+      let stop;
+      if (buf) {
+        const rate = Math.pow(2, shift / 12);
+        const natural = granular ? buf.duration : buf.duration / (rate || 1);
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        if (granular) {
+          playPitched(ctx, buf, t, shift, flt);
+        } else {
+          const sample = ctx.createBufferSource();
+          sample.buffer = buf;
+          sample.playbackRate.value = rate;
+          sample.connect(flt);
+          sample.start(t);
+          sample.stop(Math.max(stop, t + natural) + 0.02);
+        }
+      } else if (voice.kind === "drum") {
+        g.gain.setValueAtTime(Math.max(2e-4, peak), t);
+        const end = playDrum(voice, t, flt);
+        stop = end + 0.05;
+        g.gain.setValueAtTime(Math.max(2e-4, peak), stop - 0.01);
+        g.gain.exponentialRampToValueAtTime(1e-4, stop);
+      } else {
+        stop = t + a + d + r;
+        envelope(g, t, a, d, s, r, peak, stop);
+        const oscs = makeUnison(voice, t, hz(voice.note + (semis || 0)), flt);
+        oscs.forEach((o) => {
+          o.start(t);
+          o.stop(stop + 0.02);
+        });
+      }
+      if (cellIndex != null) meters[cellIndex] = Math.max(meters[cellIndex], v);
+      return { stop };
+    }
+    function envelope(g, t, a, d, s, r, peak, stop) {
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      g.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak * Math.max(5e-4, s)), t + a + d);
+      g.gain.exponentialRampToValueAtTime(1e-4, stop);
+    }
+    let lfo = null, lfoOut = null;
+    function vibrato() {
+      if (lfoOut) return lfoOut;
+      lfo = ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 5.2;
+      lfoOut = ctx.createGain();
+      lfoOut.gain.value = 1;
+      lfo.connect(lfoOut);
+      lfo.start();
+      return lfoOut;
+    }
+    function silentVoice() {
+      let gone = false;
+      const noop = () => {
+      };
+      return {
+        note: 0,
+        isSample: false,
+        get dead() {
+          return gone;
+        },
+        bend: noop,
+        vib: noop,
+        press: noop,
+        timbre: noop,
+        level: noop,
+        off() {
+          gone = true;
+        },
+        steal() {
+          gone = true;
+        }
+      };
+    }
+    function hold(voice, note2, vel, when) {
+      if (!init()) return silentVoice();
+      const t = when || ctx.currentTime + NUDGE;
+      const v = clamp(vel == null ? 100 : vel, 1, 127) / 127;
+      const env = ctx.createGain(), exp = ctx.createGain();
+      const flt = ctx.createBiquadFilter();
+      flt.type = "lowpass";
+      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      const base = Math.min(18e3, 60 * Math.pow(233, clamp(voice.cutoff, 0, 1)) * (0.55 + v * 0.75));
+      flt.frequency.setValueAtTime(base, t);
+      flt.Q.value = 0.6 + clamp(voice.res, 0, 1) * 14;
+      let src, isSample = false, stream = null;
+      if (voice.sampleId && sampleFor) {
+        const buf = sampleFor(voice.sampleId);
+        if (buf) {
+          isSample = true;
+          const shift = clamp(note2, 0, 127) - 60 + clamp(voice.tune, -24, 24);
+          const looping = buf.duration > 0.55;
+          if (preserveLength && needsShift(shift)) {
+            stream = createGrainStream(ctx, buf, flt, {
+              semis: shift,
+              loop: looping,
+              loopStart: looping ? buf.duration * 0.2 : 0,
+              loopEnd: buf.duration,
+              offset: looping ? 0 : 0
+            });
+          } else {
+            src = ctx.createBufferSource();
+            src.buffer = buf;
+            if (looping) {
+              src.loop = true;
+              src.loopStart = buf.duration * 0.2;
+              src.loopEnd = buf.duration;
+            }
+            src.playbackRate.value = Math.pow(2, shift / 12);
+          }
+        }
+      }
+      let unison = null;
+      if (!src && !stream) {
+        unison = makeUnison(voice, t, hz(note2), flt);
+        src = unison[0];
+      }
+      const bendable = unison ? unison.map((o) => o.detune) : src && src.detune ? [src.detune] : [];
+      const baseDetune = unison ? unison.map((o) => o.detune.value) : [0];
+      let vibDepth = null;
+      if (bendable.length || stream) {
+        vibDepth = ctx.createGain();
+        vibDepth.gain.value = 0;
+        vibrato().connect(vibDepth);
+        bendable.forEach((p) => vibDepth.connect(p));
+        if (stream) stream.mod(vibDepth);
+      }
+      const a = clamp(voice.attack, 1e-3, 2), d = clamp(voice.decay, 0.01, 3);
+      const s = clamp(voice.sustain, 0, 1), peak = v * clamp(voice.gain, 0, 1.4);
+      const held = Math.max(2e-4, peak * Math.max(0.08, s));
+      env.gain.setValueAtTime(1e-4, t);
+      env.gain.exponentialRampToValueAtTime(Math.max(2e-4, peak), t + a);
+      env.gain.exponentialRampToValueAtTime(held, t + a + d);
+      exp.gain.setValueAtTime(1, t);
+      if (!unison && src) src.connect(flt);
+      let chain = flt;
+      if (voice.drive > 0.02) {
+        const ws = ctx.createWaveShaper();
+        ws.curve = driveCurve(voice.drive);
+        ws.oversample = "2x";
+        flt.connect(ws);
+        chain = ws;
+      }
+      chain.connect(env);
+      env.connect(exp);
+      if (pan) {
+        pan.pan.value = clamp(voice.pan, -1, 1);
+        exp.connect(pan);
+        pan.connect(master);
+      } else exp.connect(master);
+      if (voice.space > 0.02) {
+        const sd = ctx.createGain();
+        sd.gain.value = clamp(voice.space, 0, 1) * 0.5;
+        exp.connect(sd);
+        sd.connect(spaceIn);
+      }
+      const sources = unison || (src ? [src] : []);
+      sources.forEach((o) => o.start(t));
+      if (stream) stream.start(t);
+      let dead2 = false, pressure = 0, timbre = 0, lev = 1;
+      function reflt() {
+        if (dead2) return;
+        const open = Math.min(1, pressure * 0.75 + timbre);
+        try {
+          flt.frequency.setTargetAtTime(Math.min(18e3, base * (1 + open * 5.5)), ctx.currentTime, 0.02);
+        } catch (e) {
+        }
+      }
+      function relev() {
+        if (dead2) return;
+        try {
+          exp.gain.setTargetAtTime(Math.max(1e-4, lev * (1 + pressure * 0.35)), ctx.currentTime, 0.025);
+        } catch (e) {
+        }
+      }
+      function fade(secs) {
+        if (dead2) return;
+        dead2 = true;
+        const now = ctx.currentTime;
+        try {
+          env.gain.cancelScheduledValues(now);
+          env.gain.setValueAtTime(Math.max(2e-4, env.gain.value), now);
+          env.gain.exponentialRampToValueAtTime(1e-4, now + secs);
+        } catch (e) {
+        }
+        sources.forEach((o) => {
+          try {
+            o.stop(now + secs + 0.03);
+          } catch (e) {
+          }
+        });
+        if (stream) {
+          try {
+            stream.stop(now + secs + 0.03);
+          } catch (e) {
+          }
+        }
+      }
+      return {
+        note: note2,
+        isSample,
+        get dead() {
+          return dead2;
+        },
+        // Bend arrives in SEMITONES, because that is the unit a player thinks in.
+        // Cents are an implementation detail of the audio graph.
+        // Each voice keeps its own unison offset and the bend is added ON TOP of
+        // it, so a chord bends as a chord instead of collapsing to one pitch.
+        bend(semis) {
+          if (dead2) return;
+          const c = clamp(semis, -48, 48) * 100;
+          bendable.forEach((p, i) => {
+            try {
+              p.setTargetAtTime(baseDetune[i] + c, ctx.currentTime, 6e-3);
+            } catch (e) {
+            }
+          });
+          if (stream) stream.setDetune(c);
+        },
+        vib(cents) {
+          if (vibDepth && !dead2) try {
+            vibDepth.gain.setTargetAtTime(clamp(cents, 0, 200), ctx.currentTime, 0.05);
+          } catch (e) {
+          }
+        },
+        press(p) {
+          pressure = clamp(p, 0, 1);
+          reflt();
+          relev();
+        },
+        timbre(b) {
+          timbre = clamp(b, 0, 1);
+          reflt();
+        },
+        level(l) {
+          lev = clamp(l, 0, 2);
+          relev();
+        },
+        off() {
+          fade(clamp(voice.release, 0.01, 4));
+        },
+        // A stolen voice still gets a release, just a very short one. 12ms is
+        // under the ear's time resolution and above the point where a hard stop
+        // becomes an audible tick.
+        steal() {
+          fade(0.012);
+        }
+      };
+    }
+    const AHEAD_MIN = 0.12, AHEAD_MAX = 0.6, TICK = 25;
+    let ahead = AHEAD_MIN;
+    let playing = false, step = 0, nextTime = 0, timer = 0, onStep = null;
+    const RECENT = 24;
+    const recent = new Float32Array(RECENT).fill(1);
+    let rp = 0;
+    const health = { late: 0, steps: 0 };
+    function worstRecent() {
+      let m = Infinity;
+      for (let i = 0; i < RECENT; i++) if (recent[i] < m) m = recent[i];
+      return m;
+    }
+    function schedule(song) {
+      const spb = 60 / clamp(song.bpm, 20, 300) / 4;
+      const behind = ctx.currentTime - nextTime;
+      if (behind > 0.5) {
+        const missed = Math.ceil(behind / spb);
+        step = (step + missed) % 16;
+        nextTime += missed * spb;
+        health.late++;
+      }
+      while (nextTime < ctx.currentTime + ahead) {
+        const lead = nextTime - ctx.currentTime;
+        health.steps++;
+        recent[rp] = lead;
+        rp = (rp + 1) % RECENT;
+        if (lead <= 0) {
+          health.late++;
+          ahead = Math.min(AHEAD_MAX, ahead + 0.12);
+        } else if (lead > ahead * 0.55 && ahead > AHEAD_MIN) {
+          ahead = Math.max(AHEAD_MIN, ahead - 4e-3);
+        }
+        const cells2 = song.scenes[song.scene].cells;
+        const anySolo = cells2.some((c) => c.solo);
+        const swung = step % 2 ? clamp(song.swing, 0, 0.6) * spb * 0.6 : 0;
+        for (let i = 0; i < cells2.length; i++) {
+          const c = cells2[i];
+          if (c.mute || anySolo && !c.solo) continue;
+          const vel = c.steps[step % c.steps.length];
+          if (vel > 0) {
+            const semis = c.notes && c.voice.kind !== "drum" ? c.notes[step % c.notes.length] | 0 : 0;
+            play(c.voice, nextTime + swung, vel, i, semis);
+          }
+        }
+        const at = nextTime, s = step;
+        if (onStep) onStep(s, at);
+        nextTime += spb;
+        step = (step + 1) % 16;
+      }
+      if (playing) timer = setTimeout(() => schedule(song), TICK);
+    }
+    return {
+      init,
+      resume,
+      get ctx() {
+        return ctx;
+      },
+      // The master bus, for audio this engine did not make. A backing loop has to
+      // go through the SAME compressor and ceiling as everything else — routed
+      // straight to ctx.destination it would bypass the limiter entirely and be
+      // the one thing in the app that can clip.
+      get bus() {
+        return init(), master;
+      },
+      // Patch an effects chain into the seam. `build(ctx, input, output)` wires
+      // whatever it likes between the two nodes and returns a handle the caller
+      // keeps; passing null restores the straight wire. The seam always
+      // reconnects input→output first, so a builder that throws half way cannot
+      // leave the app silent — the dry path is never broken, only paralleled.
+      patchFx(build) {
+        if (!init() || !fxA) return null;
+        try {
+          fxA.disconnect();
+        } catch (e) {
+        }
+        fxA.connect(fxB);
+        if (!build) return null;
+        let out = null;
+        try {
+          out = build(ctx, fxA, fxB);
+        } catch (e) {
+          return null;
+        }
+        if (out) {
+          try {
+            fxA.disconnect(fxB);
+          } catch (e) {
+          }
+        }
+        return out;
+      },
+      get analyser() {
+        return analyser;
+      },
+      get meters() {
+        return meters;
+      },
+      get playing() {
+        return playing;
+      },
+      play,
+      hold,
+      decayMeters() {
+        for (let i = 0; i < meters.length; i++) meters[i] *= 0.86;
+      },
+      get silent() {
+        return dead;
+      },
+      start(song, cb) {
+        resume();
+        if (playing || !ctx) return;
+        playing = true;
+        step = 0;
+        onStep = cb || null;
+        health.late = 0;
+        health.steps = 0;
+        recent.fill(1);
+        ahead = AHEAD_MIN;
+        nextTime = ctx.currentTime + 0.06;
+        schedule(song);
+      },
+      // What the clock has been doing lately. `worst` is the smallest lead any of
+      // the last 64 notes got, in seconds; `late` counts every note that was
+      // already overdue when it was handed over; `ahead` is how wide the
+      // look-ahead window has had to open to keep up.
+      get health() {
+        return {
+          late: health.late,
+          steps: health.steps,
+          ahead,
+          worst: health.steps ? worstRecent() : 0
+        };
+      },
+      // How long a frame is currently taking, in milliseconds, from whoever is
+      // running the render loop.
+      //
+      // The scheduler cannot see this for itself, and it is the single best
+      // predictor of the thing that hurts it: a frame that takes 60ms is a main
+      // thread that will be unavailable for 60ms at a time, and a look-ahead
+      // window narrower than that is a hole in the music waiting to happen.
+      // Reacting to lateness alone is always one stall too late — the first one
+      // has already been heard. This lets the window open BEFORE anything is
+      // missed, which is the difference between recovering and not crackling.
+      pace(ms) {
+        if (!(ms > 0)) return;
+        const floor = Math.max(AHEAD_MIN, Math.min(AHEAD_MAX, ms * 4 / 1e3));
+        if (floor > ahead) ahead = floor;
+      },
+      stop() {
+        playing = false;
+        clearTimeout(timer);
+        step = 0;
+      },
+      get step() {
+        return step;
+      },
+      // Jump to a step. The queue is scheduled up to about 120ms ahead, so the
+      // steps already handed to the audio clock still sound — this changes where
+      // the loop goes NEXT, not what is already on its way out. Trying to unpick
+      // the queue would mean cancelling sources mid-note, which is a click.
+      seek(s) {
+        step = ((s | 0) % 16 + 16) % 16;
+        return step;
+      }
+    };
+  }
+
+  // ultimate/src/core/ble-midi.js
+  var BLE_MIDI_SERVICE = "03b80e5a-ede8-4b33-a751-6ce34ec4c700";
+  var BLE_MIDI_CHAR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
+  var dataLenFor = (status) => {
+    const t = status & 240;
+    if (t === 192 || t === 208) return 1;
+    if (t === 240) {
+      if (status === 241 || status === 243) return 1;
+      if (status === 242) return 2;
+      return 0;
+    }
+    return 2;
+  };
+  var SYSEX_MAX = 65536;
+  function createBleDecoder(onMessage) {
+    let runningStatus = 0;
+    let sysex = null;
+    let sysexLost = false;
+    let pend = null;
+    function fill(state, bytes, from) {
+      let i = from;
+      while (state.msg.length < state.need + 1 && i < bytes.length && !(bytes[i] & 128)) {
+        state.msg.push(bytes[i++]);
+      }
+      return i;
+    }
+    return function decode(bytes) {
+      if (!bytes || bytes.length < 1) return;
+      if (bytes.length < 2) return;
+      let i = 1;
+      if (pend) {
+        i = fill(pend, bytes, i);
+        if (pend.msg.length === pend.need + 1) {
+          onMessage(pend.msg);
+          pend = null;
+        } else if (i >= bytes.length) return;
+        else pend = null;
+      }
+      while (i < bytes.length) {
+        const b = bytes[i];
+        if (sysex) {
+          if (b & 128) {
+            i++;
+            if (i >= bytes.length) break;
+            const s = bytes[i];
+            if (s === 247) {
+              i++;
+              if (!sysexLost) {
+                sysex.push(247);
+                onMessage(sysex);
+              }
+              sysex = null;
+              sysexLost = false;
+              continue;
+            }
+            if (s >= 248) {
+              onMessage([s]);
+              i++;
+              continue;
+            }
+            continue;
+          }
+          if (sysex.length >= SYSEX_MAX) {
+            sysexLost = true;
+            sysex.length = 0;
+          } else sysex.push(b);
+          i++;
+          continue;
+        }
+        if (b & 128) {
+          i++;
+          if (i >= bytes.length) break;
+          const s = bytes[i];
+          if (s & 128) {
+            i++;
+            if (s === 240) {
+              sysex = [240];
+              continue;
+            }
+            if (s >= 248) {
+              onMessage([s]);
+              continue;
+            }
+            runningStatus = s < 240 ? s : 0;
+            const st2 = { msg: [s], need: dataLenFor(s) };
+            i = fill(st2, bytes, i);
+            if (st2.msg.length === st2.need + 1) onMessage(st2.msg);
+            else if (i >= bytes.length) pend = st2;
+            continue;
+          }
+          if (!runningStatus) {
+            continue;
+          }
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill(st, bytes, i);
+          if (st.msg.length === st.need + 1) onMessage(st.msg);
+          else if (i >= bytes.length) pend = st;
+          continue;
+        }
+        if (runningStatus) {
+          const st = { msg: [runningStatus], need: dataLenFor(runningStatus) };
+          i = fill(st, bytes, i);
+          if (st.msg.length === st.need + 1) {
+            onMessage(st.msg);
+            continue;
+          }
+          if (i >= bytes.length) {
+            pend = st;
+            continue;
+          }
+        }
+        i++;
+      }
+    };
+  }
+
+  // ultimate/src/core/transport-in.js
+  var MMC = { 1: "stop", 2: "play", 3: "play", 6: "rec", 7: "rec", 9: "pause" };
+
+  // ultimate/src/core/midi-io.js
+  function createMidiIO({ onEvent, onPorts, onGone } = {}) {
+    let access = null;
+    let bleStatus = 0;
+    const diag = {
+      mode: "starting",
+      err: "",
+      tried: 0,
+      sysex: false,
+      inputs: 0,
+      outputs: 0,
+      bytes: 0,
+      at: 0,
+      ble: 0,
+      auto: "",
+      lost: ""
+    };
+    let bleName = "BLE MIDI";
+    let lastDataAt = 0;
+    const liveAt = /* @__PURE__ */ new Map();
+    const portKey = (p) => p && (p.id || p.name) || "unknown";
+    const emit = (data, port) => {
+      if (!data || data.length < 1) return;
+      const [status, d1 = 0, d2 = 0] = data;
+      if (status < 128) return;
+      if (status === 248 || status === 249 || status === 253 || status === 254 || status === 255) return;
+      const fire = (e) => {
+        lastDataAt = Date.now();
+        liveAt.set(portKey(port), lastDataAt);
+        diag.bytes++;
+        diag.at = lastDataAt;
+        onEvent && onEvent(Object.assign({ status, d1, d2, cmd: status & 240, chan: status & 15, port, raw: data }, e));
+      };
+      if (status === 250 || status === 251) {
+        fire({ transport: "play" });
+        return;
+      }
+      if (status === 252) {
+        fire({ transport: "stop" });
+        return;
+      }
+      if (status === 240) {
+        if (data.length >= 5 && data[1] === 127 && data[3] === 6) {
+          const name = MMC[data[4]];
+          if (name) fire({ transport: name });
+        }
+        return;
+      }
+      if (status >= 241 && status <= 247) return;
+      fire();
+    };
+    const hasLiveData = () => lastDataAt > 0;
+    const portLive = (p) => (liveAt.get(portKey(p)) || 0) > 0;
+    const liveInputs = () => listInputs().filter(portLive);
+    const gone = (port, why) => {
+      if (!port) return;
+      liveAt.delete(portKey(port));
+      diag.lost = (port.name || "a controller") + " \u2014 " + (why || "disconnected");
+      onGone && onGone(port, why);
+    };
+    const bleCtx = /* @__PURE__ */ new Map();
+    window.onNativeMIDIDevices = (list) => {
+      nativeDevices = (list || []).map((d) => ({
+        id: d.id,
+        name: d.name,
+        manufacturer: d.manufacturer || "",
+        props: d.props || ""
+      }));
+      if (nativeDevices.length && typeof nativeName !== "undefined") {
+        try {
+          nativeName = nativeDevices[0].name;
+        } catch (e) {
+        }
+      }
+      onPorts && onPorts(nativeDevices);
+    };
+    window.onNativeBLEPackets = (packets, addr, name) => {
+      if (!packets || !packets.length) return;
+      let ctx = bleCtx.get(addr);
+      if (!ctx) {
+        ctx = { port: { id: "ble:" + addr, name: name || "BLE MIDI", ble: true } };
+        ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+        bleCtx.set(addr, ctx);
+      }
+      for (let i = 0; i < packets.length; i++) ctx.decode(Uint8Array.from(packets[i]));
+    };
+    let nativeName = "MIDI DEVICE";
+    const nativePort = (id, name) => ({
+      id: id || "native",
+      name: name || nativeName,
+      native: true
+    });
+    window.onNativeMIDIMessage = (bytes, id, name) => emit(Array.from(bytes), nativePort(id, name));
+    window.onNativeMIDIBatch = (list, id, name) => {
+      if (!list || !list.length) return;
+      const p = nativePort(id, name);
+      for (let i = 0; i < list.length; i++) emit(Array.from(list[i]), p);
+    };
+    window.onNativeMIDIStatus = (txt) => {
+      const m = String(txt || "").match(/[—:-]?\s*([A-Za-z0-9][\w\s()-]{2,32}?)\s*(connected|ready|attached)/i);
+      if (m) nativeName = m[1].trim();
+      onPorts && onPorts(listInputs());
+    };
+    window.__livexNativeMidi = window.onNativeMIDIMessage;
+    let nativeDevices = [];
+    let nativeMode = false;
+    function listInputs() {
+      if (access) return [...access.inputs.values()];
+      return nativeDevices;
+    }
+    let startPromise = null;
+    function start() {
+      if (startPromise) return startPromise;
+      startPromise = _start().then((r) => {
+        if (!r || r.mode === "none") startPromise = null;
+        return r;
+      }, (e) => {
+        startPromise = null;
+        throw e;
+      });
+      return startPromise;
+    }
+    let sweepTimer = 0, sweeps = 0, sweeping = false;
+    function sweep2() {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        nativeMode = true;
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+      }
+      if (access) {
+        try {
+          access.inputs.forEach((inp) => {
+            inp.onmidimessage = (e) => emit(e.data, inp);
+          });
+        } catch (e) {
+        }
+      }
+      start().catch(() => {
+      });
+      onPorts && onPorts(listInputs());
+    }
+    function keepLooking() {
+      if (sweeping) return;
+      sweeping = true;
+      const tick = () => {
+        sweeps++;
+        sweep2();
+        const found = inputCount() > 0 || typeof window !== "undefined" && window.AndroidMidi;
+        const wait = found ? 8e3 : Math.min(1200 * Math.pow(1.6, Math.min(sweeps, 6)), 12e3);
+        clearTimeout(sweepTimer);
+        sweepTimer = setTimeout(tick, wait);
+      };
+      tick();
+    }
+    function rescan() {
+      sweeps = 0;
+      sweep2();
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) rescan();
+      });
+    }
+    if (typeof window !== "undefined") window.addEventListener("focus", () => rescan());
+    async function _start() {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        nativeMode = true;
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+        diag.mode = "native";
+        return { mode: "native" };
+      }
+      diag.tried++;
+      if ((typeof navigator === "undefined" || !navigator.requestMIDIAccess) && !(typeof window !== "undefined" && window.AndroidMidi)) {
+        diag.mode = "unsupported";
+        diag.err = "navigator.requestMIDIAccess is not available in this build";
+      }
+      if (typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
+        try {
+          access = await navigator.requestMIDIAccess({ sysex: true });
+          diag.sysex = true;
+        } catch (e) {
+          diag.sysex = false;
+          diag.err = "sysex refused: " + (e && e.message || e);
+          try {
+            access = await navigator.requestMIDIAccess({ sysex: false });
+          } catch (e2) {
+            diag.mode = "denied";
+            diag.err = "MIDI access refused: " + (e2 && e2.message || e2);
+            throw e2;
+          }
+        }
+        const hook = () => access.inputs.forEach((inp) => {
+          inp.onmidimessage = (e) => emit(e.data, inp);
+        });
+        hook();
+        access.onstatechange = (ev) => {
+          const p = ev && ev.port;
+          if (p && p.type === "input" && p.state === "disconnected") gone(p, "unplugged");
+          hook();
+          onPorts && onPorts(listInputs());
+        };
+        onPorts && onPorts(listInputs());
+        let seen = new Map([...access.inputs].map(([k, v]) => [k, v]));
+        setInterval(() => {
+          if (!access) return;
+          const now = new Map([...access.inputs].map(([k, v]) => [k, v]));
+          let changed = now.size !== seen.size;
+          for (const [k, v] of seen) if (!now.has(k)) {
+            changed = true;
+            gone(v, "unplugged");
+          }
+          for (const k of now.keys()) if (!seen.has(k)) changed = true;
+          seen = now;
+          hook();
+          if (changed) onPorts && onPorts(listInputs());
+        }, 3e3);
+        diag.mode = "webmidi";
+        return { mode: "webmidi", access };
+      }
+      return { mode: "none" };
+    }
+    function parseBLE(dv, ctx) {
+      const bytes = new Uint8Array(dv.buffer || dv);
+      if (!ctx.decode) ctx.decode = createBleDecoder((msg) => emit(msg, ctx.port));
+      ctx.decode(bytes);
+    }
+    function inputCount() {
+      return access ? access.inputs.size : 0;
+    }
+    async function connectBluetooth({ onStatus } = {}) {
+      if (typeof window !== "undefined" && window.AndroidMidi) {
+        try {
+          window.AndroidMidi.enable();
+        } catch (e) {
+        }
+        try {
+          window.AndroidMidi.scanBluetooth && window.AndroidMidi.scanBluetooth();
+        } catch (e) {
+        }
+        onStatus && onStatus({ mode: "native", hint: "Pair the controller in Android Bluetooth settings \u2014 scanning\u2026" });
+        return { mode: "native" };
+      }
+      if (!access && typeof navigator !== "undefined" && navigator.requestMIDIAccess) {
+        await start();
+      }
+      const n = inputCount();
+      const liveN = liveInputs().length;
+      if (n > 0 && liveN >= n) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) connected and live." });
+        return { mode: "port", count: n };
+      }
+      if (typeof navigator !== "undefined" && navigator.bluetooth) {
+        if (!n) {
+          onStatus && onStatus({
+            mode: "own-link",
+            hint: "Windows does not hand Bluetooth MIDI to apps \u2014 opening the link directly\u2026"
+          });
+        }
+        if (n > 0) {
+          const mute = listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?");
+          onStatus && onStatus({
+            mode: "silent-port",
+            count: n,
+            silent: mute,
+            hint: (mute.length === 1 ? mute[0] + " exists but has sent nothing" : mute.length + " MIDI ports exist but have sent nothing") + " \u2014 connecting over Bluetooth directly\u2026"
+          });
+        }
+        try {
+          const dev2 = await connectBLE({ onStatus });
+          return { mode: "gatt", device: dev2 && dev2.name };
+        } catch (err) {
+          if (err && /GATT|connect|Network/i.test(String(err.message || err)) && n > 0) {
+            onStatus && onStatus({
+              mode: "held",
+              hint: "The controller is held by its vendor driver (e.g. the KORG BLE-MIDI panel). Disconnect it there, then tap \u{1F4F6} again."
+            });
+            return { mode: "held", count: n };
+          }
+          throw err;
+        }
+      }
+      if (n > 0) {
+        onStatus && onStatus({ mode: "port", count: n, hint: n + " MIDI port(s) found \u2014 play a key to confirm." });
+        return { mode: "port", count: n };
+      }
+      onStatus && onStatus({ mode: "none", hint: "No MIDI device found \u2014 pair the controller, then tap \u{1F4F6} again." });
+      return { mode: "none" };
+    }
+    const KNOWN = [
+      "SMK",
+      "SMK25",
+      "WORLDE",
+      "M-VAVE",
+      "MVAVE",
+      "M-WAVE",
+      "KORG",
+      "nanoKEY",
+      "microKEY",
+      "MPK",
+      "LPK",
+      "MPD",
+      "Launchkey",
+      "JamJum",
+      "JAM JUM",
+      "JP-1",
+      "JP1",
+      "JP-Mini",
+      "JP Mini",
+      "KUWEE"
+    ];
+    const bound = /* @__PURE__ */ new Set();
+    async function attachDevice(dev2, { onStatus } = {}) {
+      if (dev2 && dev2.name) bleName = dev2.name;
+      const ctx = {
+        status: 0,
+        port: { id: "ble:" + (dev2.id || dev2.name || Math.random().toString(36).slice(2)), name: dev2.name || "BLE MIDI", ble: true }
+      };
+      ctx.onValue = ctx.onValue || ((e) => parseBLE(e.target.value, ctx));
+      const attach = async () => {
+        const server = await dev2.gatt.connect();
+        const svc = await server.getPrimaryService(BLE_MIDI_SERVICE);
+        const ch = await svc.getCharacteristic(BLE_MIDI_CHAR);
+        await ch.startNotifications();
+        if (ctx.char) {
+          try {
+            ctx.char.removeEventListener("characteristicvaluechanged", ctx.onValue);
+          } catch (e) {
+          }
+        }
+        ch.addEventListener("characteristicvaluechanged", ctx.onValue);
+        ctx.char = ch;
+        ctx.retrying = false;
+        onStatus && onStatus({ mode: "gatt", connected: true, name: dev2.name });
+      };
+      if (!bound.has(dev2)) {
+        bound.add(dev2);
+        dev2.addEventListener("gattserverdisconnected", () => {
+          onStatus && onStatus({ mode: "gatt", connected: false, name: dev2.name });
+          gone(ctx.port, "bluetooth link dropped");
+          if (ctx.retrying) return;
+          ctx.retrying = true;
+          let tries = 0;
+          const retry = () => {
+            if (!ctx.retrying) return;
+            if (dev2.gatt && dev2.gatt.connected) {
+              ctx.retrying = false;
+              return;
+            }
+            attach().catch(() => {
+              if (++tries < 8) setTimeout(retry, Math.min(1e3 * 2 ** tries, 2e4));
+              else ctx.retrying = false;
+            });
+          };
+          setTimeout(retry, 600);
+        });
+      }
+      await attach();
+      return dev2;
+    }
+    async function connectBLE({ onStatus, namePrefix } = {}) {
+      if (!(typeof navigator !== "undefined" && navigator.bluetooth)) {
+        throw new Error("This build has no Web Bluetooth, so it cannot open the link itself.");
+      }
+      const opts = { optionalServices: [BLE_MIDI_SERVICE] };
+      if (namePrefix) opts.filters = [{ namePrefix }];
+      else opts.acceptAllDevices = true;
+      const dev2 = await navigator.bluetooth.requestDevice(opts);
+      return attachDevice(dev2, { onStatus });
+    }
+    async function autoReconnect({ onStatus } = {}) {
+      if (typeof navigator === "undefined" || !navigator.bluetooth || !navigator.bluetooth.getDevices) {
+        diag.auto = "this build cannot reopen paired devices";
+        return { mode: "unsupported", devices: 0 };
+      }
+      let devs = [];
+      try {
+        devs = await navigator.bluetooth.getDevices();
+      } catch (e) {
+        diag.auto = "getDevices failed";
+        return { mode: "none", devices: 0 };
+      }
+      if (!devs.length) {
+        diag.auto = "nothing paired with this app yet";
+        return { mode: "none", devices: 0 };
+      }
+      let connected = 0;
+      for (const dev2 of devs) {
+        try {
+          await attachDevice(dev2, { onStatus });
+          connected++;
+        } catch (e) {
+          try {
+            if (!bound.has(dev2)) {
+              dev2.addEventListener("advertisementreceived", function once() {
+                dev2.removeEventListener("advertisementreceived", once);
+                attachDevice(dev2, { onStatus }).catch(() => {
+                });
+              });
+            }
+            if (dev2.watchAdvertisements) await dev2.watchAdvertisements();
+          } catch (e2) {
+          }
+        }
+      }
+      diag.auto = connected + " of " + devs.length + " reopened";
+      if (connected) onStatus && onStatus({ mode: "gatt", connected: true, auto: true, count: connected });
+      return { mode: connected ? "gatt" : "watching", devices: devs.length, connected };
+    }
+    return {
+      start,
+      keepLooking,
+      rescan,
+      listInputs,
+      inputCount,
+      connectBluetooth,
+      connectBLE,
+      autoReconnect,
+      hasLiveData,
+      portLive,
+      liveInputs,
+      access: () => access,
+      _emit: emit,
+      // Test seam: pretend a port vanished, so the note-release path can be
+      // exercised without unplugging real hardware.
+      _gone: gone,
+      // Everything the app knows about why MIDI is or is not working. Read by the
+      // MIDI window, so a controller that will not connect produces a specific
+      // sentence instead of a shrug.
+      diagnostics() {
+        const ins = listInputs();
+        diag.inputs = ins.length;
+        diag.outputs = access ? access.outputs.size : 0;
+        diag.ble = bleCtx.size;
+        return Object.assign({}, diag, {
+          names: ins.map((p) => p.name || "?"),
+          live: lastDataAt > 0,
+          liveNames: liveInputs().map((p) => p.name || "?"),
+          silentNames: listInputs().filter((p) => !portLive(p)).map((p) => p.name || "?"),
+          webBluetooth: !!(typeof navigator !== "undefined" && navigator.bluetooth),
+          canReopen: !!(typeof navigator !== "undefined" && navigator.bluetooth && navigator.bluetooth.getDevices)
+        });
+      },
+      // devices reported by the native bridge, with their raw Android properties —
+      // read by the MIDI monitor so an unidentified controller can be diagnosed
+      devices: () => nativeDevices
+    };
+  }
+
+  // ultimate/src/core/library.js
+  var DB = "skrimpad_ultimate_lib";
+  var STORE = "sounds";
+  var BUDGET = 96 * 1024 * 1024;
+  var AUDIO_RE = /\.(wav|mp3|ogg|oga|opus|flac|aif|aiff|aifc|m4a|mp4|aac|weba|webm|caf|au)$/i;
+  var KINDS = [
+    [/kick|\bbd\b|bassdrum|\b808\b|boom/i, "KICK"],
+    [/snare|\bsd\b|rim(shot)?/i, "SNARE"],
+    [/clap|hand ?clap/i, "CLAP"],
+    [/hi.?hat|hihat|\bhh\b|\bhat\b/i, "HAT"],
+    [/\btom\b|floor.?tom/i, "TOM"],
+    [/crash|ride|splash|china|cymbal|\bcym\b/i, "CYMBAL"],
+    [/shaker|tamb|conga|bongo|perc|cowbell|clave|block/i, "PERC"],
+    [/sub|\b808 ?bass\b/i, "SUB"],
+    [/bass|reese|wobble/i, "BASS"],
+    [/pad|atmos|drone|choir/i, "PAD"],
+    [/pluck|stab|chord/i, "PLUCK"],
+    [/lead|arp|acid|saw/i, "LEAD"],
+    [/bell|chime|glock|kalimba/i, "BELL"],
+    [/key|piano|rhodes|organ|wurli/i, "KEYS"],
+    [/vox|vocal|voice|acap|chant/i, "VOCAL"],
+    [/riser|sweep|whoosh|impact|fx|noise|foley/i, "FX"],
+    [/loop|beat|groove|break/i, "LOOP"]
+  ];
+  function classify(name, buffer) {
+    const n = String(name || "");
+    for (const [re, kind] of KINDS) if (re.test(n)) return kind;
+    if (!buffer) return "SAMPLE";
+    const d = buffer.getChannelData(0), n2 = d.length;
+    const step = Math.max(1, Math.floor(n2 / 3e4));
+    let zc = 0, peak = 0, energy = 0, count = 0;
+    for (let i = step; i < n2; i += step) {
+      if (d[i - step] < 0 !== d[i] < 0) zc++;
+      const a = Math.abs(d[i]);
+      if (a > peak) peak = a;
+      energy += a;
+      count++;
+    }
+    const zcr = count ? zc / count : 0;
+    const sustained = count && energy / count > peak * 0.18;
+    const dur = buffer.duration;
+    if (dur > 4) return "LOOP";
+    if (dur > 1.2 && sustained) return zcr > 0.22 ? "PAD" : "BASS";
+    if (dur <= 0.22 && zcr > 0.3) return "HAT";
+    if (dur <= 0.5 && zcr > 0.18) return "SNARE";
+    if (dur <= 0.9 && zcr < 0.08) return "KICK";
+    return "PERC";
+  }
+  function openDB() {
+    return new Promise((resolve2) => {
+      if (typeof indexedDB === "undefined") return resolve2(null);
+      let req;
+      try {
+        req = indexedDB.open(DB, 1);
+      } catch (e) {
+        return resolve2(null);
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      };
+      req.onsuccess = () => resolve2(req.result);
+      req.onerror = () => resolve2(null);
+    });
+  }
+  function tx(db, mode, fn) {
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(null);
+      let t;
+      try {
+        t = db.transaction(STORE, mode);
+      } catch (e) {
+        return resolve2(null);
+      }
+      let out = null;
+      try {
+        out = fn(t.objectStore(STORE));
+      } catch (e) {
+        return resolve2(null);
+      }
+      t.oncomplete = () => resolve2(out && out.result !== void 0 ? out.result : out);
+      t.onerror = t.onabort = () => resolve2(null);
+    });
+  }
+  function txWrite(db, fn) {
+    return new Promise((resolve2) => {
+      if (!db) return resolve2(false);
+      let t;
+      try {
+        t = db.transaction(STORE, "readwrite");
+      } catch (e) {
+        return resolve2(false);
+      }
+      try {
+        fn(t.objectStore(STORE));
+      } catch (e) {
+        return resolve2(false);
+      }
+      t.oncomplete = () => resolve2(true);
+      t.onerror = t.onabort = () => resolve2(false);
+    });
+  }
+  function createLibrary({ ctx, onChange, onError } = {}) {
+    const items = [];
+    const cache = /* @__PURE__ */ new Map();
+    const pinned = /* @__PURE__ */ new Set();
+    let bytes = 0, db = null, nextId = 1;
+    const sizeOf = (b) => b ? b.length * b.numberOfChannels * 4 : 0;
+    function evict() {
+      if (bytes <= BUDGET) return;
+      for (const [id, buf] of cache) {
+        if (pinned.has(id)) continue;
+        cache.delete(id);
+        bytes -= sizeOf(buf);
+        if (bytes <= BUDGET * 0.8) break;
+      }
+    }
+    async function boot() {
+      db = await openDB();
+      const rows = await tx(db, "readonly", (s) => s.getAll());
+      (rows || []).forEach((r) => {
+        items.push({ id: r.id, name: r.name, kind: r.kind, dur: r.dur, size: r.size });
+        const n = +String(r.id).replace(/\D/g, "");
+        if (n >= nextId) nextId = n + 1;
+      });
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
+      return items;
+    }
+    async function bufferFor(id) {
+      if (cache.has(id)) {
+        const b = cache.get(id);
+        cache.delete(id);
+        cache.set(id, b);
+        return b;
+      }
+      const row = await tx(db, "readonly", (s) => s.get(id));
+      if (!row || !row.bytes) return null;
+      try {
+        const buf = await ctx().decodeAudioData(row.bytes.slice(0));
+        cache.set(id, buf);
+        bytes += sizeOf(buf);
+        evict();
+        return buf;
+      } catch (e) {
+        return null;
+      }
+    }
+    async function add(file) {
+      if (!file) return null;
+      const name = file.name || "sound " + nextId;
+      if (!AUDIO_RE.test(name) && !/^audio\//.test(file.type || "")) return null;
+      return store(name, await file.arrayBuffer());
+    }
+    async function addRaw(name, raw, origin) {
+      if (!raw || !raw.byteLength) return null;
+      return store(name || "sound " + nextId, raw, origin);
+    }
+    async function store(name, raw, origin) {
+      let buf = null;
+      try {
+        buf = await ctx().decodeAudioData(raw.slice(0));
+      } catch (e) {
+        return null;
+      }
+      const id = "sx" + nextId++;
+      const rec = {
+        id,
+        name: String(name).replace(/\.[^.]+$/, ""),
+        kind: classify(name, buf),
+        dur: +buf.duration.toFixed(3),
+        size: raw.byteLength,
+        bytes: raw,
+        // Which pack it came from. Two kicks called "Kick 01" from two packs are
+        // indistinguishable in a list without it.
+        from: origin || ""
+      };
+      const stored = await txWrite(db, (s) => s.put(rec));
+      if (db && !stored) {
+        onError && onError("storage", name);
+        return null;
+      }
+      const meta = { id: rec.id, name: rec.name, kind: rec.kind, dur: rec.dur, size: rec.size, from: rec.from };
+      items.push(meta);
+      cache.set(id, buf);
+      bytes += sizeOf(buf);
+      evict();
+      if (!batching) settle();
+      return meta;
+    }
+    let batching = false;
+    function settle() {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+      onChange && onChange(items);
+    }
+    async function addFiles(list) {
+      const out = [];
+      const files = Array.from(list || []);
+      batching = true;
+      try {
+        for (const f of files) {
+          const m = await add(f);
+          if (m) out.push(m);
+        }
+      } finally {
+        batching = false;
+        settle();
+      }
+      return out;
+    }
+    async function remove(id) {
+      await txWrite(db, (s) => s.delete(id));
+      const i = items.findIndex((x) => x.id === id);
+      if (i >= 0) items.splice(i, 1);
+      if (cache.has(id)) {
+        bytes -= sizeOf(cache.get(id));
+        cache.delete(id);
+      }
+      pinned.delete(id);
+      onChange && onChange(items);
+    }
+    async function clear() {
+      await txWrite(db, (s) => s.clear());
+      items.length = 0;
+      cache.clear();
+      pinned.clear();
+      bytes = 0;
+      onChange && onChange(items);
+    }
+    return {
+      boot,
+      add,
+      addRaw,
+      addFiles,
+      remove,
+      clear,
+      bufferFor,
+      // Batch mode, exposed. A pack import adds hundreds of sounds and each one
+      // would otherwise re-sort the array and rebuild the whole list.
+      batch(on) {
+        batching = !!on;
+        if (!on) settle();
+      },
+      get items() {
+        return items.slice();
+      },
+      find: (id) => items.find((x) => x.id === id) || null,
+      pin(id) {
+        if (id) pinned.add(id);
+      },
+      unpin(id) {
+        pinned.delete(id);
+      },
+      // Re-pin from scratch after any assignment change, so a sample that is no
+      // longer on any cell becomes evictable again instead of leaking.
+      repin(ids) {
+        pinned.clear();
+        (ids || []).forEach((i) => i && pinned.add(i));
+      },
+      stats() {
+        return { count: items.length, ram: Math.round(bytes / 1048576) + "MB", cached: cache.size };
+      }
+    };
+  }
+
+  // ultimate/src/core/menu.js
+  var openEl = null;
+  var closeFn = null;
+  function closeMenu() {
+    if (closeFn) closeFn();
+  }
+  function onLongPress(el, ms, fn) {
+    let timer = 0, sx = 0, sy = 0, id = null;
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      id = null;
+    };
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      cancel();
+      id = ev.pointerId;
+      sx = ev.clientX;
+      sy = ev.clientY;
+      timer = setTimeout(() => {
+        timer = 0;
+        fn(ev, sx, sy);
+      }, ms);
+    });
+    el.addEventListener("pointermove", (ev) => {
+      if (ev.pointerId !== id || !timer) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cancel();
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((e) => el.addEventListener(e, cancel));
+    return cancel;
+  }
+  function resolve(v) {
+    return typeof v === "function" ? v() : v;
+  }
+  function openMenu({ x, y, items, title, onClose }) {
+    closeMenu();
+    const root = document.createElement("div");
+    root.className = "menu";
+    root.setAttribute("role", "menu");
+    if (title) root.setAttribute("aria-label", title);
+    const stack = [];
+    function build(list, host) {
+      host.innerHTML = "";
+      resolve(list).forEach((it) => {
+        if (!it) return;
+        if (it.sep) {
+          host.appendChild(document.createElement("hr")).className = "msep";
+          return;
+        }
+        if (it.head) {
+          const h = document.createElement("div");
+          h.className = "mhead";
+          h.textContent = it.head;
+          host.appendChild(h);
+          return;
+        }
+        const b = document.createElement("button");
+        b.className = "mitem" + (it.danger ? " danger" : "") + (it.on ? " on" : "");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        if (it.disabled) b.disabled = true;
+        b.innerHTML = '<span class="ml"></span>' + (it.hint ? '<span class="mh"></span>' : "") + (it.items ? '<span class="mx">\u203A</span>' : "");
+        b.querySelector(".ml").textContent = it.label;
+        if (it.hint) b.querySelector(".mh").textContent = it.hint;
+        b.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (it.disabled) return;
+          if (it.items) {
+            push(it);
+            return;
+          }
+          closeMenu();
+          if (it.run) it.run();
+        });
+        host.appendChild(b);
+      });
+    }
+    function push(it) {
+      stack.push(it);
+      render();
+    }
+    function pop() {
+      stack.pop();
+      render();
+    }
+    function render() {
+      const cur = stack[stack.length - 1];
+      root.innerHTML = "";
+      if (cur) {
+        const back = document.createElement("button");
+        back.className = "mitem back";
+        back.type = "button";
+        back.innerHTML = '<span class="ml"></span>';
+        back.querySelector(".ml").textContent = "\u2039 " + cur.label;
+        back.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          pop();
+        });
+        root.appendChild(back);
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(cur.items, body);
+      } else {
+        const body = document.createElement("div");
+        root.appendChild(body);
+        build(items, body);
+      }
+      place();
+      const first = root.querySelector(".mitem:not(:disabled)");
+      if (first) first.focus();
+    }
+    function place() {
+      root.style.left = "0px";
+      root.style.top = "0px";
+      const w = root.offsetWidth, h = root.offsetHeight;
+      const pad = 8;
+      let px = x, py = y;
+      if (px + w > innerWidth - pad) px = Math.max(pad, x - w);
+      if (py + h > innerHeight - pad) py = Math.max(pad, innerHeight - h - pad);
+      root.style.left = Math.max(pad, px) + "px";
+      root.style.top = Math.max(pad, py) + "px";
+    }
+    document.body.appendChild(root);
+    render();
+    requestAnimationFrame(() => root.classList.add("open"));
+    const away = (ev) => {
+      if (!root.contains(ev.target)) closeMenu();
+    };
+    const key = (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeMenu();
+        return;
+      }
+      if (ev.key === "ArrowLeft" && stack.length) {
+        ev.preventDefault();
+        pop();
+        return;
+      }
+      if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+      ev.preventDefault();
+      const all = [...root.querySelectorAll(".mitem:not(:disabled)")];
+      if (!all.length) return;
+      const i = all.indexOf(document.activeElement);
+      const n = ev.key === "ArrowDown" ? i + 1 : i - 1;
+      all[(n + all.length) % all.length].focus();
+    };
+    setTimeout(() => {
+      document.addEventListener("pointerdown", away, true);
+      window.addEventListener("keydown", key, true);
+      window.addEventListener("resize", closeMenu);
+      window.addEventListener("blur", closeMenu);
+    }, 0);
+    openEl = root;
+    closeFn = () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+      root.remove();
+      openEl = null;
+      closeFn = null;
+      if (onClose) onClose();
+    };
+    return closeFn;
+  }
+
+  // jp/src/core/zip.js
+  var AUDIO_EXT = /\.(wav|mp3|ogg|oga|flac|m4a|aac|aiff?|opus|weba|webm|caf|wv)$/i;
+  var NON_AUDIO = /\.(txt|pdf|jpe?g|png|gif|bmp|webp|svg|doc[x]?|rtf|html?|css|js|json|xml|md|nfo|url|exe|dll|dmg|zip|rar|7z|fxp|fst|adg|nki|sfz|mid|midi)$/i;
+  var JUNK = /(^|\/)__MACOSX\/|(^|\/)\._|\.DS_Store$|(^|\/)Thumbs\.db$/i;
+  function zipParse(ab) {
+    const dv = new DataView(ab);
+    const n = ab.byteLength;
+    if (n < 22) throw new Error("That file is too small to be a ZIP");
+    let eocd = -1;
+    for (let i = n - 22; i >= Math.max(0, n - 65558); i--) {
+      if (dv.getUint32(i, true) !== 101010256) continue;
+      const cmLen = dv.getUint16(i + 20, true);
+      if (i + 22 + cmLen !== n) continue;
+      const off2 = dv.getUint32(i + 16, true);
+      if (off2 < n && dv.getUint32(off2, true) === 33639248) {
+        eocd = i;
+        break;
+      }
+      if (eocd < 0) eocd = i;
+    }
+    if (eocd < 0) throw new Error("That is not a ZIP file");
+    const count = dv.getUint16(eocd + 10, true);
+    let off = dv.getUint32(eocd + 16, true);
+    if (off === 4294967295 || count === 65535) {
+      throw new Error("That pack is in ZIP64 format \u2014 re-zip it, or drop the audio files in directly");
+    }
+    const entries = [];
+    for (let k = 0; k < count; k++) {
+      if (off + 46 > n || dv.getUint32(off, true) !== 33639248) break;
+      const method = dv.getUint16(off + 10, true);
+      const csize = dv.getUint32(off + 20, true);
+      const usize = dv.getUint32(off + 24, true);
+      const fnLen = dv.getUint16(off + 28, true);
+      const exLen = dv.getUint16(off + 30, true);
+      const cmLen = dv.getUint16(off + 32, true);
+      const lho = dv.getUint32(off + 42, true);
+      const name = new TextDecoder().decode(new Uint8Array(ab, off + 46, fnLen));
+      if (csize > 0 && lho + 30 <= n) {
+        const lfn = dv.getUint16(lho + 26, true), lex = dv.getUint16(lho + 28, true);
+        const start = lho + 30 + lfn + lex;
+        if (start + csize <= n) entries.push({ name, method, csize, usize, dataStart: start });
+      }
+      off += 46 + fnLen + exLen + cmLen;
+    }
+    return entries;
+  }
+  async function zipInflate(ab, e) {
+    const slice = ab.slice(e.dataStart, e.dataStart + e.csize);
+    if (e.method === 0) return slice;
+    if (e.method === 8) {
+      if (typeof DecompressionStream === "undefined") throw new Error("no inflate here");
+      return await new Response(
+        new Blob([slice]).stream().pipeThrough(new DecompressionStream("deflate-raw"))
+      ).arrayBuffer();
+    }
+    throw new Error("unsupported compression");
+  }
+  function candidates(entries) {
+    return (entries || []).filter((e) => !/\/$/.test(e.name) && !JUNK.test(e.name) && (AUDIO_EXT.test(e.name) || !NON_AUDIO.test(e.name)));
+  }
+  var KEYISH = /^[A-G](#|b)?(m|min|maj|major|minor)?\d?$/i;
+  var BPMISH = /^\d{2,3}\s?bpm$/i;
+  var LAYERISH = /^(v\d+|\d+k|\d+bit)$/i;
+  function isMarker(w) {
+    const s = String(w || "").trim();
+    if (!s) return false;
+    if (KEYISH.test(s) || BPMISH.test(s) || LAYERISH.test(s)) return true;
+    if (!/^\d{2,3}$/.test(s)) return false;
+    if (s[0] === "0") return false;
+    const n = +s;
+    return n >= 60 && n <= 200;
+  }
+  var MARKER = { test: isMarker };
+  var INSTR = /\b(kick|bd|bass ?drum|808|snare|sd|rim|clap|snap|hat|hh|hi-?hat|open ?hat|closed ?hat|crash|ride|cym|tom|perc|shaker|tamb|conga|bongo|cowbell|block|bass|sub|reese|lead|pluck|stab|chord|pad|string|brass|horn|key|piano|rhodes|organ|bell|arp|vox|vocal|chant|choir|fx|riser|impact|sweep|noise|drone|atmos|texture|loop|break|fill|roll|snip|one ?shot)\b/i;
+  function cleanName(raw) {
+    const base = String(raw || "").split("/").pop().replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s{2,}/g, " ").trim();
+    let segs = base.split(/\s*[-–]\s*/).map((x) => x.trim()).filter(Boolean);
+    while (segs.length > 1 && MARKER.test(segs[segs.length - 1])) segs.pop();
+    segs = segs.map((s) => {
+      const w = s.split(/\s+/);
+      while (w.length > 1 && MARKER.test(w[w.length - 1])) w.pop();
+      return w.join(" ");
+    });
+    const at = segs.findIndex((sg) => INSTR.test(sg));
+    if (at > 0) segs = segs.slice(at);
+    else if (at < 0 && segs.length > 2) segs = segs.slice(-1);
+    if (segs.length) {
+      const w = segs[0].split(/\s+/);
+      const wi = w.findIndex((x) => INSTR.test(x));
+      if (wi > 0) segs[0] = w.slice(wi).join(" ");
+    }
+    return segs.join(" - ").trim() || base;
+  }
+  async function importZip(ab, { addBuffer, onProgress, packName } = {}) {
+    const entries = zipParse(ab);
+    const list = candidates(entries).slice(0, 400);
+    if (!list.length) return { ok: 0, bad: 0, reason: "no audio files inside that pack" };
+    const MEM_BUDGET = 380 * 1024 * 1024;
+    let ok = 0, bad = 0, mem = 0, stopped = false;
+    for (let i = 0; i < list.length; i++) {
+      if (mem > MEM_BUDGET) {
+        stopped = true;
+        break;
+      }
+      const e = list[i];
+      try {
+        const data = await zipInflate(ab, e);
+        const added = await addBuffer(cleanName(e.name), data, packName);
+        if (added) {
+          ok++;
+          mem += (e.usize || e.csize) * 6;
+        } else bad++;
+      } catch (err) {
+        if (AUDIO_EXT.test(e.name)) bad++;
+      }
+      if ((i & 3) === 3) {
+        onProgress && onProgress(ok, list.length);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    onProgress && onProgress(ok, list.length);
+    return { ok, bad, stopped, total: list.length };
+  }
+  var isZip = (f) => /\.zip$/i.test(f && f.name || "") || f && f.type === "application/zip";
+
+  // jp/src/core/jpmini.js
+  var PADS = 16;
+  var PRESETS = 8;
+  var ROWS = 4;
+  var COLS = 4;
+  var FACTORY_NOTES = [
+    48,
+    49,
+    50,
+    51,
+    44,
+    45,
+    46,
+    47,
+    40,
+    41,
+    42,
+    43,
+    36,
+    37,
+    38,
+    39
+  ];
+  var FACTORY_CHANNEL = 9;
+  var RATES = [
+    { id: "1/4", label: "1/4", q: 4 },
+    { id: "1/4T", label: "1/4T", q: 8 / 3 },
+    { id: "1/8", label: "1/8", q: 2 },
+    { id: "1/8T", label: "1/8T", q: 4 / 3 },
+    { id: "1/16", label: "1/16", q: 1 },
+    { id: "1/16T", label: "1/16T", q: 2 / 3 },
+    { id: "1/32", label: "1/32", q: 0.5 },
+    { id: "1/32T", label: "1/32T", q: 1 / 3 }
+  ];
+  var CURVES = {
+    linear: { l: "Linear", f: (v) => v },
+    soft: { l: "Soft", f: (v) => Math.pow(v, 0.6) },
+    // easier to play loud
+    hard: { l: "Hard", f: (v) => Math.pow(v, 1.7) },
+    // rewards a firm hit
+    fixed: { l: "Full", f: () => 1 }
+    // FULL LEVEL: every hit 127
+  };
+  var CURVE_IDS = Object.keys(CURVES);
+  var JP_RE = /\bjp[-\s]?mini\b|\bjam\s?jum\b|\bkuwee\b/i;
+  var JP1_RE = /\bjp[-\s]?1\b/i;
+  function identify(name) {
+    const n = String(name || "");
+    if (JP1_RE.test(n)) return { jp: false, sibling: "JP-1", name: n };
+    if (JP_RE.test(n)) return { jp: true, name: n };
+    return { jp: false, name: n };
+  }
+  var LS = "skrimpad.jp.map.v1";
+  function blank() {
+    return {
+      // presets[p][i] = { note, ch } or null for a slot not yet learned
+      presets: Array.from({ length: PRESETS }, () => FACTORY_NOTES.map((note2) => ({ note: note2, ch: FACTORY_CHANNEL }))),
+      learned: false
+    };
+  }
+  function createDeviceMap() {
+    let all = {};
+    try {
+      all = JSON.parse(localStorage.getItem(LS) || "{}") || {};
+    } catch (e) {
+      all = {};
+    }
+    const save2 = () => {
+      try {
+        localStorage.setItem(LS, JSON.stringify(all));
+      } catch (e) {
+      }
+    };
+    const unit = (port) => {
+      const k = port || "JP mini";
+      if (!all[k]) all[k] = blank();
+      return all[k];
+    };
+    return {
+      // Which pad did this note on this channel come from, in this preset?
+      // Returns -1 for a note the grid does not know, which is how a stray
+      // message from a knob or a transport button stays out of the pads.
+      padFor(port, preset, note2, ch) {
+        const u = unit(port);
+        const p = u.presets[preset % PRESETS] || [];
+        for (let i = 0; i < p.length; i++) {
+          if (!p[i]) continue;
+          if (p[i].note !== note2) continue;
+          if (u.learned && p[i].ch !== ch) continue;
+          return i;
+        }
+        return -1;
+      },
+      noteFor(port, preset, i) {
+        const p = unit(port).presets[preset % PRESETS];
+        return p && p[i] ? p[i].note : FACTORY_NOTES[i];
+      },
+      // Record what a pad actually sends. This is the learn.
+      teach(port, preset, i, note2, ch) {
+        const u = unit(port);
+        const p = u.presets[preset % PRESETS];
+        for (let k = 0; k < p.length; k++) if (p[k] && p[k].note === note2 && p[k].ch === ch) p[k] = null;
+        p[i] = { note: note2, ch };
+        u.learned = true;
+        save2();
+      },
+      reset(port, preset) {
+        const u = unit(port);
+        if (preset == null) {
+          all[port || "JP mini"] = blank();
+          save2();
+          return;
+        }
+        u.presets[preset % PRESETS] = FACTORY_NOTES.map((note2) => ({ note: note2, ch: FACTORY_CHANNEL }));
+        save2();
+      },
+      learned(port) {
+        return !!unit(port).learned;
+      },
+      snapshot(port, preset) {
+        return (unit(port).presets[preset % PRESETS] || []).map((x) => x ? Object.assign({}, x) : null);
+      }
+    };
+  }
+  function padLabel(i) {
+    const row = Math.floor(i / COLS), col = i % COLS;
+    return String((ROWS - 1 - row) * COLS + col + 1);
+  }
+
+  // jp/src/core/repeat.js
+  var ARP_MODES = {
+    off: { l: "Off" },
+    up: { l: "Up" },
+    down: { l: "Down" },
+    updown: { l: "Up-down" },
+    played: { l: "As played" },
+    random: { l: "Random" },
+    chord: { l: "All at once" }
+  };
+  var ARP_IDS = Object.keys(ARP_MODES);
+  function createRepeat({ now, onHit, bpmFor } = {}) {
+    const held = [];
+    const vel = /* @__PURE__ */ new Map();
+    let latched = [];
+    const st = {
+      on: false,
+      // note repeat / arp engaged
+      q: 1,
+      // division, in sixteenths
+      swing: 0,
+      // 0..0.6, applied to odd ticks
+      gate: 0.5,
+      // note length as a fraction of the division
+      mode: "off",
+      // arp mode; 'off' means plain note repeat
+      octaves: 1,
+      latch: false,
+      accentFirst: true
+      // the downbeat of each cycle is hit harder
+    };
+    let timer = 0, nextAt = 0, tick = 0, dir = 1, idx = 0;
+    const active = () => latched.length ? latched : held;
+    function pick() {
+      const a = active();
+      if (!a.length) return null;
+      if (a.length === 1 || st.mode === "off") return [a[a.length - 1]];
+      if (st.mode === "chord") return a.slice();
+      if (st.mode === "random") return [a[Math.floor(Math.random() * a.length)]];
+      const sorted = st.mode === "played" ? a.slice() : a.slice().sort((x, y) => x - y);
+      if (st.mode === "down") sorted.reverse();
+      if (st.mode === "updown") {
+        if (idx >= sorted.length - 1) {
+          idx = Math.max(0, sorted.length - 1);
+          dir = -1;
+        } else if (idx <= 0) {
+          idx = 0;
+          dir = 1;
+        }
+        const n2 = sorted[idx];
+        idx += dir;
+        return [n2];
+      }
+      const n = sorted[idx % sorted.length];
+      idx = (idx + 1) % sorted.length;
+      return [n];
+    }
+    function schedule() {
+      if (!st.on) return;
+      const t = now();
+      const spb = 60 / Math.max(20, Math.min(300, bpmFor())) / 4;
+      const step = spb * st.q;
+      if (!nextAt || nextAt < t - 0.5) {
+        nextAt = t + 0.03;
+        tick = 0;
+        idx = 0;
+        dir = 1;
+      }
+      while (nextAt < t + 0.14) {
+        const pads = pick();
+        if (pads) {
+          const sw = tick % 2 ? st.swing * step * 0.6 : 0;
+          for (const pad of pads) {
+            const base = vel.get(pad) || 100;
+            const v = st.accentFirst && tick % 4 === 0 ? Math.min(127, base * 1.12) : base * 0.86;
+            const oct = st.octaves > 1 ? Math.floor(tick / Math.max(1, active().length)) % st.octaves : 0;
+            onHit && onHit(pad, Math.round(v), nextAt + sw, step * st.gate, oct);
+          }
+        }
+        nextAt += step;
+        tick++;
+      }
+      timer = setTimeout(schedule, 20);
+    }
+    function start() {
+      if (timer) return;
+      nextAt = 0;
+      tick = 0;
+      idx = 0;
+      dir = 1;
+      schedule();
+    }
+    function stop() {
+      clearTimeout(timer);
+      timer = 0;
+      nextAt = 0;
+    }
+    return {
+      get state() {
+        return Object.assign({}, st, { held: held.slice(), latched: latched.slice() });
+      },
+      set(patch) {
+        Object.assign(st, patch || {});
+        if (st.on && (held.length || latched.length)) start();
+        if (!st.on) {
+          stop();
+          latched = [];
+        }
+        if (patch && patch.latch === false) latched = [];
+      },
+      down(pad, velocity) {
+        vel.set(pad, velocity || 100);
+        if (held.indexOf(pad) < 0) held.push(pad);
+        if (st.latch) {
+          const at = latched.indexOf(pad);
+          if (at >= 0) latched.splice(at, 1);
+          else latched.push(pad);
+        }
+        if (st.on) start();
+        return st.on;
+      },
+      up(pad) {
+        const i = held.indexOf(pad);
+        if (i >= 0) held.splice(i, 1);
+        if (!held.length && !latched.length) stop();
+        return st.on;
+      },
+      clear() {
+        held.length = 0;
+        latched = [];
+        vel.clear();
+        stop();
+      },
+      // What is sounding right now, for the display. Latched pads are reported
+      // separately so the grid can show a held pad and a latched pad differently
+      // — they behave differently and a player has to be able to tell.
+      lit() {
+        return { held: held.slice(), latched: latched.slice() };
+      }
+    };
+  }
+
+  // jp/src/core/looper.js
+  function createLooper({ now, bpmFor, onFire, onState } = {}) {
+    let state = "empty";
+    let events = [];
+    let undoStack = [];
+    let lenBeats = 0;
+    let startedAt = 0;
+    let posBeat = 0;
+    let timer = 0;
+    let played = /* @__PURE__ */ new Set();
+    let bars = 0;
+    const spb = () => 60 / Math.max(20, Math.min(300, bpmFor()));
+    const say = () => onState && onState(info());
+    function info() {
+      return {
+        state,
+        bars,
+        lenBeats,
+        events: events.length,
+        pos: lenBeats ? posBeat % lenBeats / lenBeats : 0,
+        canUndo: undoStack.length > 0
+      };
+    }
+    function tick() {
+      const t = now();
+      const beat = (t - startedAt) / spb();
+      if (state === "recording") {
+        posBeat = beat;
+        timer = setTimeout(tick, 25);
+        return;
+      }
+      if (state !== "playing" && state !== "overdub") return;
+      const prev = posBeat;
+      posBeat = beat % lenBeats;
+      if (posBeat < prev) played.clear();
+      const ahead = 0.12 / spb();
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        const key = i;
+        if (played.has(key)) continue;
+        let d = e.beat - posBeat;
+        if (d < -1e-3) d += lenBeats;
+        if (d > ahead) continue;
+        played.add(key);
+        onFire && onFire(e.pad, e.vel, t + d * spb(), e.len * spb());
+      }
+      timer = setTimeout(tick, 20);
+      say();
+    }
+    return {
+      get info() {
+        return info();
+      },
+      // ARM, then the first pad hit starts the clock. Recording from the instant
+      // the button is pressed puts the gap between "I pressed record" and "I
+      // started playing" at the front of the loop, which is a bar of silence
+      // nobody asked for and everybody has to edit out.
+      arm() {
+        if (state === "recording") return this.stopRecord();
+        undoStack.push(events.slice());
+        if (state === "playing" || state === "overdub") {
+          state = "overdub";
+          say();
+          return info();
+        }
+        state = "armed";
+        events = [];
+        lenBeats = 0;
+        say();
+        return info();
+      },
+      // Called by the app on every pad hit. Returns true if it was captured.
+      capture(pad, vel, len) {
+        if (state === "armed") {
+          state = "recording";
+          startedAt = now();
+          posBeat = 0;
+          events.push({ pad, beat: 0, vel, len: len || 0.25 });
+          clearTimeout(timer);
+          tick();
+          say();
+          return true;
+        }
+        if (state === "recording") {
+          events.push({ pad, beat: (now() - startedAt) / spb(), vel, len: len || 0.25 });
+          return true;
+        }
+        if (state === "overdub") {
+          let b = (now() - startedAt) / spb() % lenBeats;
+          if (b < 0) b += lenBeats;
+          events.push({ pad, beat: b, vel, len: len || 0.25 });
+          return true;
+        }
+        return false;
+      },
+      stopRecord() {
+        if (state !== "recording" && state !== "armed") return info();
+        if (state === "armed") {
+          state = "empty";
+          say();
+          return info();
+        }
+        const b = (now() - startedAt) / spb();
+        bars = Math.max(1, Math.ceil(b / 4 - 0.15));
+        lenBeats = bars * 4;
+        state = "playing";
+        startedAt = now();
+        posBeat = 0;
+        played.clear();
+        clearTimeout(timer);
+        tick();
+        say();
+        return info();
+      },
+      play() {
+        if (!events.length) return info();
+        if (state === "playing" || state === "overdub") return info();
+        state = "playing";
+        startedAt = now() - posBeat * spb();
+        played.clear();
+        clearTimeout(timer);
+        tick();
+        say();
+        return info();
+      },
+      pause() {
+        if (state !== "playing" && state !== "overdub" && state !== "recording") return info();
+        if (state === "recording") this.stopRecord();
+        state = "paused";
+        clearTimeout(timer);
+        timer = 0;
+        say();
+        return info();
+      },
+      stop() {
+        if (state === "recording") {
+          this.stopRecord();
+        }
+        state = events.length ? "paused" : "empty";
+        posBeat = 0;
+        played.clear();
+        clearTimeout(timer);
+        timer = 0;
+        say();
+        return info();
+      },
+      undo() {
+        if (!undoStack.length) return info();
+        events = undoStack.pop();
+        if (!events.length && state !== "empty") {
+          state = "empty";
+          lenBeats = 0;
+          bars = 0;
+          clearTimeout(timer);
+        }
+        played.clear();
+        say();
+        return info();
+      },
+      clear() {
+        undoStack.push(events.slice());
+        events = [];
+        lenBeats = 0;
+        bars = 0;
+        posBeat = 0;
+        state = "empty";
+        clearTimeout(timer);
+        timer = 0;
+        played.clear();
+        say();
+        return info();
+      },
+      // Everything recorded for one pad, dropped. Removing one part of a loop
+      // without losing the rest is the single most asked-for looper feature and
+      // the one most loopers do not have.
+      clearPad(pad) {
+        undoStack.push(events.slice());
+        events = events.filter((e) => e.pad !== pad);
+        played.clear();
+        say();
+        return info();
+      },
+      padsUsed() {
+        return [...new Set(events.map((e) => e.pad))];
+      }
+    };
+  }
+
+  // jp/src/.boot.entry.js
+  var $ = (s) => document.querySelector(s);
+  var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  var LS2 = "skrimpad.jp.state.v1";
+  var DEFAULT = {
+    bpm: 100,
+    preset: 0,
+    curve: "linear",
+    rate: 4,
+    swing: 0,
+    gate: 0.5,
+    arp: "off",
+    latch: false,
+    repeat: false,
+    // slots[preset][pad] = { id, name, gain, pitch, mode }
+    slots: Array.from({ length: PRESETS }, () => Array.from({ length: PADS }, () => null))
+  };
+  var S = load();
+  function load() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LS2) || "null");
+      if (!v || typeof v !== "object") return structuredClone(DEFAULT);
+      const out = structuredClone(DEFAULT);
+      ["bpm", "preset", "curve", "rate", "swing", "gate", "arp"].forEach((k) => {
+        if (v[k] != null) out[k] = v[k];
+      });
+      out.latch = !!v.latch;
+      out.repeat = !!v.repeat;
+      if (Array.isArray(v.slots)) {
+        v.slots.slice(0, PRESETS).forEach((p, i) => {
+          if (!Array.isArray(p)) return;
+          p.slice(0, PADS).forEach((sl, k) => {
+            if (sl && sl.id) out.slots[i][k] = sl;
+          });
+        });
+      }
+      return out;
+    } catch (e) {
+      return structuredClone(DEFAULT);
+    }
+  }
+  var saveT = 0;
+  function save() {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      try {
+        localStorage.setItem(LS2, JSON.stringify(S));
+      } catch (e) {
+      }
+    }, 350);
+  }
+  var slot = (i, p) => S.slots[p == null ? S.preset : p][i];
+  var eng = createEngine({ sampleFor: (id) => warm.get(id) || null });
+  var warm = /* @__PURE__ */ new Map();
+  var lib = createLibrary({
+    ctx: () => (eng.init(), eng.ctx),
+    onChange: () => {
+      renderList();
+    },
+    onError: (kind, name) => toast(kind === "storage" ? "no room to store " + name : "could not read " + name)
+  });
+  var HUES = [4, 24, 44, 64, 96, 128, 152, 168, 186, 202, 218, 238, 262, 286, 310, 334];
+  var DRUMS = [
+    "kick",
+    "snare",
+    "hat",
+    "clap",
+    "tom",
+    "rim",
+    "perc",
+    "cym",
+    "kick",
+    "snare",
+    "hat",
+    "clap",
+    "tom",
+    "rim",
+    "perc",
+    "cym"
+  ];
+  function voiceFor(i) {
+    const sl = slot(i);
+    const base = {
+      kind: sl && sl.id ? "sample" : "drum",
+      drum: DRUMS[i % DRUMS.length],
+      note: 36 + i,
+      gain: 1,
+      attack: 1e-3,
+      decay: 0.4,
+      sustain: 0,
+      release: 0.12,
+      cutoff: 0.9,
+      res: 0.05,
+      drive: 0.1,
+      space: 0.05,
+      spread: 0,
+      pan: 0,
+      tune: 0,
+      wave: "sine"
+    };
+    if (sl && sl.id) {
+      base.sampleId = sl.id;
+      base.kind = "sample";
+      base.tune = sl.pitch || 0;
+      base.gain = sl.gain == null ? 1 : sl.gain;
+      base.decay = 3;
+      base.release = 0.2;
+    }
+    return base;
+  }
+  var dev = createDeviceMap();
+  var portName = "";
+  var rep = createRepeat({
+    now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+    bpmFor: () => S.bpm,
+    onHit: (pad, v, at, len, oct) => {
+      strike(pad, v, at, oct, true);
+    }
+  });
+  var loop = createLooper({
+    now: () => (eng.init(), eng.ctx ? eng.ctx.currentTime : 0),
+    bpmFor: () => S.bpm,
+    onFire: (pad, v, at) => strike(pad, v, at, 0, true),
+    onState: (info) => paintTransport(info)
+  });
+  function strike(i, vel, at, oct, fromMachine) {
+    if (i < 0 || i >= PADS) return;
+    eng.init();
+    const v = voiceFor(i);
+    if (oct) v.tune = (v.tune || 0) + oct * 12;
+    eng.play(v, at || 0, Math.max(1, Math.min(127, vel | 0)), i);
+    flash(i);
+    if (!fromMachine) loop.capture(i, vel, 0.25);
+  }
+  function curved(raw) {
+    const f = (CURVES[S.curve] || CURVES.linear).f;
+    return Math.max(1, Math.min(127, Math.round(f(Math.max(0, Math.min(127, raw)) / 127) * 127)));
+  }
+  function padDown(i, rawVel) {
+    const vel = curved(rawVel == null ? 100 : rawVel);
+    const taken = rep.down(i, vel);
+    if (!taken) strike(i, vel, 0, 0, false);
+    else loop.capture(i, vel, 0.25);
+    paintPads();
+  }
+  function padUp(i) {
+    rep.up(i);
+    paintPads();
+  }
+  var cells = [];
+  function buildGrid() {
+    const g = $("#grid");
+    g.innerHTML = "";
+    cells.length = 0;
+    for (let i = 0; i < PADS; i++) {
+      const b = document.createElement("button");
+      b.className = "pad";
+      b.style.setProperty("--h", HUES[i]);
+      b.dataset.i = i;
+      b.innerHTML = '<i></i><span class="n"></span><span class="t"></span>';
+      b.addEventListener("pointerdown", (ev) => {
+        if (ev.button === 2) return;
+        b.setPointerCapture && (() => {
+          try {
+            b.setPointerCapture(ev.pointerId);
+          } catch (e) {
+          }
+        })();
+        const r = b.getBoundingClientRect();
+        const y = (ev.clientY - r.top) / Math.max(1, r.height);
+        padDown(i, Math.round(46 + y * 81));
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach((e) => b.addEventListener(e, () => padUp(i)));
+      b.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        showPadMenu(ev, i);
+      });
+      onLongPress(b, 480, (ev, x, y) => {
+        rep.up(i);
+        openMenu({ x, y, items: padMenu(i), title: "Pad " + padLabel(i) });
+      });
+      g.appendChild(b);
+      cells.push(b);
+    }
+    paintPads();
+  }
+  function paintPads() {
+    const { held, latched } = rep.lit();
+    const used = loop.padsUsed();
+    for (let i = 0; i < PADS; i++) {
+      const b = cells[i], sl = slot(i);
+      const t = b.querySelector(".t");
+      const nm = sl && sl.name ? sl.name : DRUMS[i % DRUMS.length].toUpperCase();
+      if (t.textContent !== nm) t.textContent = nm;
+      t.classList.toggle("empty", !(sl && sl.id));
+      const lab = padLabel(i);
+      const n = b.querySelector(".n");
+      if (n.textContent !== lab) n.textContent = lab;
+      b.classList.toggle("held", held.includes(i));
+      b.classList.toggle("latch", latched.includes(i));
+      b.classList.toggle("loop", used.includes(i));
+      b.classList.toggle("arm", learnPad === i);
+    }
+  }
+  var flashT = new Array(PADS).fill(0);
+  function flash(i) {
+    const b = cells[i];
+    if (!b) return;
+    b.classList.add("hit");
+    clearTimeout(flashT[i]);
+    flashT[i] = setTimeout(() => b.classList.remove("hit"), 60);
+  }
+  function soundRows(onPick) {
+    const items = lib.items;
+    if (!items.length) return [{ label: "No sounds yet", disabled: true }];
+    return items.map((it) => ({
+      label: it.name,
+      hint: it.from || it.kind || "",
+      run: () => onPick(it.id, it.name)
+    }));
+  }
+  function padMenu(i) {
+    const sl = slot(i);
+    return [
+      { head: "Pad " + padLabel(i) + (sl && sl.name ? " \u2014 " + sl.name : "") },
+      { label: "Put a sound on it", items: () => soundRows((id, name) => assign(i, id, name)) },
+      { label: "Take its sound off", disabled: !(sl && sl.id), run: () => assign(i, null) },
+      { sep: 1 },
+      { label: "Louder", disabled: !(sl && sl.id), run: () => tweak(i, "gain", 0.12) },
+      { label: "Quieter", disabled: !(sl && sl.id), run: () => tweak(i, "gain", -0.12) },
+      { label: "Pitch up", disabled: !(sl && sl.id), run: () => tweak(i, "pitch", 1) },
+      { label: "Pitch down", disabled: !(sl && sl.id), run: () => tweak(i, "pitch", -1) },
+      { sep: 1 },
+      {
+        label: "Clear it from the loop",
+        disabled: !loop.padsUsed().includes(i),
+        run: () => {
+          loop.clearPad(i);
+          paintPads();
+          toast("pad " + padLabel(i) + " cleared from the loop");
+        }
+      },
+      {
+        label: "Teach the grid this pad",
+        hint: "then hit it",
+        run: () => startLearn(i)
+      }
+    ];
+  }
+  function showPadMenu(ev, i) {
+    openMenu({ x: ev.clientX, y: ev.clientY, items: padMenu(i), title: "Pad " + padLabel(i) });
+  }
+  function assign(i, id, name) {
+    S.slots[S.preset][i] = id ? { id, name: name || "", gain: 1, pitch: 0 } : null;
+    save();
+    warmUp();
+    paintPads();
+    toast(id ? name + " \u2192 pad " + padLabel(i) : "pad " + padLabel(i) + " cleared");
+  }
+  function tweak(i, k, d) {
+    const sl = slot(i);
+    if (!sl) return;
+    if (k === "gain") sl.gain = Math.max(0.05, Math.min(2, (sl.gain == null ? 1 : sl.gain) + d));
+    else sl.pitch = Math.max(-24, Math.min(24, (sl.pitch || 0) + d));
+    save();
+    strike(i, 110, 0, 0, true);
+    toast(k === "gain" ? "gain " + Math.round(sl.gain * 100) + "%" : "pitch " + (sl.pitch > 0 ? "+" : "") + sl.pitch);
+  }
+  async function warmUp() {
+    const ids = /* @__PURE__ */ new Set();
+    S.slots.forEach((p) => p.forEach((sl) => {
+      if (sl && sl.id) ids.add(sl.id);
+    }));
+    lib.repin([...ids]);
+    for (const id of ids) {
+      if (warm.has(id)) continue;
+      const buf = await lib.bufferFor(id);
+      if (buf) warm.set(id, buf);
+    }
+    for (const id of [...warm.keys()]) if (!ids.has(id)) warm.delete(id);
+  }
+  var learnPad = null;
+  var sweep = -1;
+  function startLearn(i) {
+    learnPad = i;
+    sweep = -1;
+    paintPads();
+    toast("hit pad " + padLabel(i) + " on the JP mini");
+  }
+  function startSweep() {
+    sweep = 0;
+    learnPad = 0;
+    paintPads();
+    toast("hit all sixteen pads in order, starting with pad 1 (bottom left)");
+  }
+  var io = createMidiIO({
+    onEvent: (e) => {
+      if (e.transport) {
+        transport(e.transport);
+        return;
+      }
+      const nm = e.port && e.port.name || "";
+      const viaBle = !!(e.port && e.port.ble);
+      const id = identify(nm);
+      if (!id.jp && !viaBle) {
+        if (id.sibling) note("That is a " + id.sibling + " \u2014 this app is built for the JP mini");
+        return;
+      }
+      portName = nm;
+      const cmd = e.cmd, ch = e.chan;
+      const on = cmd === 144 && e.d2 > 0;
+      const off = cmd === 128 || cmd === 144 && e.d2 === 0;
+      if (on && learnPad != null) {
+        dev.teach(portName, S.preset, learnPad, e.d1, ch);
+        if (sweep >= 0 && sweep < PADS - 1) {
+          sweep++;
+          learnPad = sweep;
+        } else {
+          learnPad = null;
+          sweep = -1;
+          toast("grid learned");
+          renderSetup();
+        }
+        paintPads();
+        return;
+      }
+      if (on || off) {
+        const i = dev.padFor(portName, S.preset, e.d1, ch);
+        if (i < 0) return;
+        on ? padDown(i, e.d2) : padUp(i);
+        return;
+      }
+      if (cmd === 192) {
+        setPreset(e.d1 % PRESETS, true);
+        return;
+      }
+      if (cmd === 208 || cmd === 160) {
+        return;
+      }
+    },
+    onPorts: () => paintLink(),
+    onGone: (port) => {
+      rep.clear();
+      paintPads();
+      paintLink();
+      note((port && port.name ? port.name : "the controller") + " dropped \u2014 reconnecting");
+    }
+  });
+  function transport(name) {
+    if (name === "play") {
+      loop.play();
+      toast("play");
+    } else if (name === "stop") {
+      loop.stop();
+      rep.clear();
+      paintPads();
+      toast("stop");
+    } else if (name === "rec") {
+      loop.arm();
+      toast(loop.info.state === "armed" ? "armed \u2014 hit a pad to start" : "recording");
+    }
+    paintTransport(loop.info);
+  }
+  function paintLink() {
+    const ins = io.listInputs();
+    const jp = ins.filter((p) => identify(p.name).jp || p.ble);
+    const el = $("#link"), t = $("#linktxt");
+    if (jp.length) {
+      el.classList.add("live");
+      portName = portName || jp[0].name;
+      t.textContent = jp[0].name + (dev.learned(portName) ? "" : " \xB7 needs a grid sweep");
+    } else if (ins.length) {
+      el.classList.remove("live");
+      t.textContent = ins.length + " MIDI port" + (ins.length === 1 ? "" : "s") + ", no JP mini";
+    } else {
+      el.classList.remove("live");
+      t.textContent = "looking for your JP mini\u2026";
+    }
+  }
+  function setPreset(p, fromHardware) {
+    S.preset = (p % PRESETS + PRESETS) % PRESETS;
+    $("#bank").textContent = String(S.preset + 1);
+    rep.clear();
+    save();
+    paintPads();
+    warmUp();
+    if (fromHardware) toast("preset " + (S.preset + 1));
+  }
+  $("#bank").addEventListener("click", () => setPreset(S.preset + 1));
+  function presetMenu() {
+    return [{ head: "Preset" }].concat(Array.from({ length: PRESETS }, (_, i) => ({
+      label: String(i + 1),
+      on: S.preset === i,
+      hint: S.slots[i].filter(Boolean).length ? S.slots[i].filter(Boolean).length + " sounds" : "empty",
+      run: () => setPreset(i)
+    })));
+  }
+  $("#bank").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: presetMenu(), title: "Preset" });
+  });
+  onLongPress($("#bank"), 420, (ev, x, y) => openMenu({ x, y, items: presetMenu(), title: "Preset" }));
+  $("#tempo").addEventListener("input", (e) => {
+    S.bpm = Math.max(20, Math.min(300, +e.target.value || 100));
+    save();
+  });
+  var taps = [];
+  $("#tap").addEventListener("click", () => {
+    const t = performance.now();
+    taps = taps.filter((x) => t - x < 2400);
+    taps.push(t);
+    if (taps.length < 3) {
+      toast("keep tapping\u2026");
+      return;
+    }
+    const gaps = [];
+    for (let i = 1; i < taps.length; i++) gaps.push(taps[i] - taps[i - 1]);
+    gaps.sort((a, b) => a - b);
+    const med = gaps[gaps.length >> 1];
+    S.bpm = Math.max(20, Math.min(300, Math.round(6e4 / med)));
+    $("#tempo").value = S.bpm;
+    save();
+    toast(S.bpm + " BPM");
+  });
+  function curveMenu() {
+    return [{ head: "How hard the pads feel" }].concat(CURVE_IDS.map((id) => ({
+      label: CURVES[id].l,
+      on: S.curve === id,
+      hint: id === "fixed" ? "full level \u2014 every hit at 127" : "",
+      run: () => {
+        S.curve = id;
+        save();
+        renderSetup();
+      }
+    })));
+  }
+  function setRep(patch) {
+    Object.assign(S, patch);
+    rep.set({
+      on: S.repeat,
+      q: RATES[S.rate].q,
+      swing: S.swing,
+      gate: S.gate,
+      mode: S.arp,
+      latch: S.latch
+    });
+    const b = $("#repeat");
+    b.classList.toggle("on", S.repeat);
+    b.classList.toggle("warm", S.latch);
+    b.textContent = (S.arp === "off" ? "REPEAT" : ARP_MODES[S.arp].l.toUpperCase()) + " " + RATES[S.rate].label + (S.latch ? " \xB7" : "");
+    b.title = "Tap to turn note repeat on. Hold for the rate, swing, latch and the arpeggiator.";
+    save();
+    paintPads();
+  }
+  function repeatMenu() {
+    return [
+      { head: "Note repeat" },
+      {
+        label: S.repeat ? "Turn it off" : "Turn it on",
+        on: S.repeat,
+        run: () => setRep({ repeat: !S.repeat })
+      },
+      {
+        label: "Latch",
+        hint: "keep going after you let go",
+        on: S.latch,
+        run: () => setRep({ latch: !S.latch })
+      },
+      { sep: 1 },
+      { label: "Rate", hint: RATES[S.rate].label, items: () => RATES.map((r, i) => ({
+        label: r.label,
+        on: S.rate === i,
+        run: () => setRep({ rate: i })
+      })) },
+      {
+        label: "Swing",
+        hint: S.swing ? Math.round(S.swing * 100) + "%" : "straight",
+        items: () => [0, 0.15, 0.3, 0.45].map((v) => ({
+          label: v ? Math.round(v * 100) + "%" : "straight",
+          on: S.swing === v,
+          run: () => setRep({ swing: v })
+        }))
+      },
+      { label: "Arpeggiator", hint: ARP_MODES[S.arp].l, items: () => ARP_IDS.map((id) => ({
+        label: ARP_MODES[id].l,
+        on: S.arp === id,
+        run: () => setRep({ arp: id, repeat: id === "off" ? S.repeat : true })
+      })) }
+    ];
+  }
+  $("#repeat").addEventListener("click", () => setRep({ repeat: !S.repeat }));
+  $("#repeat").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    openMenu({ x: ev.clientX, y: ev.clientY, items: repeatMenu(), title: "Note repeat" });
+  });
+  onLongPress($("#repeat"), 420, (ev, x, y) => openMenu({ x, y, items: repeatMenu(), title: "Note repeat" }));
+  $("#rec").addEventListener("click", () => transport("rec"));
+  $("#play").addEventListener("click", () => {
+    const st = loop.info.state;
+    if (st === "playing" || st === "overdub") loop.pause();
+    else loop.play();
+    paintTransport(loop.info);
+  });
+  $("#stop").addEventListener("click", () => transport("stop"));
+  $("#undo").addEventListener("click", () => {
+    loop.undo();
+    paintPads();
+    toast("undone");
+  });
+  function paintTransport(info) {
+    const st = info.state;
+    $("#rec").classList.toggle("on", st === "recording" || st === "armed" || st === "overdub");
+    const playing = st === "playing" || st === "overdub";
+    $("#play").classList.toggle("on", playing);
+    $("#play").textContent = playing ? "\u2759\u2759" : "\u25B6";
+    $("#undo").disabled = !info.canUndo;
+    $("#loopbar").firstElementChild.style.width = Math.round(info.pos * 100) + "%";
+  }
+  function openSheet(id) {
+    $("#scrim").classList.add("open");
+    $(id).classList.add("open");
+    const f = $(id).querySelector("button, [tabindex]");
+    if (f) f.focus();
+  }
+  function closeSheets() {
+    $("#scrim").classList.remove("open");
+    document.querySelectorAll(".sheet").forEach((s) => s.classList.remove("open"));
+  }
+  $("#libbtn").addEventListener("click", () => {
+    renderList();
+    openSheet("#lib");
+  });
+  $("#libx").addEventListener("click", closeSheets);
+  $("#setbtn").addEventListener("click", () => {
+    renderSetup();
+    openSheet("#setup");
+  });
+  $("#setx").addEventListener("click", closeSheets);
+  $("#scrim").addEventListener("click", closeSheets);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeMenu();
+      closeSheets();
+    }
+  });
+  function renderList() {
+    const box = $("#list");
+    const items = lib.items;
+    $("#libcount").textContent = items.length ? items.length + " sounds" : "";
+    if (!items.length) {
+      box.innerHTML = '<div class="dim">Nothing here yet. Drop a folder of samples or a .zip pack onto the panel above \u2014 a pack unpacks itself and files everything by name.</div>';
+      return;
+    }
+    box.innerHTML = items.map((it) => '<div class="row" data-id="' + esc(it.id) + '"><span class="nm">' + esc(it.name) + (it.from ? '<br><span class="sub">' + esc(it.from) + "</span>" : "") + '</span><button class="chip sm" data-put>PUT ON A PAD</button><button class="chip sm" data-del aria-label="Remove">\u2715</button></div>').join("");
+  }
+  $("#list").addEventListener("click", async (ev) => {
+    const row = ev.target.closest(".row");
+    if (!row) return;
+    const id = row.dataset.id;
+    const it = lib.find(id);
+    if (ev.target.closest("[data-del]")) {
+      await lib.remove(id);
+      S.slots.forEach((p) => p.forEach((sl, i) => {
+        if (sl && sl.id === id) p[i] = null;
+      }));
+      warm.delete(id);
+      save();
+      paintPads();
+      renderList();
+      return;
+    }
+    if (ev.target.closest("[data-put]")) {
+      openMenu({
+        x: ev.clientX,
+        y: ev.clientY,
+        title: "Which pad?",
+        items: Array.from({ length: PADS }, (_, i) => ({
+          label: "Pad " + padLabel(i),
+          hint: slot(i) && slot(i).name ? slot(i).name : "",
+          run: () => {
+            assign(i, id, it && it.name);
+            closeSheets();
+          }
+        }))
+      });
+    }
+  });
+  async function takeFiles(list) {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    eng.init();
+    let audio = 0, packs = 0;
+    lib.batch(true);
+    try {
+      for (const f of files) {
+        if (isZip(f)) {
+          packs++;
+          const ab = await f.arrayBuffer();
+          try {
+            const r = await importZip(ab, {
+              packName: f.name.replace(/\.zip$/i, ""),
+              addBuffer: (name, raw, origin) => lib.addRaw(name, raw, origin),
+              onProgress: (n, total) => toast("unpacking " + n + " of " + total + "\u2026")
+            });
+            toast(r.ok + " sounds from " + f.name + (r.bad ? " \xB7 " + r.bad + " skipped" : "") + (r.stopped ? " \xB7 stopped early, pack too big for one go" : ""));
+          } catch (err) {
+            toast(String(err.message || err));
+          }
+        } else {
+          const m = await lib.add(f);
+          if (m) audio++;
+        }
+      }
+    } finally {
+      lib.batch(false);
+    }
+    if (audio) toast(audio + " sound" + (audio === 1 ? "" : "s") + " imported");
+    if (!audio && !packs) toast("nothing there the app could read");
+    renderList();
+  }
+  $("#drop").addEventListener("click", () => $("#file").click());
+  $("#file").addEventListener("change", async (e) => {
+    await takeFiles(e.target.files);
+    e.target.value = "";
+  });
+  ["dragenter", "dragover"].forEach((n) => window.addEventListener(n, (e) => {
+    e.preventDefault();
+    $("#drop").classList.add("hot");
+  }));
+  window.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget) $("#drop").classList.remove("hot");
+  });
+  window.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    $("#drop").classList.remove("hot");
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    if (!$("#lib").classList.contains("open")) openSheet("#lib");
+    await takeFiles(dt.files);
+  });
+  function renderSetup() {
+    const d = io.diagnostics();
+    const ins = io.listInputs();
+    const jp = ins.filter((p) => identify(p.name).jp);
+    $("#setupbody").innerHTML = '<div class="grp"><h3>YOUR JP MINI</h3><div class="dim">' + (jp.length ? esc(jp[0].name) + " \u2014 " + (dev.learned(portName || jp[0].name) ? "grid learned." : "the grid has not been taught yet. Every JP mini can be remapped in the vendor software, so the app learns your unit rather than assuming.") : ins.length ? esc(ins.length + " MIDI port(s) visible, none of them a JP mini: " + ins.map((p) => p.name).join(", ")) : "No MIDI port visible yet. Plug the USB-C cable in, or use CONNECT BLUETOOTH.") + '</div><div class="dim" style="margin-top:6px"><b>On Windows, Bluetooth MIDI never appears as a port.</b> Windows keeps it behind a newer interface that browsers and desktop apps do not use, so a unit paired perfectly in Windows settings is still invisible to every app that has not written its own Bluetooth stack. This one has \u2014 CONNECT BLUETOOTH opens the link itself, with no vendor driver and no control panel in the way.</div><div class="opts" style="margin-top:8px"><button class="chip sm" id="sweepbtn">TEACH THE GRID</button><button class="chip sm" id="btbtn">CONNECT BLUETOOTH</button><button class="chip sm" id="rescanbtn">RESCAN</button><button class="chip sm" id="resetgrid">FORGET THE GRID</button></div></div><div class="grp"><h3>HOW HARD THE PADS FEEL</h3><div class="opts"><button class="chip sm" id="curvebtn">' + esc((CURVES[S.curve] || CURVES.linear).l) + '</button></div><div class="dim" style="margin-top:6px">Four curves, the same four the unit offers. FULL is full level: every hit at 127, whatever you do.</div></div><div class="grp"><h3>DIAGNOSIS</h3><div class="dim">' + esc(d.mode) + (d.sysex ? " + sysex" : " \xB7 no sysex") + " \xB7 " + d.inputs + " in \xB7 " + d.bytes + " messages" + (d.webBluetooth ? " \xB7 web bluetooth" : " \xB7 no web bluetooth") + (d.liveNames && d.liveNames.length ? "<br>Sending: " + esc(d.liveNames.join(", ")) : "") + (d.silentNames && d.silentNames.length ? "<br>Silent: " + esc(d.silentNames.join(", ")) : "") + (d.lost ? "<br>Last to drop: " + esc(d.lost) : "") + "</div></div>" + HELP.map(([h, rows]) => '<div class="grp"><h3>' + esc(h) + "</h3>" + rows.map(([a, b2]) => '<div class="row"><span class="nm"><b>' + esc(a) + '</b><br><span class="sub">' + esc(b2) + "</span></span></div>").join("") + "</div>").join("");
+    $("#curvebtn").addEventListener("click", (ev) => openMenu({ x: ev.clientX, y: ev.clientY, items: curveMenu(), title: "Velocity" }));
+    $("#sweepbtn").addEventListener("click", () => {
+      closeSheets();
+      startSweep();
+    });
+    $("#rescanbtn").addEventListener("click", () => {
+      io.rescan();
+      setTimeout(renderSetup, 500);
+    });
+    $("#resetgrid").addEventListener("click", () => {
+      dev.reset(portName, null);
+      toast("grid forgotten");
+      renderSetup();
+    });
+    $("#btbtn").addEventListener("click", async () => {
+      try {
+        const r = await io.connectBluetooth({ onStatus: (s) => {
+          if (s && s.hint) toast(s.hint.slice(0, 80));
+        } });
+        toast("bluetooth: " + (r && r.mode));
+      } catch (e) {
+        toast("bluetooth: " + (e && e.message || e));
+      }
+      renderSetup();
+    });
+  }
+  var HELP = [
+    ["THE PADS", [
+      ["Hit them", "On the controller or on screen. On screen, where you hit the pad is how hard it plays \u2014 the bottom is loud, the top is soft."],
+      ["Hold one", "Opens everything you can do to that pad: put a sound on it, take it off, nudge its gain or pitch, clear it out of the loop. Right-click does the same on a desktop."],
+      ["PRESET", 'The unit has eight and so does this; each is its own set of sixteen sounds. Tap the number to step forward \u2014 the same movement as the button on the unit \u2014 or hold it to jump straight to one. Turning the preset on the controller switches the app too, because Program Change already means "I have chosen something else".']
+    ]],
+    ["NOTE REPEAT", [
+      ["REPEAT", "Tap it on, then hold a pad and it retriggers, exactly as the unit does. Hold a second pad and it becomes an arpeggio without you changing anything \u2014 note repeat and an arpeggiator are the same machine with one pad in it or several."],
+      ["The button says the state", "It reads REPEAT 1/16, or UP 1/8 if the arpeggiator is on, with a dot when latch is. One glance tells you what holding a pad is about to do."],
+      ["Hold REPEAT", "Everything about repeating is under it: the rate \u2014 the eight divisions the unit itself offers, 1/4 through 1/32T \u2014 swing, latch, and the arpeggiator. They all belong to the same feature, so they live in the same place."],
+      ["LATCH", "Keeps a pad repeating after you let go. Hitting a latched pad again takes it out, so you can build and unbuild a pattern one pad at a time rather than having to clear the lot."],
+      ["The arpeggiator", "Up, down, up-down, as played, random, or all at once. Up-down turns at the ends without playing the end note twice, which is the limp you hear in most of them."],
+      ["TAP", "Tap the tempo. It takes the median of your last few taps rather than the average, so one late tap does not drag the tempo with it."]
+    ]],
+    ["THE LOOPER", [
+      ["\u25CF  RECORD", "Arms it. The loop starts at your FIRST HIT, not when you pressed the button, so the gap between deciding and playing is not baked into the front of your loop. Press it again while playing to overdub."],
+      ["\u25B6  \u25A0", "Play is also pause \u2014 it shows you what pressing it will do next. Stop goes back to the top. The controller\u2019s own transport buttons drive these if it sends MIDI realtime or MMC."],
+      ["The length", "Decided by your first pass, rounded up to whole bars. A loop 3.8 bars long can never line up with anything."],
+      ["UNDO", 'Steps back through overdubs. Holding a pad also offers "clear it from the loop", which removes just that pad\u2019s part.'],
+      ["What it records", "The hits, not the audio. Change the sample under a pad and the part you played is now that sample; change the tempo and it follows."]
+    ]],
+    ["SOUNDS", [
+      ["Drop anything", "Audio files, a folder of them, or a .zip pack \u2014 anywhere on the window, not just on the panel. A pack unpacks itself, and the vendor prefix, key and tempo are stripped off the names so you can find things."],
+      ["PUT ON A PAD", "From the list. Or hold the pad and pick from there \u2014 same job from the other end."],
+      ["Where it lives", "On your device, in the app\u2019s own storage. It survives a restart and works with no network."]
+    ]],
+    ["THE CONTROLLER", [
+      ["TEACH THE GRID", "Hit the sixteen pads in order, starting at pad 1 (bottom left). Every JP mini can be remapped in the vendor software, so no fixed note table can be right for every unit \u2014 this learns yours, once, and remembers it against that unit\u2019s name."],
+      ["CONNECT BLUETOOTH", "Pair the unit in your system Bluetooth settings first, then press this. On Android it hands over to the system MIDI service; on Windows and Mac the app opens the BLE-MIDI link itself. A unit already paired with this app is reopened on its own next time."],
+      ["If it drops out", "Whatever it was holding is released rather than left ringing, any pedal it left down is lifted, and it reconnects on its own."],
+      ["Velocity", "Four curves, the same four the unit offers, in SETUP \u2014 it is a thing you decide once about how your pads feel, not something to keep on screen. FULL is full level: every hit at 127, whatever you do."]
+    ]]
+  ];
+  var toastT = 0;
+  function toast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.add("on");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => el.classList.remove("on"), 2600);
+  }
+  var noteT = 0;
+  function note(msg) {
+    clearTimeout(noteT);
+    noteT = setTimeout(() => toast(msg), 60);
+  }
+  buildGrid();
+  $("#tempo").value = S.bpm;
+  $("#bank").textContent = String(S.preset + 1);
+  setRep({});
+  paintTransport(loop.info);
+  lib.boot().then(() => {
+    renderList();
+    warmUp();
+  });
+  io.start().catch(() => {
+  });
+  io.keepLooking();
+  io.autoReconnect({ onStatus: (s) => {
+    if (s && s.connected) toast("reconnected");
+  } }).catch(() => {
+  });
+  paintLink();
+  setInterval(() => paintTransport(loop.info), 120);
+  var kick = () => {
+    eng.init();
+    eng.resume();
+  };
+  ["pointerdown", "keydown"].forEach((e) => window.addEventListener(e, kick, { once: true }));
+  window.__jp = {
+    get S() {
+      return S;
+    },
+    eng,
+    io,
+    lib,
+    dev,
+    rep,
+    loop,
+    padDown,
+    padUp,
+    strike,
+    setPreset,
+    setRep,
+    transport,
+    assign,
+    startSweep,
+    startLearn,
+    takeFiles,
+    get learnPad() {
+      return learnPad;
+    },
+    paintPads,
+    renderSetup,
+    HELP,
+    curved
+  };
+})();
+
+</script>
+</body>
+</html>

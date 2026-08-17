@@ -1,0 +1,114 @@
+name: Build Windows (JP)
+
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - 'jp/**'
+      - 'ultimate/src/core/**'
+      - 'electron/**'
+      - 'scripts/prep-electron-release.js'
+      - '.github/workflows/build-windows-jp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the JP bundle
+        run: node jp/tools/bundle.js
+
+      - name: Stage the app
+        shell: bash
+        run: |
+          mkdir -p electron/app
+          cp jp/dist/index.html electron/app/index.html
+
+      - name: Verify the bundle is self-contained
+        shell: bash
+        run: |
+          f=electron/app/index.html
+          test -s "$f" || { echo "bundle is empty"; exit 1; }
+          grep -q 'id="grid"' "$f" || { echo "bundle has no pad grid — wrong file?"; exit 1; }
+          if grep -qE '<script[^>]+src="\./|<link[^>]+href="\./' "$f"; then
+            echo "bundle still references external files; it must run from file://"
+            exit 1
+          fi
+
+      - name: Prep release version + update channel
+        run: node scripts/prep-electron-release.js electron/package.json jp ${{ github.run_number }}
+
+      # RETRIED. This step pulls the Electron binary, and that download does
+      # not go through npm — the package's own postinstall fetches a ~100MB zip
+      # itself, so npm's fetch-retries never apply to the one request most
+      # likely to fail. A build was lost to `RequestError: socket hang up` with
+      # nothing wrong in the repo at all. Three attempts with a backoff turns a
+      # transient network blip into a slower green build instead of a red one.
+      - name: Install dependencies
+        shell: bash
+        run: |
+          cd electron
+          for attempt in 1 2 3; do
+            if npm install --no-audit --no-fund; then exit 0; fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "npm install attempt $attempt failed; retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "npm install failed three times"
+          exit 1
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skrimpad-jp-${{ github.run_number }}-windows
+          path: electron/dist/*.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: jp-win-v1.0.${{ github.run_number }}
+          name: SKRiMPAD JP Windows — Setup ${{ github.run_number }}
+          body: |
+            **SKRiMPAD JP** for Windows — built for one controller: the JamJum
+            **JP mini**.
+
+            Sixteen pads across eight presets, note repeat at the unit's own
+            eight divisions, an arpeggiator, per-pad latch, and a looper that
+            starts at your first hit rather than at the button press. Drag audio
+            or a whole `.zip` pack onto the window; hold any pad to drop a sound
+            straight onto it.
+
+            **It learns your unit.** Every JP mini can be remapped in the vendor
+            software, so the app asks you to hit the sixteen pads once and
+            remembers what YOURS sends.
+
+            **USB-C or Bluetooth.** Over Bluetooth, pair the unit in Windows
+            settings first, then press CONNECT BLUETOOTH in SETUP — the app opens
+            the BLE-MIDI link itself rather than waiting on a vendor panel, and
+            shows you what the radio can see while it looks.
+
+            Installs alongside the other editions and updates on its own channel.
+
+            **Requirements:** Windows 10+ (64-bit)
+          files: |
+            electron/dist/*.exe
+            electron/dist/latest*.yml
+            electron/dist/*.blockmap
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

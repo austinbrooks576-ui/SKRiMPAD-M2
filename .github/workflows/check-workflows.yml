@@ -1,0 +1,76 @@
+name: Check workflows
+
+# The CI that checks the CI, plus a boot smoke test for every edition.
+#
+# `check` runs the retry loops for real. Two builds have been lost to downloads
+# that had nothing to do with the repo — the gradle wrapper fetching its
+# distribution, and Electron's postinstall fetching its binary — and both are
+# retried now. A retry loop is the classic piece of code that never runs until
+# the bad day, so this executes each one against a stub that fails on demand and
+# checks it recovers, still goes red on a real failure, and does not sleep
+# before an attempt it will never make. No browser, no SDK — ~20 seconds.
+#
+# `boot` builds every edition from source and opens it in a headless browser,
+# because a bundle that unit-tests green can still open to a blank screen.
+on:
+  push:
+    branches: [claude/skrimpad-ultimate]
+    paths:
+      - '.github/workflows/**'
+      - 'test/**'
+      - 'ultimate/**'
+      - 'smk/**'
+      - 'jp/**'
+      - 'livex/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'test/**'
+      - 'ultimate/**'
+      - 'smk/**'
+      - 'jp/**'
+      - 'livex/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the retry loops for real
+        run: node test/workflows.cjs
+
+  boot:
+    # Every edition's shipped bundle must actually open. A green unit suite
+    # proves the modules are right in isolation; it says nothing about whether
+    # the bundler dropped a file or a top-level throw blanks the screen — and
+    # LIVEx and the consumer bundle have no suite at all. This rebuilds each
+    # bundle from source and boots it in a headless browser, the way a phone
+    # loads it: from file://, no server. Catches the class of bug where the
+    # source is fine, every unit test is green, and the app opens to a blank
+    # screen anyway.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build every edition from source
+        run: |
+          node ultimate/tools/bundle.js
+          node smk/tools/bundle.js
+          node jp/tools/bundle.js
+      - name: Get a browser to boot them in
+        run: |
+          npm install --no-audit --no-fund playwright-core
+          npx --yes playwright install --with-deps chromium
+      - name: Boot every edition
+        run: node test/boot.cjs
+      - name: Stress every edition through its real handlers
+        run: node test/edition-stress.cjs

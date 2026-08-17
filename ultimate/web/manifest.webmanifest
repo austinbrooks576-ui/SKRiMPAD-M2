@@ -1,0 +1,19 @@
+{
+  "name": "SKRiMPAD ULTIMATE",
+  "short_name": "SKRiMPAD",
+  "description": "A music studio you fly through. Sixteen pads, four scenes, a synth per pad, and your own samples — offline, on any device.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#06070B",
+  "theme_color": "#06070B",
+  "categories": ["music", "productivity", "entertainment"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

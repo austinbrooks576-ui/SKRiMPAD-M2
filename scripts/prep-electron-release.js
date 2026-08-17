@@ -6,14 +6,101 @@
 const fs = require('fs');
 const [, , file, edition, run] = process.argv;
 if (!file || !edition || !run) {
-  console.error('usage: prep-electron-release.js <package.json> <se|consumer|vga> <runNumber>');
+  console.error('usage: prep-electron-release.js <package.json> <se|consumer|vga|ultimate|jp|smk> <runNumber>');
   process.exit(1);
 }
-const channel = edition === 'se' ? 'latest-se' : edition === 'vga' ? 'latest-vga' : 'latest';
+const channel = edition === 'se' ? 'latest-se'
+  : edition === 'vga' ? 'latest-vga'
+  : edition === 'ultimate' ? 'latest-ultimate'
+  : edition === 'jp' ? 'latest-jp'
+  : edition === 'smk' ? 'latest-smk'
+  : 'latest';
 const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
 pkg.version = '1.0.' + run;                 // unique rising version per build
 pkg.skrimpadChannel = channel;              // read by main.js at runtime → autoUpdater.channel
 pkg.build = pkg.build || {};
 pkg.build.publish = [{ provider: 'github', owner: 'austinbrooks576-ui', repo: 'SKRiMPAD-M2', channel }];
+
+// ULTIMATE is a different application, not a skin of M2, so it takes its own
+// appId and product name. Sharing an appId would make the installer UPGRADE M2
+// in place — someone trying ULTIMATE would silently lose the app they were
+// comparing it against, which is the opposite of what installing a second
+// thing should do.
+// SKRiMPAD JP is a separate application for one controller, so it takes its own
+// appId — sharing one would make installing it UPGRADE another edition in place
+// and silently remove the app somebody was already using.
+if (edition === 'jp') {
+  pkg.build.appId = 'com.firstriff.jp';
+  pkg.build.productName = 'SKRiMPAD JP';
+  pkg.description = 'SKRiMPAD JP — the app for the JamJum JP mini';
+  pkg.build.nsis = Object.assign({}, pkg.build.nsis, {
+    shortcutName: 'SKRiMPAD JP',
+    uninstallDisplayName: 'SKRiMPAD JP',
+  });
+  // layout.json belongs to M2's window manager; electron-builder fails the
+  // whole build on an extraResource that is not there rather than skipping it.
+  if (Array.isArray(pkg.build.extraResources)) {
+    pkg.build.extraResources = pkg.build.extraResources.filter(
+      (r) => !String(r && r.from).includes('layout.json'));
+  }
+}
+
+// SKRiMPAD SMK is the app for the M-VAVE SMK-25 keyboard. Same reasoning as JP:
+// its own appId, so installing it never upgrades a different edition out from
+// under somebody who is still using it.
+if (edition === 'smk') {
+  pkg.build.appId = 'com.firstriff.smk';
+  pkg.build.productName = 'SKRiMPAD SMK';
+  pkg.description = 'SKRiMPAD SMK — the app for the M-VAVE SMK-25';
+  pkg.build.nsis = Object.assign({}, pkg.build.nsis, {
+    shortcutName: 'SKRiMPAD SMK',
+    uninstallDisplayName: 'SKRiMPAD SMK',
+  });
+  if (Array.isArray(pkg.build.extraResources)) {
+    pkg.build.extraResources = pkg.build.extraResources.filter(
+      (r) => !String(r && r.from).includes('layout.json'));
+  }
+}
+
+if (edition === 'ultimate') {
+  pkg.build.appId = 'com.firstriff.ultimate';
+  pkg.build.productName = 'SKRiMPAD ULTIMATE';
+  pkg.description = 'SKRiMPAD ULTIMATE — one continuous depth instead of screens';
+  pkg.build.win = Object.assign({}, pkg.build.win, { icon: '../ultimate/brand/icon.ico' });
+  // macOS. electron-builder renders the .icns itself from a 512 PNG, so there
+  // is one mark for every platform rather than a separate hand-exported file
+  // that drifts.
+  //
+  // identity: null means DO NOT SIGN. There is no Apple Developer account
+  // behind this, and an unsigned build that says so is honest; a build config
+  // that pretends to sign fails the whole job instead. Gatekeeper will ask the
+  // person to confirm on first open — see the release notes.
+  //
+  // Both architectures: an Intel Mac and an Apple Silicon Mac need different
+  // binaries, and shipping only one silently excludes half the machines.
+  pkg.build.mac = Object.assign({}, pkg.build.mac, {
+    icon: '../ultimate/brand/icon-512.png',
+    category: 'public.app-category.music',
+    identity: null,
+    darkModeSupport: true,
+    target: [
+      { target: 'dmg', arch: ['arm64', 'x64'] },
+      { target: 'zip', arch: ['arm64', 'x64'] },
+    ],
+  });
+  pkg.build.dmg = Object.assign({}, pkg.build.dmg, { writeUpdateInfo: false });
+  pkg.build.nsis = Object.assign({}, pkg.build.nsis, {
+    shortcutName: 'SKRiMPAD ULTIMATE',
+    uninstallDisplayName: 'SKRiMPAD ULTIMATE',
+  });
+  // ULTIMATE has no layout.json — that file belongs to M2's window manager, and
+  // electron-builder fails the build outright on an extraResource that is not
+  // there rather than quietly skipping it.
+  if (Array.isArray(pkg.build.extraResources)) {
+    pkg.build.extraResources = pkg.build.extraResources.filter(
+      (r) => !String(r && r.from).includes('layout.json'));
+  }
+}
+
 fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
 console.log('electron release prepped: v' + pkg.version + ' channel=' + channel + ' (' + edition + ')');

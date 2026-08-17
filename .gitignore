@@ -1,0 +1,11 @@
+# Test tooling pulled in locally — CI installs its own copy, so these must
+# never be committed. node_modules in particular is huge and platform-specific.
+/node_modules/
+/package.json
+/package-lock.json
+node_modules/
+
+# Secrets and local env — never commit.
+.env
+*.env
+play-service-account.json

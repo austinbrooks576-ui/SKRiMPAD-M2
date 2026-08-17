@@ -1,0 +1,5 @@
+# Assembled by tools/site.js from dist/index.html + web/*. Every byte of it is
+# derived, and the service worker inside it is stamped with a hash of the build,
+# so committing it would mean committing a file that changes on every build and
+# tells you nothing the sources do not.
+site/
