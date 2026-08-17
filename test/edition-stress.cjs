@@ -27,6 +27,34 @@ const ok = (c, m, x) => { c ? (pass++, console.log('PASS ' + m + (x ? ' | ' + x 
 
 const ROOT = path.resolve(__dirname, '..');
 
+// Transport check per edition. PLAY/STOP/REC is the function the user has come
+// back to more than any other ("make the PLAY stop and Record button do their
+// job"), so every edition proves it here. SMK and JP expose transport() on
+// their handle; ULTIMATE drives it from the deck buttons, so it clicks #play
+// and #rec and reads the button state back. Returns null on success or a string
+// describing what went wrong.
+const TRANSPORT = {
+  __smk: async (page, h) => page.evaluate((H) => {
+    try { window[H].transport('play'); window[H].transport('rec'); window[H].transport('stop'); return null; }
+    catch (e) { return String(e.message || e); }
+  }, h),
+  __jp: async (page, h) => page.evaluate((H) => {
+    try { window[H].transport('play'); window[H].transport('rec'); window[H].transport('stop'); return null; }
+    catch (e) { return String(e.message || e); }
+  }, h),
+  __ult: async (page) => {
+    // Click play (lights), play again (clears), rec (lights). If the button
+    // never changes class, the click did nothing — a dead transport.
+    await page.click('#play', { timeout: 3000 });
+    const on = await page.evaluate(() => document.getElementById('play').className.includes('on'));
+    await page.click('#play', { timeout: 3000 });
+    const off = await page.evaluate(() => !document.getElementById('play').className.includes('on'));
+    await page.click('#rec', { timeout: 3000 });
+    const rec = await page.evaluate(() => document.getElementById('rec').className.includes('on'));
+    return on && off && rec ? null : `play-on=${on} play-off=${off} rec-on=${rec}`;
+  },
+};
+
 const EDITIONS = [
   {
     id: 'ULTIMATE', file: 'ultimate/dist/index.html', handle: '__ult',
@@ -144,6 +172,14 @@ const EDITIONS = [
       // node leak shows up as steady multi-MB growth; a healthy engine settles.
       ok(grewMB < 24, ed.id + ' — 4000 more hits do not grow the heap without bound',
          grewMB.toFixed(1) + ' MB retained');
+    }
+
+    // PLAY / STOP / REC must work — the transport the user cares about most.
+    const tfn = TRANSPORT[ed.handle];
+    if (tfn) {
+      let terr = null;
+      try { terr = await tfn(page, ed.handle); } catch (e) { terr = String(e.message || e); }
+      ok(terr === null, ed.id + ' — PLAY / STOP / REC all fire', terr || 'play, rec, stop');
     }
 
     ok(errs.length === 0, ed.id + ' — no page errors through the whole stress run',
